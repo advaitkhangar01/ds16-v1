@@ -90,11 +90,20 @@ export default function InvoicePage() {
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          setFormData(parsed);
-          setIsGstEnabled(parsed.items && (parsed.cgstPercent > 0 || parsed.igstPercent > 0));
-          setIsIgst(parsed.igstPercent > 0 && parsed.cgstPercent === 0);
+          // Defensive check: ensure items is an array and other critical fields exist
+          if (parsed && Array.isArray(parsed.items)) {
+            setFormData(parsed);
+            setIsGstEnabled(parsed.cgstPercent > 0 || parsed.igstPercent > 0);
+            setIsIgst(parsed.igstPercent > 0 && parsed.cgstPercent === 0);
+          } else {
+            console.warn('Invalid draft format, resetting to initial form');
+            localStorage.removeItem('ds16_invoice_draft');
+            generateInvoiceNumber(1);
+          }
         } catch (e) {
           console.error('Failed to parse draft', e);
+          localStorage.removeItem('ds16_invoice_draft');
+          generateInvoiceNumber(1);
         }
       } else {
         generateInvoiceNumber(1);
@@ -148,9 +157,11 @@ export default function InvoicePage() {
   const fetchRecentInvoices = async () => {
     try {
       const { data } = await api.get('/invoices');
-      setRecentInvoices(data.invoices.slice(0, 10)); // Top 10
+      if (data && Array.isArray(data.invoices)) {
+        setRecentInvoices(data.invoices.slice(0, 10)); // Top 10
+      }
     } catch (err) {
-      console.error('Failed to load recent invoices');
+      console.error('Failed to load recent invoices', err);
     }
   };
 
@@ -749,25 +760,25 @@ export default function InvoicePage() {
             </div>
 
             {/* Financial Summary Section */}
-            {projectStats && (
+            {projectStats && typeof projectStats.total_project_value === 'number' && (
               <div className="mt-8 p-4 border border-[#E0DDD8] rounded-[4px] bg-[#FAFAF8] relative z-10">
                 <h4 className="text-[9px] font-black tracking-[0.2em] text-[#A09890] uppercase mb-3 text-center">Project Financial Overview</h4>
                 <div className="grid grid-cols-4 gap-4 text-center">
                   <div>
                     <p className="text-[8px] text-[#A09890] uppercase mb-1">Total Project Value</p>
-                    <p className="text-[11px] font-bold text-[#0D0D0D]">₹{projectStats.total_project_value.toLocaleString('en-IN')}</p>
+                    <p className="text-[11px] font-bold text-[#0D0D0D]">₹{(projectStats.total_project_value || 0).toLocaleString('en-IN')}</p>
                   </div>
                   <div>
                     <p className="text-[8px] text-[#A09890] uppercase mb-1">Previously Paid</p>
-                    <p className="text-[11px] font-bold text-[#0D0D0D]">₹{projectStats.total_paid.toLocaleString('en-IN')}</p>
+                    <p className="text-[11px] font-bold text-[#0D0D0D]">₹{(projectStats.total_paid || 0).toLocaleString('en-IN')}</p>
                   </div>
                   <div>
                     <p className="text-[8px] text-[#A09890] uppercase mb-1">This Invoice</p>
-                    <p className="text-[11px] font-bold text-[#E85C1A]">₹{grandTotal.toLocaleString('en-IN')}</p>
+                    <p className="text-[11px] font-bold text-[#E85C1A]">₹{(grandTotal || 0).toLocaleString('en-IN')}</p>
                   </div>
                   <div>
                     <p className="text-[8px] text-[#A09890] uppercase mb-1">Balance Remaining</p>
-                    <p className="text-[11px] font-black text-red-600">₹{(projectStats.total_project_value - projectStats.total_paid - grandTotal).toLocaleString('en-IN')}</p>
+                    <p className="text-[11px] font-black text-red-600">₹{((projectStats.total_project_value || 0) - (projectStats.total_paid || 0) - (grandTotal || 0)).toLocaleString('en-IN')}</p>
                   </div>
                 </div>
               </div>

@@ -108,36 +108,84 @@ router.post('/transactions', authenticate, checkProjectAccess(), upload.single('
 // GET /api/finances/summary
 router.get('/summary', authenticate, async (req, res) => {
   const executeSummary = async (projectId) => {
-    let query = `
-      SELECT 
-        COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) as total_income,
-        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expense
-      FROM transactions
-      WHERE 1=1
-    `;
-    const params = [];
-    let idx = 1;
+    try {
+      const { start_date, end_date } = req.query;
+      
+      // 1. Income from document amounts (Total Potential)
+      let incomeQuery = `SELECT COALESCE(SUM(amount), 0) as total_value FROM project_document_amounts WHERE 1=1`;
+      const incomeParams = [];
+      if (projectId) {
+        incomeQuery += ` AND project_id = $1`;
+        incomeParams.push(projectId);
+      }
+      const incomeRes = await pool.query(incomeQuery, incomeParams);
+      const totalValue = parseFloat(incomeRes.rows[0].total_value);
 
-    if (projectId) {
-      query += ` AND project_id = $${idx++}`;
-      params.push(projectId);
-    }
-    const { start_date, end_date, category } = req.query;
-    if (category) {
-      query += ` AND category = $${idx++}`;
-      params.push(category);
-    }
-    if (start_date) {
-      query += ` AND date >= $${idx++}`;
-      params.push(start_date);
-    }
-    if (end_date) {
-      query += ` AND date <= $${idx++}`;
-      params.push(end_date);
-    }
+      // 2. Billed/Received/Pending from payment stages
+      let stagesQuery = `
+        SELECT 
+          COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) as received,
+          COALESCE(SUM(CASE WHEN status IN ('bill generated', 'bill delivered') THEN amount ELSE 0 END), 0) as pending
+        FROM project_payment_stages
+        WHERE status != 'cancelled'
+      `;
+      const stagesParams = [];
+      let sIdx = 1;
+      if (projectId) {
+        stagesQuery += ` AND project_id = $${sIdx++}`;
+        stagesParams.push(projectId);
+      }
+      if (start_date) {
+        stagesQuery += ` AND created_at >= $${sIdx++}`;
+        stagesParams.push(start_date);
+      }
+      if (end_date) {
+        stagesQuery += ` AND created_at <= $${sIdx++}`;
+        stagesParams.push(end_date);
+      }
+      const stagesRes = await pool.query(stagesQuery, stagesParams);
+      const received = parseFloat(stagesRes.rows[0].received);
+      const pending = parseFloat(stagesRes.rows[0].pending);
+      const billed = received + pending;
 
-    const { rows } = await pool.query(query, params);
-    res.json(rows[0]);
+      // 3. Expenses from transactions (excluding vendor payments)
+      let expenseQuery = `
+        SELECT COALESCE(SUM(amount), 0) as total_expense 
+        FROM transactions 
+        WHERE type = 'expense' AND category != 'vendor_payment'
+      `;
+      const expParams = [];
+      let eIdx = 1;
+      if (projectId) {
+        expenseQuery += ` AND project_id = $${eIdx++}`;
+        expParams.push(projectId);
+      }
+      if (start_date) {
+        expenseQuery += ` AND date >= $${eIdx++}`;
+        expParams.push(start_date);
+      }
+      if (end_date) {
+        expenseQuery += ` AND date <= $${eIdx++}`;
+        expParams.push(end_date);
+      }
+      const expRes = await pool.query(expenseQuery, expParams);
+      const totalExpense = parseFloat(expRes.rows[0].total_expense);
+
+      const unbilled = totalValue - billed;
+
+      res.json({
+        total_income: totalValue,
+        billed_income: billed,
+        received_income: received,
+        pending_income: pending,
+        unbilled_income: unbilled > 0 ? unbilled : 0,
+        total_expense: totalExpense,
+        net_profit: totalValue - totalExpense
+      });
+    } catch (err) {
+      console.error('Execute summary error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
   };
 
   const { project_id } = req.query;
@@ -172,7 +220,7 @@ router.get('/charts', authenticate, async (req, res) => {
         SELECT 
           TO_CHAR(date, 'Mon YYYY') as month_year,
           SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
-          SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense,
+          SUM(CASE WHEN type = 'expense' AND category != 'vendor_payment' THEN amount ELSE 0 END) as expense,
           MIN(date) as sort_date
         FROM transactions
         WHERE date >= CURRENT_DATE - INTERVAL '6 months'
@@ -186,13 +234,13 @@ router.get('/charts', authenticate, async (req, res) => {
       
       const trendRes = await pool.query(trendQuery, trendParams);
 
-      // 2. Category breakdown (Expenses only)
+      // 2. Category breakdown (Expenses only, EXCLUDING vendor payments)
       let catQuery = `
         SELECT 
           category as name,
           SUM(amount) as value
         FROM transactions
-        WHERE type = 'expense'
+        WHERE type = 'expense' AND category != 'vendor_payment'
       `;
       const catParams = [];
       if (projectId) {

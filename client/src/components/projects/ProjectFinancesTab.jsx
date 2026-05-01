@@ -43,16 +43,33 @@ export default function ProjectFinancesTab({ projectId }) {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-xl border border-emerald-100 shadow-sm">
-          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Project Income (Receipts)</p>
-          <h3 className="text-2xl font-bold text-[#1A1A1A] mt-1">₹{(Number(summary.total_income) || 0).toLocaleString('en-IN')}</h3>
-          <p className="text-[10px] text-muted mt-2 italic">Recorded from project invoices</p>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-xl border border-blue-100 shadow-sm col-span-1 md:col-span-2">
+          <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Billed Income</p>
+          <div className="flex items-baseline gap-3">
+            <h3 className="text-2xl font-bold text-[#1A1A1A] mt-1">₹{(Number(summary.billed_income) || 0).toLocaleString('en-IN')}</h3>
+            <div className="flex gap-2">
+              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                Received: ₹{(Number(summary.received_income) || 0).toLocaleString('en-IN')}
+              </span>
+              <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">
+                Pending: ₹{(Number(summary.pending_income) || 0).toLocaleString('en-IN')}
+              </span>
+            </div>
+          </div>
+          <p className="text-[10px] text-muted mt-2 italic">Sum of initiated payment stages</p>
         </div>
-        <div className="bg-white p-5 rounded-xl border border-red-100 shadow-sm">
-          <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest">Project Expenses (Vendor Pays)</p>
-          <h3 className="text-2xl font-bold text-[#1A1A1A] mt-1">₹{(Number(summary.total_expense) || 0).toLocaleString('en-IN')}</h3>
-          <p className="text-[10px] text-muted mt-2 italic">Payments made to project vendors</p>
+
+        <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
+          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Unbilled</p>
+          <h3 className="text-2xl font-bold text-[#1A1A1A] mt-1">₹{(Number(summary.unbilled_income) || 0).toLocaleString('en-IN')}</h3>
+          <p className="text-[10px] text-muted mt-2 italic">Remaining project value</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl border border-orange-100 shadow-sm">
+          <p className="text-[10px] font-bold text-[#E05A1E] uppercase tracking-widest">Total Value</p>
+          <h3 className="text-2xl font-bold text-[#1A1A1A] mt-1">₹{(Number(summary.total_income) || 0).toLocaleString('en-IN')}</h3>
+          <p className="text-[10px] text-muted mt-2 italic">Total defined in documents</p>
         </div>
       </div>
 
@@ -96,7 +113,7 @@ export default function ProjectFinancesTab({ projectId }) {
                       </div>
                     </td>
                     <td className={`px-4 py-3 text-right font-bold ${t.type === 'income' ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {t.type === 'income' ? '+' : '-'} ₹{parseFloat(t.amount).toLocaleString('en-IN')}
+                      {t.type === 'income' ? '+' : '-'} ₹{(Number(t.amount) || 0).toLocaleString('en-IN')}
                     </td>
                   </tr>
                 ))

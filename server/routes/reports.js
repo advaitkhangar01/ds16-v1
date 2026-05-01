@@ -20,14 +20,13 @@ router.get('/project-pnl', authenticate, requireAdmin, async (req, res) => {
       FROM projects p
       LEFT JOIN (
         SELECT project_id, SUM(amount) as total 
-        FROM transactions 
-        WHERE type = 'income' 
+        FROM project_document_amounts 
         GROUP BY project_id
       ) income ON income.project_id = p.id
       LEFT JOIN (
         SELECT project_id, SUM(amount) as total 
         FROM transactions 
-        WHERE type = 'expense' 
+        WHERE type = 'expense' AND category != 'vendor_payment'
         GROUP BY project_id
       ) expense ON expense.project_id = p.id
       WHERE 1=1
