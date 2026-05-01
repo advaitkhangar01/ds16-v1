@@ -1,0 +1,365 @@
+// server/routes/tasks.js
+const router = require('express').Router();
+const pool = require('../db');
+const { authenticate } = require('../middleware/auth');
+const { checkProjectAccess } = require('../middleware/accessControl');
+
+// Helper: Parse @mentions
+async function parseMentions(message) {
+  const mentionMatch = message.match(/@(\w+)/g);
+  if (!mentionMatch) return [];
+
+  const usernames = mentionMatch.map(m => m.substring(1).toLowerCase());
+  const { rows } = await pool.query(
+    'SELECT id FROM users WHERE LOWER(username) = ANY($1)',
+    [usernames]
+  );
+  return rows.map(r => r.id);
+}
+
+// 1. Create Task
+// POST /api/tasks
+router.post('/', authenticate, checkProjectAccess(), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { project_id, stage, title, description, assigned_to, participants } = req.body;
+
+    if (!project_id || !title?.trim()) {
+      return res.status(400).json({ error: 'project_id and title are required' });
+    }
+
+    const { rows: [task] } = await client.query(`
+      INSERT INTO tasks (project_id, stage, title, description, assigned_to, created_by, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), NOW())
+      RETURNING *
+    `, [project_id, stage || 'proposal', title.trim(), description || null, assigned_to || null, req.user.id]);
+
+    // Ensure assigned_to and creator are participants
+    const uniqueParticipants = new Set(participants || []);
+    uniqueParticipants.add(req.user.id);
+    if (assigned_to) uniqueParticipants.add(assigned_to);
+
+    for (const userId of uniqueParticipants) {
+      await client.query(`
+        INSERT INTO task_participants (task_id, user_id, added_by)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (task_id, user_id) DO NOTHING
+      `, [task.id, userId, req.user.id]);
+    }
+
+    await client.query('COMMIT');
+
+    // Fetch full task data with assigned user name
+    const { rows: fullTask } = await pool.query(`
+      SELECT t.*, u.name as assigned_to_name, u.username as assigned_to_username
+      FROM tasks t
+      LEFT JOIN users u ON u.id = t.assigned_to
+      WHERE t.id = $1
+    `, [task.id]);
+
+    res.status(201).json({ task: fullTask[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Create task error:', err);
+    res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
+  }
+});
+
+// 2. Fetch Board / List Tasks
+// GET /api/tasks
+router.get('/', authenticate, async (req, res) => {
+  try {
+    const { view, project_id } = req.query;
+
+    if (view === 'kanban') {
+      // Group by assigned_to
+      // We fetch all employees
+      const { rows: employees } = await pool.query(`
+        SELECT id, name, username, role FROM users 
+        WHERE role = 'employee' OR id IN (SELECT DISTINCT assigned_to FROM tasks WHERE assigned_to IS NOT NULL)
+        ORDER BY name ASC
+      `);
+
+      // Fetch tasks the user has access to
+      let tasksQuery = `
+        SELECT t.*, p.name as project_name, u.name as assigned_to_name,
+               COALESCE(
+                 json_agg(
+                   json_build_object('user_id', tp.user_id, 'name', part_u.name, 'username', part_u.username)
+                 ) FILTER (WHERE tp.user_id IS NOT NULL), '[]'::json
+               ) as participants
+        FROM tasks t
+        JOIN projects p ON p.id = t.project_id
+        LEFT JOIN users u ON u.id = t.assigned_to
+        LEFT JOIN task_participants tp ON tp.task_id = t.id
+        LEFT JOIN users part_u ON part_u.id = tp.user_id
+      `;
+      
+      const tasksParams = [];
+      if (req.user.role !== 'admin') {
+        tasksQuery += `
+          JOIN project_assignments pa ON pa.project_id = t.project_id
+          WHERE pa.user_id = $1 OR t.assigned_to = $1
+        `;
+        tasksParams.push(req.user.id);
+      }
+
+      tasksQuery += ` GROUP BY t.id, p.name, u.name ORDER BY t.created_at DESC`;
+      
+      const { rows: tasks } = await pool.query(tasksQuery, tasksParams);
+
+      // Group by employee
+      const kanban = {};
+      
+      // Initialize columns for all employees
+      employees.forEach(emp => {
+        kanban[emp.id] = {
+          user_id: emp.id,
+          name: emp.name,
+          username: emp.username,
+          tasks: []
+        };
+      });
+
+      // Add "Unassigned" column
+      kanban['unassigned'] = {
+        user_id: null,
+        name: 'Unassigned',
+        username: 'unassigned',
+        tasks: []
+      };
+
+      // Map tasks to employees
+      tasks.forEach(t => {
+        if (t.assigned_to && kanban[t.assigned_to]) {
+          kanban[t.assigned_to].tasks.push(t);
+        } else {
+          kanban['unassigned'].tasks.push(t);
+        }
+      });
+
+      return res.json({ kanban: Object.values(kanban) });
+    }
+
+    // Default list view (filter by project)
+    if (project_id) {
+      // Use middleware for specific project
+      return checkProjectAccess()(req, res, async () => {
+        let query = `
+          SELECT t.*, u.name as assigned_to_name,
+                 COALESCE(
+                   json_agg(
+                     json_build_object('user_id', tp.user_id, 'name', part_u.name, 'username', part_u.username)
+                   ) FILTER (WHERE tp.user_id IS NOT NULL), '[]'::json
+                 ) as participants
+          FROM tasks t
+          LEFT JOIN users u ON u.id = t.assigned_to
+          LEFT JOIN task_participants tp ON tp.task_id = t.id
+          LEFT JOIN users part_u ON part_u.id = tp.user_id
+          WHERE t.project_id = $1
+          GROUP BY t.id, u.name 
+          ORDER BY t.created_at DESC
+        `;
+        const { rows: tasks } = await pool.query(query, [project_id]);
+        res.json({ tasks });
+      });
+    }
+
+    // List all accessible tasks
+    let query = `
+      SELECT t.*, u.name as assigned_to_name,
+             COALESCE(
+               json_agg(
+                 json_build_object('user_id', tp.user_id, 'name', part_u.name, 'username', part_u.username)
+               ) FILTER (WHERE tp.user_id IS NOT NULL), '[]'::json
+             ) as participants
+      FROM tasks t
+      LEFT JOIN users u ON u.id = t.assigned_to
+      LEFT JOIN task_participants tp ON tp.task_id = t.id
+      LEFT JOIN users part_u ON part_u.id = tp.user_id
+    `;
+    const params = [];
+
+    if (req.user.role !== 'admin') {
+      query += `
+        JOIN project_assignments pa ON pa.project_id = t.project_id
+        WHERE pa.user_id = $1 OR t.assigned_to = $1
+      `;
+      params.push(req.user.id);
+    }
+
+    query += ` GROUP BY t.id, u.name ORDER BY t.created_at DESC`;
+    const { rows: tasks } = await pool.query(query, params);
+
+    res.json({ tasks });
+  } catch (err) {
+    console.error('Fetch tasks error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// 3. Fetch Task Thread
+// GET /api/tasks/:task_id
+router.get('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task' }), async (req, res) => {
+  try {
+    const { task_id } = req.params;
+
+    // Fetch Task
+    const { rows: taskRows } = await pool.query(`
+      SELECT t.*, p.name as project_name, u.name as assigned_to_name
+      FROM tasks t
+      JOIN projects p ON p.id = t.project_id
+      LEFT JOIN users u ON u.id = t.assigned_to
+      WHERE t.id = $1
+    `, [task_id]);
+
+    if (!taskRows.length) return res.status(404).json({ error: 'Task not found' });
+
+    // Fetch Participants
+    const { rows: participants } = await pool.query(`
+      SELECT tp.user_id, u.name, u.username, u.role
+      FROM task_participants tp
+      JOIN users u ON u.id = tp.user_id
+      WHERE tp.task_id = $1
+    `, [task_id]);
+
+    // Fetch Messages
+    const { rows: messages } = await pool.query(`
+      SELECT tm.*, u.name as sender_name, u.username as sender_username, u.role as sender_role
+      FROM task_messages tm
+      LEFT JOIN users u ON u.id = tm.sender_id
+      WHERE tm.task_id = $1
+      ORDER BY tm.created_at ASC
+    `, [task_id]);
+
+    res.json({
+      task: taskRows[0],
+      participants,
+      messages
+    });
+  } catch (err) {
+    console.error('Fetch task thread error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// 4. Send Message
+// POST /api/tasks/:task_id/messages
+router.post('/:task_id/messages', authenticate, checkProjectAccess({ idIsResource: 'task' }), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { task_id } = req.params;
+    const { message } = req.body;
+
+    if (!message?.trim()) {
+      return res.status(400).json({ error: 'Message cannot be empty' });
+    }
+
+    // Verify task exists
+    const { rows: taskRows } = await client.query('SELECT id FROM tasks WHERE id = $1', [task_id]);
+    if (!taskRows.length) return res.status(404).json({ error: 'Task not found' });
+
+    // Parse Mentions
+    const mentionedUserIds = await parseMentions(message);
+
+    // Insert Message
+    const { rows: [newMsg] } = await client.query(`
+      INSERT INTO task_messages (task_id, sender_id, message, mentions, created_at)
+      VALUES ($1, $2, $3, $4, NOW())
+      RETURNING *
+    `, [task_id, req.user.id, message.trim(), JSON.stringify(mentionedUserIds)]);
+
+    // Ensure sender is a participant
+    await client.query(`
+      INSERT INTO task_participants (task_id, user_id, added_by)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (task_id, user_id) DO NOTHING
+    `, [task_id, req.user.id, req.user.id]);
+
+    // Add mentioned users to participants
+    for (const userId of mentionedUserIds) {
+      await client.query(`
+        INSERT INTO task_participants (task_id, user_id, added_by)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (task_id, user_id) DO NOTHING
+      `, [task_id, userId, req.user.id]);
+    }
+
+    await client.query('COMMIT');
+
+    // Fetch full message data with sender
+    const { rows: fullMsg } = await pool.query(`
+      SELECT tm.*, u.name as sender_name, u.username as sender_username, u.role as sender_role
+      FROM task_messages tm
+      LEFT JOIN users u ON u.id = tm.sender_id
+      WHERE tm.id = $1
+    `, [newMsg.id]);
+
+    res.status(201).json({ message: fullMsg[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Send message error:', err);
+    res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
+  }
+});
+
+// 5. Update Task Status/Stage
+// PATCH /api/tasks/:task_id
+router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task' }), async (req, res) => {
+  try {
+    const { task_id } = req.params;
+    const { status, stage, assigned_to } = req.body;
+
+    const updates = [];
+    const params = [];
+    let count = 1;
+
+    if (status) {
+      if (!['pending', 'in_progress', 'review', 'done'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid status' });
+      }
+      updates.push(`status = $${count++}`);
+      params.push(status);
+    }
+
+    if (stage) {
+      updates.push(`stage = $${count++}`);
+      params.push(stage);
+    }
+
+    if (assigned_to !== undefined) {
+      updates.push(`assigned_to = $${count++}`);
+      params.push(assigned_to || null);
+    }
+
+    if (!updates.length) {
+      return res.status(400).json({ error: 'Nothing to update' });
+    }
+
+    updates.push(`updated_at = NOW()`);
+    params.push(task_id);
+
+    const query = `
+      UPDATE tasks 
+      SET ${updates.join(', ')} 
+      WHERE id = $${count}
+      RETURNING *
+    `;
+
+    const { rows } = await pool.query(query, params);
+    if (!rows.length) return res.status(404).json({ error: 'Task not found' });
+
+    res.json({ task: rows[0] });
+  } catch (err) {
+    console.error('Update task error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+module.exports = router;
