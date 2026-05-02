@@ -61,9 +61,16 @@ async function seed() {
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
+    
+    // Check if projects already exist to avoid wiping real data
+    const { rows: existing } = await db.query('SELECT COUNT(*) FROM projects');
+    if (parseInt(existing[0].count) > 0) {
+      console.log('Projects already exist. Skipping seed to prevent data loss.');
+      await db.query('COMMIT');
+      return;
+    }
 
-    console.log('🧹 Clearing old projects, stages, and clients...');
-    await db.query('TRUNCATE project_stages, projects, clients CASCADE');
+    console.log('No projects found, starting live data sync...');
 
     const { rows: admins } = await db.query("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
     const adminId = admins[0]?.id || 1;

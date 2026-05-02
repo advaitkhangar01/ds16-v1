@@ -10,8 +10,8 @@ const { checkProjectAccess } = require('../middleware/accessControl');
 // Default stages
 const DEFAULT_STAGES = ['Proposal', 'Design', 'Submission', 'Working', 'Execution'];
 
-// POST /api/projects (admin only)
-router.post('/', authenticate, requireAdmin, async (req, res) => {
+// POST /api/projects
+router.post('/', authenticate, async (req, res) => {
   const client = await pool.connect();
   try {
     const { name, client_id, type, location, area_sq_ft, structural_engineer, status, stages: customStages, start_date } = req.body;
@@ -71,44 +71,29 @@ router.get('/', authenticate, async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const limitInt = parseInt(limit);
 
-    if (req.user.role === 'admin') {
-      query = `
-        SELECT p.*, 
-          u.name as created_by_name,
-          c.name as client_name,
-          c.company_name as client_company,
-          ps_contacts.name as primary_contact_name,
-          ps_contacts.phone as primary_contact_phone,
-          COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
-        FROM projects p
-        LEFT JOIN users u ON u.id = p.created_by
-        LEFT JOIN clients c ON c.id = p.client_id
-        LEFT JOIN project_stakeholders ps_contacts ON ps_contacts.project_id = p.id AND ps_contacts.is_primary = TRUE
-        LEFT JOIN project_stages ps ON ps.project_id = p.id
-        GROUP BY p.id, u.name, c.name, c.company_name, ps_contacts.name, ps_contacts.phone
-        ORDER BY p.created_at DESC
-        LIMIT $1 OFFSET $2`;
-      params = [limitInt, offset];
-    } else {
-      // Employee sees assigned projects
-      query = `
-        SELECT p.*,
-          u.name as created_by_name,
-          COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
-        FROM projects p
-        LEFT JOIN users u ON u.id = p.created_by
-        LEFT JOIN project_stages ps ON ps.project_id = p.id
-        LEFT JOIN project_assignments pa ON pa.project_id = p.id
-        LEFT JOIN tasks t ON t.project_id = p.id AND t.assigned_to = $1
-        WHERE pa.user_id = $1 OR t.assigned_to = $1
-        GROUP BY p.id, u.name
-        ORDER BY p.created_at DESC
-        LIMIT $2 OFFSET $3`;
-      params = [req.user.id, limitInt, offset];
-    }
+    // Both admin and employees can see all projects
+
+    query = `
+      SELECT p.*, 
+        u.name as created_by_name,
+        c.name as client_name,
+        c.company_name as client_company,
+        ps_contacts.name as primary_contact_name,
+        ps_contacts.phone as primary_contact_phone,
+        COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
+      FROM projects p
+      LEFT JOIN users u ON u.id = p.created_by
+      LEFT JOIN clients c ON c.id = p.client_id
+      LEFT JOIN project_stakeholders ps_contacts ON ps_contacts.project_id = p.id AND ps_contacts.is_primary = TRUE
+      LEFT JOIN project_stages ps ON ps.project_id = p.id
+      GROUP BY p.id, u.name, c.name, c.company_name, ps_contacts.name, ps_contacts.phone
+      ORDER BY p.created_at DESC
+      LIMIT $1 OFFSET $2`;
+    params = [limitInt, offset];
 
     const { rows } = await pool.query(query, params);
     res.json({ projects: rows, page: parseInt(page), limit: limitInt });
+
   } catch (err) {
     console.error('Get projects error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -155,8 +140,8 @@ router.get('/:id', authenticate, checkProjectAccess(), async (req, res) => {
   }
 });
 
-// PATCH /api/projects/:id (admin: update project details)
-router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
+// PATCH /api/projects/:id (update project details)
+router.patch('/:id', authenticate, async (req, res) => {
   const db_client = await pool.connect();
   try {
     const { status, area_sq_ft, structural_engineer, type, location, name, client_id } = req.body;
@@ -337,8 +322,8 @@ async function autoUpdateProjectStatus(projectId) {
   return newStatus;
 }
 
-// PATCH /api/projects/:id/stages/:stageId  (admin: update stage status)
-router.patch('/:id/stages/:stageId', authenticate, requireAdmin, async (req, res) => {
+// PATCH /api/projects/:id/stages/:stageId  (update stage status)
+router.patch('/:id/stages/:stageId', authenticate, async (req, res) => {
   try {
     const { status } = req.body;
     if (!['pending', 'in_progress', 'completed'].includes(status)) {
@@ -369,8 +354,8 @@ router.patch('/:id/stages/:stageId', authenticate, requireAdmin, async (req, res
   }
 });
 
-// POST /api/projects/:id/assign  (admin: assign employee)
-router.post('/:id/assign', authenticate, requireAdmin, async (req, res) => {
+// POST /api/projects/:id/assign  (assign employee)
+router.post('/:id/assign', authenticate, async (req, res) => {
   try {
     const { user_id } = req.body;
     await pool.query(
@@ -399,7 +384,7 @@ router.get('/:id/stakeholders', authenticate, checkProjectAccess(), async (req, 
 });
 
 // POST /api/projects/:id/stakeholders
-router.post('/:id/stakeholders', authenticate, requireAdmin, async (req, res) => {
+router.post('/:id/stakeholders', authenticate, async (req, res) => {
   try {
     const { name, role, phone, email, is_primary } = req.body;
     
@@ -440,7 +425,7 @@ router.post('/:id/stakeholders', authenticate, requireAdmin, async (req, res) =>
 });
 
 // PATCH /api/projects/:id/stakeholders/:stakeholderId
-router.patch('/:id/stakeholders/:stakeholderId', authenticate, requireAdmin, async (req, res) => {
+router.patch('/:id/stakeholders/:stakeholderId', authenticate, async (req, res) => {
   try {
     const { name, role, phone, email, is_primary } = req.body;
     
@@ -479,7 +464,7 @@ router.patch('/:id/stakeholders/:stakeholderId', authenticate, requireAdmin, asy
 });
 
 // DELETE /api/projects/:id/stakeholders/:stakeholderId
-router.delete('/:id/stakeholders/:stakeholderId', authenticate, requireAdmin, async (req, res) => {
+router.delete('/:id/stakeholders/:stakeholderId', authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
       'DELETE FROM project_stakeholders WHERE id = $1 AND project_id = $2 RETURNING is_primary',
@@ -564,7 +549,7 @@ router.get('/:id/vendors', authenticate, checkProjectAccess(), async (req, res) 
 });
 
 // POST /api/projects/:id/vendors
-router.post('/:id/vendors', authenticate, requireAdmin, async (req, res) => {
+router.post('/:id/vendors', authenticate, async (req, res) => {
   try {
     const { vendor_id } = req.body;
     if (!vendor_id) return res.status(400).json({ error: 'vendor_id is required' });
@@ -582,7 +567,7 @@ router.post('/:id/vendors', authenticate, requireAdmin, async (req, res) => {
 });
 
 // DELETE /api/projects/:id/vendors/:vendorId
-router.delete('/:id/vendors/:vendorId', authenticate, requireAdmin, async (req, res) => {
+router.delete('/:id/vendors/:vendorId', authenticate, async (req, res) => {
   try {
     await pool.query(
       'DELETE FROM project_vendors WHERE project_id = $1 AND vendor_id = $2',

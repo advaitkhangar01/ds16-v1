@@ -18,7 +18,7 @@ const checkProjectAccess = (options = {}) => async (req, res, next) => {
     // Admins skip checks
     if (user.role === 'admin') return next();
 
-    let projectId = req.params.projectId || req.query.project_id || req.body.project_id;
+    let projectId = req.params.projectId || req.query?.project_id || req.body?.project_id;
     
     // If id is provided in params, decide if it's a projectId or other resourceId
     if (req.params.id) {
@@ -43,17 +43,14 @@ const checkProjectAccess = (options = {}) => async (req, res, next) => {
       return res.status(400).json({ error: 'project_id is required for access verification' });
     }
 
-    // Check database for assignment or mention
+    // Allow all employees to access any project
     const { rows } = await pool.query(`
-      SELECT 1 FROM projects p
-      LEFT JOIN project_assignments pa ON pa.project_id = p.id AND pa.user_id = $1
-      LEFT JOIN tasks t ON t.project_id = p.id AND t.assigned_to = $1
-      WHERE p.id = $2 AND (pa.user_id = $1 OR t.assigned_to = $1)
+      SELECT 1 FROM projects WHERE id = $1
       LIMIT 1
-    `, [user.id, projectId]);
+    `, [projectId]);
 
     if (rows.length === 0) {
-      return res.status(403).json({ error: 'Access denied: You are not assigned to this project' });
+      return res.status(404).json({ error: 'Project not found' });
     }
 
     next();

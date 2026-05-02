@@ -149,14 +149,12 @@ export default function VendorsPage() {
             <h1 className="text-xl font-bold text-[#1A1A1A]">Vendors</h1>
             <p className="text-muted text-sm mt-0.5">{vendors.length} specialists available</p>
           </div>
-          {isAdmin && (
-            <button onClick={() => setModal({ show: true, vendor: null })} className="btn-primary">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-              Add Vendor
-            </button>
-          )}
+          <button onClick={() => setModal({ show: true, vendor: null })} className="btn-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Vendor
+          </button>
         </div>
 
         {loading ? (
@@ -188,7 +186,6 @@ export default function VendorsPage() {
                           <div className="flex-1 min-w-0">
                             <h4 className="text-sm font-semibold text-[#1A1A1A] truncate">{v.name}</h4>
                           </div>
-                          {isAdmin && (
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button 
                                 onClick={() => setModal({ show: true, vendor: v })}
@@ -198,26 +195,29 @@ export default function VendorsPage() {
                                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                                 </svg>
                               </button>
-                              <button 
-                                onClick={() => handleDelete(v.id, v.name)}
-                                className="p-1 text-muted hover:text-red-500 transition-colors"
-                              >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>
-                                </svg>
-                              </button>
+                              {isAdmin && (
+                                <button 
+                                  onClick={() => handleDelete(v.id, v.name)}
+                                  className="p-1 text-muted hover:text-red-500 transition-colors"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>
+                                  </svg>
+                                </button>
+                              )}
                             </div>
-                          )}
                         </div>
 
                         <div className="flex items-center justify-between mt-auto pt-2">
-                           <button 
-                             onClick={() => setHistoryModal({ show: true, vendor: v })}
-                             className="text-[10px] font-bold text-[#E05A1E] hover:underline flex items-center gap-1"
-                           >
-                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 3h12M6 8h12M6 13l8.5 8M6 13h3a5 5 0 0 1 5-5" /></svg>
-                             View Payments
-                           </button>
+                           {isAdmin && (
+                             <button 
+                               onClick={() => setHistoryModal({ show: true, vendor: v })}
+                               className="text-[10px] font-bold text-[#E05A1E] hover:underline flex items-center gap-1"
+                             >
+                               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 3h12M6 8h12M6 13l8.5 8M6 13h3a5 5 0 0 1 5-5" /></svg>
+                               View Payments
+                             </button>
+                           )}
                         </div>
                         
                         <div className="space-y-1.5">

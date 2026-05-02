@@ -45,6 +45,7 @@ const DOCUMENT_TAGS = [
 export default function DocumentsTab({ projectId, currentUser }) {
   const [documents, setDocuments] = useState({}); // Grouped by type
   const [amounts, setAmounts] = useState({}); // tag -> amount
+  const isAdmin = currentUser?.role === 'admin';
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [file, setFile] = useState(null);
@@ -329,10 +330,10 @@ export default function DocumentsTab({ projectId, currentUser }) {
               <tr className="bg-gray-50/80 border-b border-[#EBEBEB]">
                 <th className="py-3 px-4 text-[11px] font-bold text-muted uppercase tracking-wider w-12 text-center">#</th>
                 <th className="py-3 px-4 text-[11px] font-bold text-muted uppercase tracking-wider w-1/4">Document Type</th>
-                <th className="py-3 px-4 text-[11px] font-bold text-muted uppercase tracking-wider w-[180px] min-w-[140px]">Amount</th>
+                {isAdmin && <th className="py-3 px-4 text-[11px] font-bold text-muted uppercase tracking-wider w-[180px] min-w-[140px]">Amount</th>}
                 <th className="py-3 px-4 text-[11px] font-bold text-muted uppercase tracking-wider w-1/3">Uploaded Files</th>
                 <th className="py-3 px-4 text-[11px] font-bold text-muted uppercase tracking-wider w-1/4">Remarks</th>
-                <th className="py-3 px-4 text-[11px] font-bold text-muted uppercase tracking-wider w-12 text-center">✔</th>
+                {isAdmin && <th className="py-3 px-4 text-[11px] font-bold text-muted uppercase tracking-wider w-12 text-center">✔</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-[#EBEBEB]">
@@ -341,10 +342,10 @@ export default function DocumentsTab({ projectId, currentUser }) {
                   <tr key={i}>
                     <td className="py-2 px-4 text-center"><div className="skeleton h-3 w-4 mx-auto rounded" /></td>
                     <td className="py-2 px-4"><div className="skeleton h-3 w-3/4 rounded" /></td>
-                    <td className="py-2 px-4"><div className="skeleton h-7 w-full rounded" /></td>
+                    {isAdmin && <td className="py-2 px-4"><div className="skeleton h-7 w-full rounded" /></td>}
                     <td className="py-2 px-4"><div className="skeleton h-3 w-full rounded" /></td>
                     <td className="py-2 px-4"><div className="skeleton h-3 w-3/4 rounded" /></td>
-                    <td className="py-2 px-4"><div className="skeleton h-4 w-4 rounded mx-auto" /></td>
+                    {isAdmin && <td className="py-2 px-4"><div className="skeleton h-4 w-4 rounded mx-auto" /></td>}
                   </tr>
                 ))
               ) : (
@@ -358,16 +359,18 @@ export default function DocumentsTab({ projectId, currentUser }) {
                       <td className="py-2 px-4 align-top">
                         <span className="text-sm font-medium text-[#1A1A1A] mt-1.5 block">{tag}</span>
                       </td>
-                      <td className="py-2 px-4 align-top">
-                        <input 
-                          type="number" 
-                          className="input w-full min-w-[120px] max-w-[180px] text-sm h-8" 
-                          placeholder="₹ 0.00" 
-                          value={amounts[tag] || ''}
-                          onChange={(e) => handleAmountChange(tag, e.target.value)}
-                          onBlur={(e) => handleAmountBlur(tag, e.target.value)}
-                        />
-                      </td>
+                      {isAdmin && (
+                        <td className="py-2 px-4 align-top">
+                          <input 
+                            type="number" 
+                            className="input w-full min-w-[120px] max-w-[180px] text-sm h-8" 
+                            placeholder="₹ 0.00" 
+                            value={amounts[tag] || ''}
+                            onChange={(e) => handleAmountChange(tag, e.target.value)}
+                            onBlur={(e) => handleAmountBlur(tag, e.target.value)}
+                          />
+                        </td>
+                      )}
                       <td className="py-2 px-4 align-top">
                         <div className="flex flex-col gap-1.5">
                           {files.length > 0 ? (
@@ -423,38 +426,42 @@ export default function DocumentsTab({ projectId, currentUser }) {
                           )}
                         </div>
                       </td>
-                      <td className="py-2 px-4 text-center align-top">
-                        <div className="h-8 flex items-center justify-center gap-2">
-                          <input 
-                            type="checkbox" 
-                            checked={!!selectedRows[tag]}
-                            onChange={() => toggleRowSelection(tag)}
-                            className="w-4 h-4 rounded border-gray-300 text-[#E05A1E] focus:ring-[#E05A1E] cursor-pointer"
-                            title={selectedRows[tag] ? "Payment Initiated" : "Initiate Payment Stage"}
-                          />
-                          {selectedRows[tag] && (
-                            <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="Initiated" />
-                          )}
-                        </div>
-                      </td>
+                      {isAdmin && (
+                        <td className="py-2 px-4 text-center align-top">
+                          <div className="h-8 flex items-center justify-center gap-2">
+                            <input 
+                              type="checkbox" 
+                              checked={!!selectedRows[tag]}
+                              onChange={() => toggleRowSelection(tag)}
+                              className="w-4 h-4 rounded border-gray-300 text-[#E05A1E] focus:ring-[#E05A1E] cursor-pointer"
+                              title={selectedRows[tag] ? "Payment Initiated" : "Initiate Payment Stage"}
+                            />
+                            {selectedRows[tag] && (
+                              <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="Initiated" />
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })
               )}
             </tbody>
-            <tfoot className="bg-gray-50 font-bold border-t-2 border-[#EBEBEB]">
-              <tr>
-                <td className="py-3 px-4" colSpan={2}>
-                  <div className="flex justify-end pr-4 text-[11px] uppercase tracking-wider text-muted">Total Amount</div>
-                </td>
-                <td className="py-3 px-4">
-                  <div className="text-sm text-[#E05A1E]">
-                    ₹ {totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </div>
-                </td>
-                <td colSpan={3} className="py-3 px-4"></td>
-              </tr>
-            </tfoot>
+            {isAdmin && (
+              <tfoot className="bg-gray-50 font-bold border-t-2 border-[#EBEBEB]">
+                <tr>
+                  <td className="py-3 px-4" colSpan={2}>
+                    <div className="flex justify-end pr-4 text-[11px] uppercase tracking-wider text-muted">Total Amount</div>
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="text-sm text-[#E05A1E]">
+                      ₹ {totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </div>
+                  </td>
+                  <td colSpan={3} className="py-3 px-4"></td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>

@@ -33,9 +33,15 @@ async function seedProjects() {
   try {
     await client.query('BEGIN');
     
-    // Clear existing projects to avoid duplicates if re-running
-    await client.query('TRUNCATE projects CASCADE');
-    console.log('Cleared existing projects.');
+    // Check if projects already exist to avoid wiping real data
+    const { rows: existing } = await client.query('SELECT COUNT(*) FROM projects');
+    if (parseInt(existing[0].count) > 0) {
+      console.log('Projects already exist. Skipping seed to prevent data loss.');
+      await client.query('COMMIT');
+      return;
+    }
+
+    console.log('No projects found, seeding defaults...');
 
     // We assume the admin user ID is the one creating it. We will fetch the first admin.
     const { rows: users } = await client.query("SELECT id FROM users WHERE role = 'admin' LIMIT 1");

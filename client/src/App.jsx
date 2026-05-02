@@ -93,7 +93,7 @@ function AppRoutes() {
         <ProtectedRoute><ClientsPage /></ProtectedRoute>
       } />
       <Route path="/clients/:id" element={
-        <ProtectedRoute adminOnly><ClientDetail /></ProtectedRoute>
+        <ProtectedRoute><ClientDetail /></ProtectedRoute>
       } />
 
       <Route path="*" element={<Navigate to="/" replace />} />

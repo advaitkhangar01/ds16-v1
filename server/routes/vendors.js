@@ -3,7 +3,7 @@
 
 const router = require('express').Router();
 const pool = require('../db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireAdmin } = require('../middleware/auth');
 
 // GET /api/vendors - Get all vendors grouped by category
 router.get('/', authenticate, async (req, res) => {
@@ -73,7 +73,7 @@ router.patch('/:id', authenticate, async (req, res) => {
 });
 
 // DELETE /api/vendors/:id - Delete a vendor
-router.delete('/:id', authenticate, async (req, res) => {
+router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
   const { id } = req.params;
   try {
     const { rowCount } = await pool.query('DELETE FROM vendors WHERE id = $1', [id]);

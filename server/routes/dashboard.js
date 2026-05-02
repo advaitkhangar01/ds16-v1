@@ -137,13 +137,16 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
 // GET /api/dashboard/employee
 router.get('/employee', authenticate, async (req, res) => {
   try {
-    const today = getISTDate();
+    const todayStr = getISTDate();
+    const today = new Date(todayStr);
     const userId = req.user.id;
+    const month = today.getMonth() + 1;
+    const year = today.getFullYear();
 
     // 1. Today's attendance (self)
     const { rows: attRows } = await pool.query(
       'SELECT * FROM attendance WHERE user_id = $1 AND date = $2::date',
-      [userId, today]
+      [userId, todayStr]
     );
 
     // 1b. Team attendance summary (for stats)
@@ -153,7 +156,7 @@ router.get('/employee', authenticate, async (req, res) => {
          COUNT(*) FILTER (WHERE a.id IS NULL OR a.date != $1::date) AS absent
        FROM users u
        LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date`,
-      [today]
+      [todayStr]
     );
     const teamStats = teamStatsRows[0];
 
@@ -183,6 +186,97 @@ router.get('/employee', authenticate, async (req, res) => {
       [userId]
     );
 
+    // 4. Project Kanban (Same as admin)
+    const { rows: projectRows } = await pool.query(
+      `SELECT p.id, p.name, p.client_name, p.type, p.status,
+         COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
+       FROM projects p
+       LEFT JOIN project_stages ps ON ps.project_id = p.id
+       GROUP BY p.id
+       ORDER BY p.created_at DESC 
+       LIMIT 100`
+    );
+    const kanban = { pending: [], design_proposal: [], sanction: [], execution: [], completed: [] };
+    projectRows.forEach((p) => {
+      const stages = p.stages || [];
+      const activeStage = stages.find(s => s.status !== 'completed');
+      let col = 'pending';
+      if (!activeStage) col = 'completed';
+      else if (activeStage.status === 'pending') col = 'pending';
+      else {
+        const name = activeStage.stage_name;
+        if (name === 'Proposal' || name === 'Design') col = 'design_proposal';
+        else if (name === 'Submission') col = 'sanction';
+        else if (name === 'Working' || name === 'Execution') col = 'execution';
+      }
+      if (kanban[col]) kanban[col].push(p);
+    });
+
+    // 5. Salary stats for current month
+    // Fetch settings
+    const settingsRes = await pool.query('SELECT key, value FROM app_settings');
+    const settings = settingsRes.rows.reduce((acc, row) => { acc[row.key] = row.value; return acc; }, {});
+    
+    // Fetch employee data
+    const { rows: userRows } = await pool.query('SELECT base_salary FROM users WHERE id = $1', [userId]);
+    const baseSalary = parseFloat(userRows[0]?.base_salary || 0);
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const dailyWage = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
+
+    // Fetch attendance for this month
+    const { rows: monthAtt } = await pool.query(
+      `SELECT check_in, check_out, date FROM attendance 
+       WHERE user_id = $1 AND EXTRACT(MONTH FROM date) = $2 AND EXTRACT(YEAR FROM date) = $3`,
+      [userId, month, year]
+    );
+
+    let earnedMonth = 0;
+    let deductionsMonth = 0;
+    let todayEarned = 0;
+    let todayDeductions = 0;
+
+    const officeStartTimeStr = settings.office_start_time || '09:30';
+    const lateThresholdMins = parseInt(settings.late_threshold_mins || 15);
+    const latePenaltyAmount = parseFloat(settings.late_penalty_amount || 0);
+    const halfDayThresholdHours = parseFloat(settings.half_day_threshold_hours || 4);
+    const halfDayPenaltyPercent = parseFloat(settings.half_day_penalty_percent || 50);
+
+    monthAtt.forEach(record => {
+      const isToday = record.date.toISOString().split('T')[0] === todayStr;
+      let dayEarned = dailyWage;
+      let dayDeductions = 0;
+
+      if (record.check_in) {
+        const checkIn = new Date(record.check_in);
+        const [startH, startM] = officeStartTimeStr.split(':').map(Number);
+        const officeStart = new Date(checkIn);
+        officeStart.setHours(startH, startM, 0, 0);
+        
+        const diffMins = (checkIn - officeStart) / (1000 * 60);
+        if (diffMins > lateThresholdMins) {
+          dayDeductions += latePenaltyAmount;
+        }
+
+        if (record.check_out) {
+          const checkOut = new Date(record.check_out);
+          const hoursWorked = (checkOut - checkIn) / (1000 * 60 * 60);
+          if (hoursWorked < halfDayThresholdHours) {
+            dayDeductions += (dailyWage * halfDayPenaltyPercent / 100);
+          }
+        }
+      } else {
+        dayEarned = 0; // Not present
+      }
+
+      earnedMonth += dayEarned;
+      deductionsMonth += dayDeductions;
+
+      if (isToday) {
+        todayEarned = dayEarned;
+        todayDeductions = dayDeductions;
+      }
+    });
+
     res.json({
       attendance: attRows[0] || {},
       team_stats: {
@@ -191,6 +285,13 @@ router.get('/employee', authenticate, async (req, res) => {
       },
       tasks: taskRows,
       projects: projRows,
+      kanban,
+      salary_stats: {
+        earned_month: Math.round(earnedMonth),
+        deductions_month: Math.round(deductionsMonth),
+        today_earned: Math.round(todayEarned),
+        today_deductions: Math.round(todayDeductions)
+      }
     });
   } catch (err) {
     console.error('Employee dashboard error:', err);

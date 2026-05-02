@@ -48,4 +48,31 @@ router.get('/project-pnl', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+// GET /api/reports/audit
+// Returns audit status for a specific project
+router.get('/audit', authenticate, async (req, res) => {
+  try {
+    const { project_id } = req.query;
+    if (!project_id) return res.status(400).json({ error: 'project_id is required' });
+
+    // For now, check if there are any unverified expenses for this project
+    // Or just return a default if no specific audit logic is yet defined
+    const { rows } = await pool.query(
+      `SELECT COUNT(*) as unverified_count 
+       FROM transactions 
+       WHERE project_id = $1 AND type = 'expense' AND category != 'vendor_payment'`,
+      [project_id]
+    );
+
+    // Mock logic: verified if there are no expenses or if they are "old" (just for UI placeholder)
+    const is_verified = parseInt(rows[0].unverified_count) === 0;
+
+    res.json({ is_verified, last_audit: new Date() });
+  } catch (err) {
+    console.error('Project audit status error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;
+

@@ -8,32 +8,19 @@ const path = require('path');
 async function resetDB() {
   console.log('Starting Database and File Reset...');
   try {
-    // 1. Truncate tables
-    console.log('Truncating tables...');
+    // 1. Clear Financial and Attendance Data only
+    console.log('Clearing financial and attendance data...');
     await pool.query(`
       TRUNCATE TABLE 
         attendance,
-        comments,
-        project_assignments,
-        project_stages,
-        projects,
-        documents
+        office_expenses,
+        payroll,
+        transactions,
+        invoices,
+        project_document_amounts
       RESTART IDENTITY CASCADE;
     `);
-    console.log('Tables truncated.');
-
-    // 2. Clear invalid users
-    console.log('Cleaning users table...');
-    await pool.query(`
-      DELETE FROM users WHERE username NOT IN (
-        'abhijit',
-        'chaitali',
-        'rahul',
-        'ashwini',
-        'sahil'
-      );
-    `);
-    console.log('Users cleaned.');
+    console.log('Financial and attendance data cleared.');
     
     // 3. Ensure core users exist
     const users = [
@@ -65,16 +52,8 @@ async function resetDB() {
     }
 
     
-    // 3. Clean uploaded files
-    console.log('Cleaning uploaded files...');
-    const uploadsDir = path.join(__dirname, 'uploads', 'projects');
-    if (fs.existsSync(uploadsDir)) {
-      fs.rmSync(uploadsDir, { recursive: true, force: true });
-      fs.mkdirSync(uploadsDir, { recursive: true });
-      console.log('Uploads folder cleaned.');
-    } else {
-      console.log('Uploads folder already clean or not present.');
-    }
+    // 3. Skip cleaning uploaded files to retain project data
+    console.log('Skipping uploads folder cleanup to retain project documents.');
 
     console.log('Reset complete!');
   } catch (error) {

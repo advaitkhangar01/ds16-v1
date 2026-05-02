@@ -60,7 +60,7 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // POST /api/clients - Create a new client with nested data
-router.post('/', authenticate, requireAdmin, async (req, res) => {
+router.post('/', authenticate, async (req, res) => {
   const { 
     name, company_name, gst_number, pan_number, notes,
     contacts = [], addresses = [], banking = []
@@ -121,7 +121,7 @@ router.post('/', authenticate, requireAdmin, async (req, res) => {
 });
 
 // PATCH /api/clients/:id - Update client and its nested structure
-router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
+router.patch('/:id', authenticate, async (req, res) => {
   const { id } = req.params;
   const { 
     name, company_name, gst_number, pan_number, notes,
