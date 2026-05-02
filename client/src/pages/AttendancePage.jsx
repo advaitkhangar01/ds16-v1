@@ -345,6 +345,12 @@ export default function AttendancePage() {
                 const cellDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                 const dayRecords = recordsByDate[cellDateStr] || [];
                 
+                // Check if this date is in the future
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                const cellDate = new Date(currentYear, currentMonth, d);
+                const isFuture = cellDate > today;
+
                 return (
                   <div 
                     key={index} 
@@ -355,7 +361,7 @@ export default function AttendancePage() {
                     </span>
                     
                     <div className="flex flex-wrap gap-1.5 mt-2">
-                      {(selectedUser ? users.filter(u => u.id === parseInt(selectedUser)) : users).map(u => {
+                      {!isFuture && (selectedUser ? users.filter(u => u.id === parseInt(selectedUser)) : users).map(u => {
                         const record = dayRecords.find(r => r.user_id === u.id);
                         const isPresent = record && (record.status === 'working' || record.status === 'completed');
                         const isLate = record && record.checkIn && new Date(record.checkIn).getHours() >= 10 && new Date(record.checkIn).getMinutes() > 0;
