@@ -91,11 +91,15 @@ router.post('/transactions', authenticate, checkProjectAccess(), upload.single('
       return res.status(400).json({ error: 'Invalid amount value' });
     }
 
+    const pid = project_id ? parseInt(project_id) : null;
+    const vid = vendor_id ? parseInt(vendor_id) : null;
+    const eid = employee_id ? parseInt(employee_id) : null;
+
     const { rows } = await pool.query(
       `INSERT INTO transactions (type, category, amount, date, description, project_id, vendor_id, employee_id, reference_id, receipt_url, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [type, category, numericAmount, date || new Date(), description, project_id || null, vendor_id || null, employee_id || null, reference_id || null, receipt_url, req.user.id]
+      [type, category, numericAmount, date || new Date(), description, pid, vid, eid, reference_id || null, receipt_url, req.user.id]
     );
 
     res.status(201).json({ transaction: rows[0] });
