@@ -537,11 +537,11 @@ router.get('/:id/vendors', authenticate, checkProjectAccess(), async (req, res) 
     if (isNaN(pid)) return res.status(400).json({ error: 'Invalid project_id' });
 
     const { rows } = await pool.query(
-      \`SELECT v.*, pv.assigned_at 
+      `SELECT v.*, pv.assigned_at 
        FROM vendors v
        JOIN project_vendors pv ON v.id = pv.vendor_id
-       WHERE pv.project_id = \$1
-       ORDER BY v.category, v.name\`,
+       WHERE pv.project_id = $1
+       ORDER BY v.category, v.name`,
       [pid]
     );
     res.json({ vendors: rows });
@@ -575,9 +575,13 @@ router.post('/:id/vendors', authenticate, async (req, res) => {
 // DELETE /api/projects/:id/vendors/:vendorId
 router.delete('/:id/vendors/:vendorId', authenticate, async (req, res) => {
   try {
+    const pid = parseInt(req.params.id);
+    const vid = parseInt(req.params.vendorId);
+    if (isNaN(pid) || isNaN(vid)) return res.status(400).json({ error: 'Invalid ID' });
+
     await pool.query(
       'DELETE FROM project_vendors WHERE project_id = $1 AND vendor_id = $2',
-      [req.params.id, req.params.vendorId]
+      [pid, vid]
     );
     res.json({ message: 'Vendor removed from project' });
   } catch (err) {
