@@ -77,7 +77,7 @@ router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
       `INSERT INTO documents (project_id, uploaded_by, file_name, file_path, file_type, file_size, remark, category, document_type, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
        RETURNING *`,
-      [project_id, req.user.id, file.originalname, relativePath, file.mimetype, file.size, remark || null, category, document_type || null]
+      [pid, req.user.id, file.originalname, relativePath, file.mimetype, file.size, remark || null, category, document_type || null]
     );
 
     const newDoc = docRows[0];
@@ -88,7 +88,7 @@ router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
       await client.query(
         `INSERT INTO comments (project_id, user_id, message, created_at)
          VALUES ($1, $2, $3, NOW())`,
-        [project_id, req.user.id, `${typeLabel}: **${file.originalname}**\n\n${remark.trim()}`]
+        [pid, req.user.id, `${typeLabel}: **${file.originalname}**\n\n${remark.trim()}`]
       );
     }
 
