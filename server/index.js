@@ -84,6 +84,12 @@ app.all(/\/api\/.*/, (req, res) => {
 const path = require('path');
 const clientDistPath = path.join(__dirname, '../client/dist');
 const uploadsPath = path.join(__dirname, 'uploads');
+const projectsUploadsPath = path.join(uploadsPath, 'projects');
+
+// Ensure upload directories exist
+const fs = require('fs');
+if (!fs.existsSync(uploadsPath)) fs.mkdirSync(uploadsPath, { recursive: true });
+if (!fs.existsSync(projectsUploadsPath)) fs.mkdirSync(projectsUploadsPath, { recursive: true });
 
 app.use('/uploads', express.static(uploadsPath));
 app.use(express.static(clientDistPath));

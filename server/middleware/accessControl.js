@@ -43,11 +43,14 @@ const checkProjectAccess = (options = {}) => async (req, res, next) => {
       return res.status(400).json({ error: 'project_id is required for access verification' });
     }
 
+    const pid = parseInt(projectId);
+    if (isNaN(pid)) return res.status(400).json({ error: 'Invalid project_id format' });
+
     // Allow all employees to access any project
     const { rows } = await pool.query(`
       SELECT 1 FROM projects WHERE id = $1
       LIMIT 1
-    `, [projectId]);
+    `, [pid]);
 
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Project not found' });

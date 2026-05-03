@@ -193,7 +193,7 @@ export default function DocumentsTab({ projectId, currentUser }) {
     const wasInitiated = !!selectedRows[tag];
     const amount = amounts[tag] || 0;
 
-    // Optimistic update for immediate UI feedback
+    // Optimistic update
     setSelectedRows(prev => ({
       ...prev,
       [tag]: !wasInitiated
@@ -201,6 +201,9 @@ export default function DocumentsTab({ projectId, currentUser }) {
 
     try {
       if (!wasInitiated) {
+        // Save the amount first to ensure it's in both tables
+        await handleAmountBlur(tag, amount);
+        
         // Initiate payment stage
         await api.post('/documents/payment-stages', {
           project_id: parseInt(projectId),
@@ -218,6 +221,9 @@ export default function DocumentsTab({ projectId, currentUser }) {
         });
         toast.success(`Payment stage removed for ${tag}`);
       }
+      
+      // Re-fetch to ensure sync across all tabs and components
+      fetchDocuments();
     } catch (err) {
       // Revert state if API call fails
       setSelectedRows(prev => ({

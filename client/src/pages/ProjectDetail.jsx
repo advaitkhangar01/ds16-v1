@@ -245,7 +245,7 @@ export default function ProjectDetail() {
             { id: 'client', label: 'Client & Contacts', count: stakeholders.length },
             { id: 'tasks', label: 'Tasks', count: tasks.length },
             { id: 'vendors', label: 'Vendors' },
-            isAdmin && { id: 'finances', label: 'Finances' },
+            isAdmin && { id: 'finances', label: 'Accounts' },
             isAdmin && { id: 'payments', label: 'Payment Stages' },
             { id: 'documents', label: 'Documents' },
             isAdmin && { id: 'invoices', label: 'Invoices' },

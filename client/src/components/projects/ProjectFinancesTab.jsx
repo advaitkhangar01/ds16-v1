@@ -17,7 +17,7 @@ export default function ProjectFinancesTab({ projectId }) {
       setTransactions(transRes.data.transactions);
       setSummary(sumRes.data);
     } catch (err) {
-      toast.error('Failed to load project finances');
+      toast.error('Failed to load project accounts');
     } finally {
       setLoading(false);
     }
@@ -79,7 +79,7 @@ export default function ProjectFinancesTab({ projectId }) {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M6 3h12M6 8h12M6 13l8.5 8M6 13h3a5 5 0 0 1 5-5" />
           </svg>
-          Financial Timeline
+          Accounts Timeline
         </h3>
         
         <div className="overflow-x-auto">

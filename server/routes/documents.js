@@ -62,8 +62,12 @@ router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
     const file = req.file;
 
     if (!project_id || !file) {
+      console.error('Upload missing project_id or file:', { project_id, file: !!file });
       return res.status(400).json({ error: 'project_id and file are required' });
     }
+
+    const pid = parseInt(project_id);
+    if (isNaN(pid)) return res.status(400).json({ error: 'Invalid project_id' });
 
     await client.query('BEGIN');
 
@@ -105,12 +109,15 @@ router.get('/', authenticate, checkProjectAccess(), async (req, res) => {
     const { project_id, category, grouped } = req.query;
     if (!project_id) return res.status(400).json({ error: 'project_id is required' });
 
+    const pid = parseInt(project_id);
+    if (isNaN(pid)) return res.status(400).json({ error: 'Invalid project_id' });
+
     let query = `
       SELECT d.*, u.name as uploaded_by_name
       FROM documents d
       JOIN users u ON u.id = d.uploaded_by
       WHERE d.project_id = $1`;
-    const params = [project_id];
+    const params = [pid];
 
     if (category) {
       query += ` AND d.category = $2`;
@@ -137,20 +144,29 @@ router.get('/', authenticate, checkProjectAccess(), async (req, res) => {
         return acc;
       }, {});
 
-      // Fetch amounts
-      const amountsQuery = await pool.query('SELECT document_type, amount FROM project_document_amounts WHERE project_id = $1', [project_id]);
-      const amounts = amountsQuery.rows.reduce((acc, row) => {
+      // Fetch amounts from project_document_amounts
+      const amountsQuery = await pool.query('SELECT document_type, amount FROM project_document_amounts WHERE project_id = $1', [pid]);
+      const amountsMap = amountsQuery.rows.reduce((acc, row) => {
         acc[row.document_type] = row.amount;
         return acc;
       }, {});
 
-      return res.json({ documents: groupedDocs, amounts });
+      // Fallback/Override: Fetch amounts from project_payment_stages (these are the 'official' billed amounts)
+      const stagesQuery = await pool.query('SELECT document_type, amount FROM project_payment_stages WHERE project_id = $1', [pid]);
+      stagesQuery.rows.forEach(row => {
+        // If it's in payment stages, we prioritize this amount as it's what's shown in accounts
+        if (row.amount !== null && row.amount !== undefined) {
+          amountsMap[row.document_type] = row.amount;
+        }
+      });
+
+      return res.json({ documents: groupedDocs, amounts: amountsMap });
     }
 
     res.json({ documents: rows });
   } catch (err) {
-    console.error('Get documents error:', err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('GET /api/documents error details:', err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
   }
 });
 
@@ -271,10 +287,17 @@ router.delete('/payment-stages/remove/tag', authenticate, checkProjectAccess(), 
 
 // POST /api/documents/amounts
 router.post('/amounts', authenticate, checkProjectAccess(), async (req, res) => {
+  const client = await pool.connect();
   try {
     const { project_id, document_type, amount } = req.body;
     if (!project_id || !document_type) return res.status(400).json({ error: 'project_id and document_type are required' });
 
+    const pid = parseInt(project_id);
+    if (isNaN(pid)) return res.status(400).json({ error: 'Invalid project_id' });
+
+    await client.query('BEGIN');
+
+    // 1. Update project_document_amounts
     const query = `
       INSERT INTO project_document_amounts (project_id, document_type, amount)
       VALUES ($1, $2, $3)
@@ -282,11 +305,27 @@ router.post('/amounts', authenticate, checkProjectAccess(), async (req, res) => 
       DO UPDATE SET amount = EXCLUDED.amount
       RETURNING *;
     `;
-    const { rows } = await pool.query(query, [project_id, document_type, amount || null]);
+    const { rows } = await client.query(query, [pid, document_type, amount || null]);
+
+    // 2. Also update project_payment_stages IF it exists and is not 'paid'
+    // This ensures that changing the amount in Documents tab reflects in Accounts tab
+    const numericAmount = parseFloat(amount);
+    if (!isNaN(numericAmount)) {
+      await client.query(`
+        UPDATE project_payment_stages 
+        SET amount = $1, updated_at = NOW()
+        WHERE project_id = $2 AND document_type = $3 AND status != 'paid'
+      `, [numericAmount, project_id, document_type]);
+    }
+
+    await client.query('COMMIT');
     res.json({ amount: rows[0] });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Save amount error:', err);
     res.status(500).json({ error: 'Server error saving amount' });
+  } finally {
+    client.release();
   }
 });
 
