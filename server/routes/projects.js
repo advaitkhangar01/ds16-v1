@@ -533,13 +533,16 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
 // GET /api/projects/:id/vendors
 router.get('/:id/vendors', authenticate, checkProjectAccess(), async (req, res) => {
   try {
+    const pid = parseInt(req.params.id);
+    if (isNaN(pid)) return res.status(400).json({ error: 'Invalid project_id' });
+
     const { rows } = await pool.query(
-      `SELECT v.*, pv.assigned_at 
+      \`SELECT v.*, pv.assigned_at 
        FROM vendors v
        JOIN project_vendors pv ON v.id = pv.vendor_id
-       WHERE pv.project_id = $1
-       ORDER BY v.category, v.name`,
-      [req.params.id]
+       WHERE pv.project_id = \$1
+       ORDER BY v.category, v.name\`,
+      [pid]
     );
     res.json({ vendors: rows });
   } catch (err) {
@@ -551,13 +554,16 @@ router.get('/:id/vendors', authenticate, checkProjectAccess(), async (req, res) 
 // POST /api/projects/:id/vendors
 router.post('/:id/vendors', authenticate, async (req, res) => {
   try {
+    const pid = parseInt(req.params.id);
+    if (isNaN(pid)) return res.status(400).json({ error: 'Invalid project_id' });
+    
     const { vendor_id } = req.body;
     if (!vendor_id) return res.status(400).json({ error: 'vendor_id is required' });
 
     await pool.query(
       `INSERT INTO project_vendors (project_id, vendor_id) 
        VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [req.params.id, vendor_id]
+      [pid, vendor_id]
     );
     res.status(201).json({ message: 'Vendor added to project' });
   } catch (err) {
