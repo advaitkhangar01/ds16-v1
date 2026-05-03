@@ -1,11 +1,12 @@
 // server/index.js
 // Main Express entry point — DS16 backend server
 
-require('dotenv').config({ override: true });
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), override: true });
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const path = require('path');
 
 const authRoutes = require('./routes/auth');
 const attendanceRoutes = require('./routes/attendance');
@@ -81,7 +82,6 @@ app.all(/\/api\/.*/, (req, res) => {
 });
 
 // Serve frontend in production (or if built locally)
-const path = require('path');
 const clientDistPath = path.join(__dirname, '../client/dist');
 const uploadsPath = path.join(__dirname, 'uploads');
 const projectsUploadsPath = path.join(uploadsPath, 'projects');
