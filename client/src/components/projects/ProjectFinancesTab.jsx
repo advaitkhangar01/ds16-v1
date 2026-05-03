@@ -2,6 +2,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
+import { 
+  Briefcase, FileText, TrendingUp, ArrowDownRight, 
+  CheckCircle2, Activity 
+} from 'lucide-react';
 
 export default function ProjectFinancesTab({ projectId }) {
   const [transactions, setTransactions] = useState([]);
@@ -43,33 +47,78 @@ export default function ProjectFinancesTab({ projectId }) {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-xl border border-blue-100 shadow-sm col-span-1 md:col-span-2">
-          <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Billed Income</p>
-          <div className="flex items-baseline gap-3">
-            <h3 className="text-2xl font-bold text-[#1A1A1A] mt-1">₹{(Number(summary.billed_income) || 0).toLocaleString('en-IN')}</h3>
-            <div className="flex gap-2">
-              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                Received: ₹{(Number(summary.received_income) || 0).toLocaleString('en-IN')}
-              </span>
-              <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">
-                Pending: ₹{(Number(summary.pending_income) || 0).toLocaleString('en-IN')}
-              </span>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Box 1: Total Project Value */}
+        <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Project Value</p>
+          <h3 className="text-2xl font-black text-gray-900 mt-2">₹{(Number(summary.total_income) || 0).toLocaleString('en-IN')}</h3>
+          <div className="absolute top-0 right-0 p-3 opacity-5">
+            <Briefcase size={40} />
+          </div>
+        </div>
+
+        {/* Box 2: Billed Amount */}
+        <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
+          <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Billed Amount</p>
+          <h3 className="text-2xl font-black text-blue-600 mt-2">₹{(Number(summary.billed_income) || 0).toLocaleString('en-IN')}</h3>
+          <div className="absolute top-0 right-0 p-3 opacity-5 text-blue-600">
+            <FileText size={40} />
+          </div>
+        </div>
+
+        {/* Box 3: Unbilled Amount */}
+        <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Unbilled Amount</p>
+          <h3 className="text-2xl font-black text-gray-600 mt-2">₹{(Number(summary.unbilled_income) || 0).toLocaleString('en-IN')}</h3>
+          <div className="absolute top-0 right-0 p-3 opacity-5">
+            <TrendingUp size={40} />
+          </div>
+        </div>
+
+        {/* Box 4: Total Expenses */}
+        <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
+          <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Total Expenses</p>
+          <h3 className="text-2xl font-black text-red-500 mt-2">₹{(Number(summary.total_expense) || 0).toLocaleString('en-IN')}</h3>
+          <p className="text-[10px] text-muted mt-1 italic">Excl. vendor payments</p>
+          <div className="absolute top-0 right-0 p-3 opacity-5 text-red-500">
+            <ArrowDownRight size={40} />
+          </div>
+        </div>
+
+        {/* Box 5: Received Amount */}
+        <div className="bg-white p-5 rounded-xl border border-emerald-100 shadow-sm relative overflow-hidden group">
+          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Received Amount</p>
+          <h3 className="text-2xl font-black text-emerald-600 mt-2">₹{(Number(summary.received_income) || 0).toLocaleString('en-IN')}</h3>
+          <div className="absolute top-0 right-0 p-3 opacity-10 text-emerald-600">
+            <CheckCircle2 size={40} />
+          </div>
+        </div>
+
+        {/* Box 6: Pending Amount */}
+        <div className="bg-white p-5 rounded-xl border border-orange-100 shadow-sm relative overflow-hidden group">
+          <p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Pending Amount</p>
+          <h3 className="text-2xl font-black text-orange-600 mt-2">₹{(Number(summary.pending_income) || 0).toLocaleString('en-IN')}</h3>
+          <div className="absolute top-0 right-0 p-3 opacity-10 text-orange-500">
+            <Activity size={40} />
+          </div>
+        </div>
+
+        {/* Box 7: Profit & Loss */}
+        <div className="bg-white p-5 rounded-xl border border-blue-100 shadow-sm relative overflow-hidden group md:col-span-2">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Profit & Loss (Realized)</p>
+              <div className="flex items-baseline gap-3 mt-2">
+                <h3 className={`text-2xl font-black ${((Number(summary.received_income) || 0) - (Number(summary.total_expense) || 0)) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                  ₹{((Number(summary.received_income) || 0) - (Number(summary.total_expense) || 0)).toLocaleString('en-IN')}
+                </h3>
+                <span className="text-[10px] font-bold text-gray-400 italic">Formula: Received - Expenses</span>
+              </div>
+            </div>
+            <div className="p-2 bg-blue-50 rounded-lg">
+              <Activity size={20} className="text-blue-600" />
             </div>
           </div>
-          <p className="text-[10px] text-muted mt-2 italic">Sum of initiated payment stages</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
-          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Unbilled</p>
-          <h3 className="text-2xl font-bold text-[#1A1A1A] mt-1">₹{(Number(summary.unbilled_income) || 0).toLocaleString('en-IN')}</h3>
-          <p className="text-[10px] text-muted mt-2 italic">Remaining project value</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl border border-orange-100 shadow-sm">
-          <p className="text-[10px] font-bold text-[#E05A1E] uppercase tracking-widest">Total Value</p>
-          <h3 className="text-2xl font-bold text-[#1A1A1A] mt-1">₹{(Number(summary.total_income) || 0).toLocaleString('en-IN')}</h3>
-          <p className="text-[10px] text-muted mt-2 italic">Total defined in documents</p>
         </div>
       </div>
 

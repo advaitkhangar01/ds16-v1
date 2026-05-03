@@ -417,62 +417,77 @@ export default function AccountingPage() {
         {activeTab === 'summary' && (
           <div className="space-y-6 animate-in fade-in duration-500">
             {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                  <ArrowUpRight size={48} className="text-green-600" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Box 1: Total Project Value */}
+              <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Project Value</p>
+                <h3 className="text-2xl font-black text-gray-900 mt-2">₹{(Number(summary.totalIncome) || 0).toLocaleString('en-IN')}</h3>
+                <div className="absolute top-0 right-0 p-3 opacity-5">
+                  <Briefcase size={40} />
                 </div>
+              </div>
+
+              {/* Box 2: Billed Amount */}
+              <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
+                <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Billed Amount</p>
+                <h3 className="text-2xl font-black text-blue-600 mt-2">₹{(Number(summary.billedIncome) || 0).toLocaleString('en-IN')}</h3>
+                <div className="absolute top-0 right-0 p-3 opacity-5 text-blue-600">
+                  <FileText size={40} />
+                </div>
+              </div>
+
+              {/* Box 3: Unbilled Amount */}
+              <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Unbilled Amount</p>
+                <h3 className="text-2xl font-black text-gray-600 mt-2">₹{(Number(summary.unbilledIncome) || 0).toLocaleString('en-IN')}</h3>
+                <div className="absolute top-0 right-0 p-3 opacity-5">
+                  <TrendingUp size={40} />
+                </div>
+              </div>
+
+              {/* Box 4: Total Expenses */}
+              <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
+                <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Total Expenses</p>
+                <h3 className="text-2xl font-black text-red-500 mt-2">₹{(summary.totalExpense || 0).toLocaleString('en-IN')}</h3>
+                <p className="text-[10px] text-muted mt-1 italic">Excl. vendor payments</p>
+                <div className="absolute top-0 right-0 p-3 opacity-5 text-red-500">
+                  <ArrowDownRight size={40} />
+                </div>
+              </div>
+
+              {/* Box 5: Received Amount */}
+              <div className="bg-white p-5 rounded-xl border border-emerald-100 shadow-sm relative overflow-hidden group">
+                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Received Amount</p>
+                <h3 className="text-2xl font-black text-emerald-600 mt-2">₹{(Number(summary.receivedIncome) || 0).toLocaleString('en-IN')}</h3>
+                <div className="absolute top-0 right-0 p-3 opacity-10 text-emerald-600">
+                  <CheckCircle2 size={40} />
+                </div>
+              </div>
+
+              {/* Box 6: Pending Amount */}
+              <div className="bg-white p-5 rounded-xl border border-orange-100 shadow-sm relative overflow-hidden group">
+                <p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Pending Amount</p>
+                <h3 className="text-2xl font-black text-orange-600 mt-2">₹{(Number(summary.pendingIncome) || 0).toLocaleString('en-IN')}</h3>
+                <div className="absolute top-0 right-0 p-3 opacity-10 text-orange-500">
+                  <Activity size={40} />
+                </div>
+              </div>
+
+              {/* Box 7: Profit & Loss */}
+              <div className="bg-white p-5 rounded-xl border border-blue-100 shadow-sm relative overflow-hidden group md:col-span-2">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Total Income</p>
-                    <h3 className="text-3xl font-black text-green-600 mt-2">₹{(Number(summary.totalIncome) || 0).toLocaleString('en-IN')}</h3>
+                    <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Profit & Loss (Realized)</p>
+                    <div className="flex items-baseline gap-3 mt-2">
+                      <h3 className={`text-2xl font-black ${((summary.receivedIncome || 0) - (summary.totalExpense || 0)) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                        ₹{((summary.receivedIncome || 0) - (summary.totalExpense || 0)).toLocaleString('en-IN')}
+                      </h3>
+                      <span className="text-[10px] font-bold text-gray-400 italic">Formula: Received - Expenses</span>
+                    </div>
                   </div>
-                </div>
-                <div className="mt-4 flex flex-col gap-2">
-                  <div className="flex justify-between items-center bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100">
-                    <span className="text-[10px] font-bold text-blue-600 uppercase">Billed</span>
-                    <span className="text-xs font-bold text-blue-700">₹{(Number(summary.billedIncome) || 0).toLocaleString('en-IN')}</span>
+                  <div className="p-2 bg-blue-50 rounded-lg">
+                    <Activity size={20} className="text-blue-600" />
                   </div>
-                  <div className="flex justify-between items-center bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase">Unbilled</span>
-                    <span className="text-xs font-bold text-gray-600">₹{(Number(summary.unbilledIncome) || 0).toLocaleString('en-IN')}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                  <ArrowDownRight size={48} className="text-red-500" />
-                </div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Total Expenses</p>
-                <div className="flex items-baseline gap-2 mt-2">
-                  <h3 className="text-3xl font-black text-red-500">₹{(summary.totalExpense || 0).toLocaleString('en-IN')}</h3>
-                </div>
-                <div className="mt-4 flex items-center gap-1 text-[10px] font-bold text-red-500 bg-red-50 w-fit px-2 py-0.5 rounded-full">
-                  <TrendingDown size={10} />
-                  <span>Salaries & Utilities</span>
-                </div>
-                <p className="text-[10px] text-muted mt-2 italic">Excluding vendor payments</p>
-              </div>
-
-              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                  <Activity size={48} className={summary.netProfit >= 0 ? 'text-blue-600' : 'text-red-600'} />
-                </div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Profit & Loss (Total)</p>
-                <div className="flex items-baseline gap-2 mt-2">
-                  <h3 className={`text-3xl font-black ${(Number(summary.netProfit) || 0) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                    ₹{(Number(summary.netProfit) || 0).toLocaleString('en-IN')}
-                  </h3>
-                </div>
-                <div className={`mt-4 flex items-center gap-1 text-[10px] font-bold ${summary.netProfit >= 0 ? 'text-blue-600 bg-blue-50' : 'text-red-600 bg-red-50'} w-fit px-2 py-0.5 rounded-full`}>
-                  <Activity size={10} />
-                  <span>Project Potential P&L</span>
-                </div>
-                <div className="mt-2 text-[10px] font-bold text-gray-500">
-                  Realized P&L: <span className={((summary.receivedIncome || 0) - (summary.totalExpense || 0)) >= 0 ? 'text-blue-600' : 'text-red-600'}>
-                    ₹{((summary.receivedIncome || 0) - (summary.totalExpense || 0)).toLocaleString('en-IN')}
-                  </span>
                 </div>
               </div>
             </div>
