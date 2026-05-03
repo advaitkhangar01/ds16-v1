@@ -244,12 +244,12 @@ export default function ProjectDetail() {
             { id: 'overview', label: 'Overview' },
             { id: 'client', label: 'Client & Contacts', count: stakeholders.length },
             { id: 'tasks', label: 'Tasks', count: tasks.length },
-            { id: 'vendors', label: 'Vendors' },
-            isAdmin && { id: 'finances', label: 'Accounts' },
-            isAdmin && { id: 'payments', label: 'Payment Stages' },
             { id: 'documents', label: 'Documents' },
+            isAdmin && { id: 'payments', label: 'Payment Stages' },
+            isAdmin && { id: 'finances', label: 'Accounts' },
             isAdmin && { id: 'invoices', label: 'Invoices' },
             { id: 'site-photos', label: 'Site Photos' },
+            { id: 'vendors', label: 'Vendors' },
           ].filter(Boolean).map(tab => (
             <button
               key={tab.id}
@@ -405,13 +405,6 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        {activeTab === 'vendors' && <VendorsTab projectId={id} isAdmin={isAdmin} />}
-        {activeTab === 'finances' && <ProjectFinancesTab projectId={id} />}
-        {activeTab === 'invoices' && <InvoiceHistoryTab projectId={id} />}
-        {activeTab === 'payments' && <PaymentStagesTab projectId={id} project={project} />}
-        {activeTab === 'documents' && <DocumentsTab projectId={id} currentUser={user} />}
-        {activeTab === 'site-photos' && <SitePhotographsTab projectId={id} currentUser={user} />}
-
         {activeTab === 'tasks' && (
           <div className="space-y-6 animate-in fade-in duration-300">
             {/* Create Task Form */}
@@ -516,6 +509,13 @@ export default function ProjectDetail() {
             </div>
           </div>
         )}
+
+        {activeTab === 'documents' && <DocumentsTab projectId={id} currentUser={user} />}
+        {activeTab === 'payments' && <PaymentStagesTab projectId={id} project={project} />}
+        {activeTab === 'finances' && <ProjectFinancesTab projectId={id} />}
+        {activeTab === 'invoices' && <InvoiceHistoryTab projectId={id} />}
+        {activeTab === 'site-photos' && <SitePhotographsTab projectId={id} currentUser={user} />}
+        {activeTab === 'vendors' && <VendorsTab projectId={id} isAdmin={isAdmin} />}
       </div>
 
       {showChangeClientModal && (
