@@ -113,7 +113,10 @@ router.get('/', authenticate, checkProjectAccess(), async (req, res) => {
     if (isNaN(pid)) return res.status(400).json({ error: 'Invalid project_id' });
 
     let query = `
-      SELECT d.*, u.name as uploaded_by_name
+      SELECT 
+        d.id, d.project_id, d.uploaded_by, d.file_name, d.file_path, 
+        d.file_type, d.file_size, d.remark, d.category, d.document_type, d.created_at,
+        u.name as uploaded_by_name
       FROM documents d
       JOIN users u ON u.id = d.uploaded_by
       WHERE d.project_id = $1`;
@@ -153,12 +156,15 @@ router.get('/', authenticate, checkProjectAccess(), async (req, res) => {
 
       // Fallback/Override: Fetch amounts from project_payment_stages (these are the 'official' billed amounts)
       const stagesQuery = await pool.query('SELECT document_type, amount FROM project_payment_stages WHERE project_id = $1', [pid]);
-      stagesQuery.rows.forEach(row => {
-        // If it's in payment stages, we prioritize this amount as it's what's shown in accounts
-        if (row.amount !== null && row.amount !== undefined) {
-          amountsMap[row.document_type] = row.amount;
-        }
-      });
+      
+      if (stagesQuery.rows.length > 0) {
+        stagesQuery.rows.forEach(row => {
+          // If it's in payment stages, we prioritize this amount as it's what's shown in accounts
+          if (row.document_type && row.amount !== null && row.amount !== undefined) {
+            amountsMap[row.document_type] = row.amount;
+          }
+        });
+      }
 
       return res.json({ documents: groupedDocs, amounts: amountsMap });
     }
