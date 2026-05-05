@@ -10,6 +10,7 @@ cd "$PROJECT_ROOT"
 
 # 1. Backup Database
 echo "==> Backing up database before deploy..."
+chmod +x scripts/backup_db.sh
 ./scripts/backup_db.sh
 
 # 2. Pull latest code
