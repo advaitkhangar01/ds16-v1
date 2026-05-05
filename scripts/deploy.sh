@@ -4,7 +4,9 @@
 set -e
 
 echo "🚀 DS16 Deploy Starting..."
-cd /var/www/ds16
+# Use current directory as project root
+PROJECT_ROOT="$(pwd)"
+cd "$PROJECT_ROOT"
 
 # 1. Backup Database
 echo "==> Backing up database before deploy..."
