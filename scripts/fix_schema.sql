@@ -82,3 +82,10 @@ CREATE TABLE IF NOT EXISTS employee_leave_summary (
 CREATE INDEX IF NOT EXISTS idx_documents_project ON documents(project_id);
 CREATE INDEX IF NOT EXISTS idx_payment_stages_project ON project_payment_stages(project_id);
 CREATE INDEX IF NOT EXISTS idx_comments_project ON comments(project_id);
+
+-- 9. Fix existing tables (Add missing columns to transactions)
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS receipt_url TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reference_id VARCHAR(100);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES vendors(id) ON DELETE SET NULL;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
