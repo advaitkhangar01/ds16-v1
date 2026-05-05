@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS attendance (
   lat DECIMAL(10, 8),
   lng DECIMAL(11, 8),
   date DATE NOT NULL DEFAULT CURRENT_DATE,
-  status VARCHAR(20) DEFAULT 'present', -- present, half_day, absent, leave
+  status VARCHAR(20) DEFAULT 'working', -- working, half_day, absent, leave
   is_late BOOLEAN DEFAULT FALSE,
   UNIQUE(user_id, date)
 );
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS projects (
   structural_engineer VARCHAR(200),
   status VARCHAR(50) DEFAULT 'Under Proposal',
   start_date DATE,
-  created_by INTEGER REFERENCES users(id),
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   status VARCHAR(30) DEFAULT 'generated',
   due_date DATE,
   signature_data TEXT,
-  created_by INTEGER REFERENCES users(id),
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   employee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   reference_id VARCHAR(100),
   receipt_url TEXT,
-  created_by INTEGER REFERENCES users(id),
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -185,8 +185,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   stage VARCHAR(50) NOT NULL DEFAULT 'proposal',
   title VARCHAR(255) NOT NULL,
   description TEXT,
-  assigned_to INTEGER REFERENCES users(id),
-  created_by INTEGER REFERENCES users(id),
+  assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   status VARCHAR(30) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'review', 'done', 'passed')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -197,7 +197,7 @@ CREATE TABLE IF NOT EXISTS task_participants (
   id SERIAL PRIMARY KEY,
   task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  added_by INTEGER REFERENCES users(id),
+  added_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(task_id, user_id)
 );
@@ -206,7 +206,7 @@ CREATE TABLE IF NOT EXISTS task_participants (
 CREATE TABLE IF NOT EXISTS task_messages (
   id SERIAL PRIMARY KEY,
   task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  sender_id INTEGER REFERENCES users(id),
+  sender_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   message TEXT NOT NULL,
   mentions JSONB DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ DEFAULT NOW()

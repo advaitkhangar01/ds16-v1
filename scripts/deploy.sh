@@ -17,7 +17,19 @@ chmod +x scripts/backup_db.sh
 echo "==> Pulling latest code from main..."
 git pull origin main
 
-# 3. Install backend dependencies
+# 3. Run database migrations
+echo "==> Running database migrations..."
+# This assumes the user running deploy has psql access to the db
+# or we can use the environment variables from .env
+if [ -f server/.env ]; then
+  export $(grep -v '^#' server/.env | xargs)
+  # Try running with psql, fallback to sudo if needed
+  psql -d ds16 -f scripts/fix_schema.sql || sudo -u postgres psql -d ds16 -f scripts/fix_schema.sql
+else
+  sudo -u postgres psql -d ds16 -f scripts/fix_schema.sql
+fi
+
+# 4. Install backend dependencies
 echo "==> Installing backend dependencies..."
 cd server
 npm ci --omit=dev

@@ -26,7 +26,7 @@ export default function SettingsPage() {
   const [users, setUsers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUserModal, setShowUserModal] = useState(false);
-  const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: 'employee', department: '', phone: '' });
+  const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: 'employee', department: '', phone: '', base_salary: '' });
   
   // Password Reset State
   const [resetModal, setResetModal] = useState({ show: false, userId: null, userName: '', newPassword: '' });
@@ -103,7 +103,7 @@ export default function SettingsPage() {
       await api.post('/settings/users', newUser);
       toast.success('User created successfully');
       setShowUserModal(false);
-      setNewUser({ name: '', username: '', password: '', role: 'employee', department: '', phone: '' });
+      setNewUser({ name: '', username: '', password: '', role: 'employee', department: '', phone: '', base_salary: '' });
       fetchData();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to create user');
@@ -271,6 +271,7 @@ export default function SettingsPage() {
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Role</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Department</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Phone</th>
+                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Salary</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest text-center">Actions</th>
                     </tr>
                   </thead>
@@ -295,6 +296,7 @@ export default function SettingsPage() {
                         </td>
                         <td className="px-6 py-4 text-gray-600 font-medium">{u.department || '—'}</td>
                         <td className="px-6 py-4 text-gray-600 font-medium">{u.phone || '—'}</td>
+                        <td className="px-6 py-4 text-gray-600 font-bold">₹{Number(u.base_salary || 0).toLocaleString()}</td>
                         <td className="px-6 py-4 text-center">
                           <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button 
@@ -730,6 +732,16 @@ export default function SettingsPage() {
                       value={newUser.department}
                       onChange={(e) => setNewUser({...newUser, department: e.target.value})}
                       placeholder="e.g. Design"
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Base Salary (₹)</label>
+                    <input 
+                      type="number"
+                      value={newUser.base_salary}
+                      onChange={(e) => setNewUser({...newUser, base_salary: e.target.value})}
+                      placeholder="e.g. 25000"
                       className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
                     />
                   </div>

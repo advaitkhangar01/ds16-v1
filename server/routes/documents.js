@@ -8,6 +8,7 @@ const { checkProjectAccess } = require('../middleware/accessControl');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { DOCUMENT_TAGS } = require('../utils/constants');
 
 // Allowed file extensions
 const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.dwg', '.docx', '.doc', '.xlsx', '.xls'];
@@ -60,6 +61,10 @@ router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
   try {
     const { project_id, remark, category = 'document', document_type } = req.body;
     const file = req.file;
+
+    if (document_type && !DOCUMENT_TAGS.includes(document_type)) {
+      return res.status(400).json({ error: 'Invalid document_type' });
+    }
 
     if (!project_id || !file) {
       console.error('Upload missing project_id or file:', { project_id, file: !!file });
@@ -201,6 +206,10 @@ router.post('/payment-stages', authenticate, checkProjectAccess(), async (req, r
       return res.status(400).json({ error: 'project_id and document_type are required' });
     }
 
+    if (!DOCUMENT_TAGS.includes(document_type)) {
+      return res.status(400).json({ error: 'Invalid document_type' });
+    }
+
     const pid = parseInt(project_id);
     if (isNaN(pid)) return res.status(400).json({ error: 'Invalid project_id' });
 
@@ -297,6 +306,10 @@ router.post('/amounts', authenticate, checkProjectAccess(), async (req, res) => 
   try {
     const { project_id, document_type, amount } = req.body;
     if (!project_id || !document_type) return res.status(400).json({ error: 'project_id and document_type are required' });
+
+    if (!DOCUMENT_TAGS.includes(document_type)) {
+      return res.status(400).json({ error: 'Invalid document_type' });
+    }
 
     const pid = parseInt(project_id);
     if (isNaN(pid)) return res.status(400).json({ error: 'Invalid project_id' });

@@ -13,7 +13,7 @@ router.use(authenticate);
 router.get('/users', requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, username, role, department, phone, created_at FROM users ORDER BY name ASC'
+      'SELECT id, name, username, role, department, phone, base_salary, created_at FROM users ORDER BY name ASC'
     );
     res.json({ users: rows });
   } catch (err) {
@@ -25,7 +25,7 @@ router.get('/users', requireAdmin, async (req, res) => {
 // ─── Admin: Create user ──────────────────────────────────────────────────────
 router.post('/users', requireAdmin, async (req, res) => {
   try {
-    const { name, username, password, role, department, phone } = req.body;
+    const { name, username, password, role, department, phone, base_salary } = req.body;
 
     if (!name?.trim() || !username?.trim() || !password?.trim()) {
       return res.status(400).json({ error: 'Name, username and password are required' });
@@ -52,10 +52,10 @@ router.post('/users', requireAdmin, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const { rows } = await pool.query(
-      `INSERT INTO users (name, username, password_hash, role, department, phone)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, name, username, role, department, phone, created_at`,
-      [name.trim(), username.toLowerCase().trim(), passwordHash, role, department?.trim() || null, phone?.trim() || null]
+      `INSERT INTO users (name, username, password_hash, role, department, phone, base_salary)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, name, username, role, department, phone, base_salary, created_at`,
+      [name.trim(), username.toLowerCase().trim(), passwordHash, role, department?.trim() || null, phone?.trim() || null, parseFloat(base_salary) || 0]
     );
 
     res.status(201).json(rows[0]);

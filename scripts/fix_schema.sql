@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS documents (
   id SERIAL PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  uploaded_by INTEGER REFERENCES users(id),
+  uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   file_name VARCHAR(255) NOT NULL,
   file_path TEXT NOT NULL,
   file_type VARCHAR(100),
@@ -16,17 +16,35 @@ CREATE TABLE IF NOT EXISTS documents (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Robustness: Add columns if table already existed without them
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS document_type VARCHAR(100);
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'document';
+
 -- 2. Project Payment Stages (Financial Tracking)
 CREATE TABLE IF NOT EXISTS project_payment_stages (
   id SERIAL PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   document_type VARCHAR(100),
   amount DECIMAL(15, 2) DEFAULT 0,
-  initiated_by INTEGER REFERENCES users(id),
+  initiated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   status VARCHAR(50) DEFAULT 'bill generated',
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT uq_project_payment_stages_type UNIQUE (project_id, document_type)
 );
+
+-- Robustness: Add columns and constraints if table already existed without them
+ALTER TABLE project_payment_stages ADD COLUMN IF NOT EXISTS initiated_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE project_payment_stages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'uq_project_payment_stages_type'
+    ) THEN
+        ALTER TABLE project_payment_stages ADD CONSTRAINT uq_project_payment_stages_type UNIQUE (project_id, document_type);
+    END IF;
+END $$;
 
 -- 3. Project Document Amounts (Potential/Contract Value)
 CREATE TABLE IF NOT EXISTS project_document_amounts (
@@ -55,7 +73,7 @@ CREATE TABLE IF NOT EXISTS expense_audits (
   month INTEGER NOT NULL,
   year INTEGER NOT NULL,
   is_verified BOOLEAN DEFAULT FALSE,
-  verified_by INTEGER REFERENCES users(id),
+  verified_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   verified_at TIMESTAMPTZ DEFAULT NOW(),
   PRIMARY KEY (category, month, year)
 );
@@ -85,7 +103,7 @@ CREATE INDEX IF NOT EXISTS idx_comments_project ON comments(project_id);
 
 -- 9. Fix existing tables (Add missing columns to transactions)
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS receipt_url TEXT;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reference_id VARCHAR(100);
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES vendors(id) ON DELETE SET NULL;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
@@ -127,7 +145,7 @@ CREATE TABLE IF NOT EXISTS leave_requests (
   reason TEXT,
   status VARCHAR(20) DEFAULT 'pending', -- pending, approved, rejected
   remarks TEXT, -- admin remarks
-  reviewed_by INTEGER REFERENCES users(id),
+  reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
