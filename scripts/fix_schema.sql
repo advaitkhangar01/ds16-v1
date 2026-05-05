@@ -116,3 +116,22 @@ CREATE TABLE IF NOT EXISTS attendance_attempts (
   reason TEXT,
   attempted_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 12. Leave Requests table
+CREATE TABLE IF NOT EXISTS leave_requests (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  type VARCHAR(50) NOT NULL, -- sick, casual, etc.
+  reason TEXT,
+  status VARCHAR(20) DEFAULT 'pending', -- pending, approved, rejected
+  remarks TEXT, -- admin remarks
+  reviewed_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Add index for leaves
+CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date);
