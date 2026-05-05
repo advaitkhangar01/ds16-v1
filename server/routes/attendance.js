@@ -388,15 +388,15 @@ router.get('/all', authenticate, async (req, res) => {
          a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
          CASE
            WHEN lr.id IS NOT NULL THEN $${leaveStatusIdx}
-           ELSE LOWER(a.status)
+           ELSE LOWER(COALESCE(a.status, $${absentStatusIdx}))
          END AS status
-       FROM attendance a
-       JOIN users u ON a.user_id = u.id
+       FROM users u
+       LEFT JOIN attendance a ON a.user_id = u.id
        LEFT JOIN leave_requests lr ON lr.user_id = u.id
          AND lr.status = $${approvedStatusIdx}
-         AND a.date BETWEEN lr.start_date AND lr.end_date
+         AND (a.date BETWEEN lr.start_date AND lr.end_date OR (a.date IS NULL AND CURRENT_DATE BETWEEN lr.start_date AND lr.end_date))
        WHERE 1=1 ${dateFilter}
-       ORDER BY a.date DESC, a.check_in ASC NULLS LAST, u.name
+       ORDER BY a.date DESC NULLS LAST, a.check_in ASC NULLS LAST, u.name
        LIMIT $1 OFFSET $2`,
       [...params, ATTENDANCE_STATUS.LEAVE, ATTENDANCE_STATUS.ABSENT, LEAVE_STATUS.APPROVED]
     );

@@ -166,7 +166,7 @@ export default function AttendancePage() {
     try {
       const { data } = await api.get('/attendance/today');
       // Backend now returns { attendance: [], my_attendance: {} }
-      const mapped = (data.attendance || []).map(mapAttendance);
+      const mapped = (data.attendance || []).map(mapAttendance).filter(Boolean);
       // Competitive Sort: Earliest check-in first, then alphabet
       mapped.sort((a, b) => {
         if (a.checkIn && b.checkIn) return new Date(a.checkIn) - new Date(b.checkIn);
@@ -189,7 +189,7 @@ export default function AttendancePage() {
       let url = '/attendance/all?limit=200';
       if (dateFrom && dateTo) url += `&from=${dateFrom}&to=${dateTo}`;
       const { data } = await api.get(url);
-      setRecords((data.attendance || []).map(mapAttendance));
+      setRecords((data.attendance || []).map(mapAttendance).filter(Boolean));
     } catch {
       toast.error('Failed to load attendance');
     } finally {
