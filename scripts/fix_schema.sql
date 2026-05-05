@@ -89,3 +89,30 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES 
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reference_id VARCHAR(100);
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES vendors(id) ON DELETE SET NULL;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+
+-- 10. Fix Attendance table (Geo-fencing & Late minutes)
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS late_minutes INTEGER DEFAULT 0;
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS checkin_accuracy DECIMAL(10, 2);
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS checkin_distance DECIMAL(10, 2);
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS checkin_zone VARCHAR(20);
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS is_boundary_checkin BOOLEAN DEFAULT FALSE;
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS checkin_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS checkout_lat DECIMAL(10, 8);
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS checkout_lng DECIMAL(11, 8);
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS checkout_accuracy DECIMAL(10, 2);
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS checkout_distance DECIMAL(10, 2);
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS checkout_zone VARCHAR(20);
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS checkout_outside_zone BOOLEAN DEFAULT FALSE;
+
+-- 11. Attendance Attempts table
+CREATE TABLE IF NOT EXISTS attendance_attempts (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  lat DECIMAL(10, 8),
+  lng DECIMAL(11, 8),
+  accuracy DECIMAL(10, 2),
+  distance DECIMAL(10, 2),
+  zone VARCHAR(20),
+  reason TEXT,
+  attempted_at TIMESTAMPTZ DEFAULT NOW()
+);
