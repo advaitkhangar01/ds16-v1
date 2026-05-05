@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone VARCHAR(20),
   username VARCHAR(50) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
+  base_salary DECIMAL(15, 2) DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -24,13 +25,52 @@ CREATE TABLE IF NOT EXISTS attendance (
   lat DECIMAL(10, 8),
   lng DECIMAL(11, 8),
   date DATE NOT NULL DEFAULT CURRENT_DATE,
+  status VARCHAR(20) DEFAULT 'present', -- present, half_day, absent, leave
+  is_late BOOLEAN DEFAULT FALSE,
   UNIQUE(user_id, date)
+);
+
+-- Clients table
+CREATE TABLE IF NOT EXISTS clients (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  company_name VARCHAR(200),
+  gst_number VARCHAR(50),
+  pan_number VARCHAR(50),
+  notes TEXT,
+  phone VARCHAR(20),
+  email VARCHAR(100),
+  address TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Client Contacts
+CREATE TABLE IF NOT EXISTS client_contacts (
+  id SERIAL PRIMARY KEY,
+  client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  role VARCHAR(100),
+  phone VARCHAR(20),
+  email VARCHAR(100),
+  is_primary BOOLEAN DEFAULT FALSE
+);
+
+-- Client Addresses
+CREATE TABLE IF NOT EXISTS client_addresses (
+  id SERIAL PRIMARY KEY,
+  client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+  type VARCHAR(50), -- Billing, Site, Office
+  address TEXT,
+  city VARCHAR(100),
+  state VARCHAR(100),
+  pincode VARCHAR(20)
 );
 
 -- Projects table
 CREATE TABLE IF NOT EXISTS projects (
   id SERIAL PRIMARY KEY,
   name VARCHAR(200) NOT NULL,
+  client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
   client_name VARCHAR(200) NOT NULL,
   type VARCHAR(100) NOT NULL,
   location VARCHAR(300),
@@ -59,54 +99,83 @@ CREATE TABLE IF NOT EXISTS project_assignments (
   UNIQUE(project_id, user_id)
 );
 
--- Comments (Discussion System)
-CREATE TABLE IF NOT EXISTS comments (
-  id SERIAL PRIMARY KEY,
-  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  user_id INTEGER NOT NULL REFERENCES users(id),
-  message TEXT NOT NULL,
-  parent_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
-  assigned_to INTEGER REFERENCES users(id),   -- parsed from @mention
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
 -- Vendors table
 CREATE TABLE IF NOT EXISTS vendors (
   id SERIAL PRIMARY KEY,
   category VARCHAR(100) NOT NULL,
-  name VARCHAR(100) NOT NULL,
+  name VARCHAR(100) UNIQUE NOT NULL,
   phone VARCHAR(20),
   email VARCHAR(100),
   remarks TEXT
 );
 
--- Documents table
-CREATE TABLE IF NOT EXISTS documents (
+-- Invoices table
+CREATE TABLE IF NOT EXISTS invoices (
   id SERIAL PRIMARY KEY,
-  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  uploaded_by INTEGER NOT NULL REFERENCES users(id),
-  file_name VARCHAR(255) NOT NULL,
-  file_path VARCHAR(500) NOT NULL,
-  file_type VARCHAR(100),
-  file_size INTEGER,
-  remark TEXT,
-  category VARCHAR(50) NOT NULL DEFAULT 'document',
+  invoice_no VARCHAR(50) UNIQUE NOT NULL,
+  project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+  client_name VARCHAR(200),
+  amount DECIMAL(15, 2) NOT NULL,
+  date DATE DEFAULT CURRENT_DATE,
+  items JSONB,
+  tax_details JSONB,
+  status VARCHAR(30) DEFAULT 'generated',
+  due_date DATE,
+  signature_data TEXT,
+  created_by INTEGER REFERENCES users(id),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
-CREATE INDEX IF NOT EXISTS idx_comments_project ON comments(project_id);
-CREATE INDEX IF NOT EXISTS idx_comments_assigned_to ON comments(assigned_to);
-CREATE INDEX IF NOT EXISTS idx_project_stages_project ON project_stages(project_id);
-CREATE INDEX IF NOT EXISTS idx_documents_project ON documents(project_id);
+-- Transactions (Finance)
+CREATE TABLE IF NOT EXISTS transactions (
+  id SERIAL PRIMARY KEY,
+  type VARCHAR(10) CHECK (type IN ('income', 'expense')),
+  category VARCHAR(50) NOT NULL,
+  amount DECIMAL(15, 2) NOT NULL,
+  date DATE DEFAULT CURRENT_DATE,
+  description TEXT,
+  project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  vendor_id INTEGER REFERENCES vendors(id) ON DELETE SET NULL,
+  employee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  reference_id VARCHAR(100),
+  receipt_url TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- Document amounts
-CREATE TABLE IF NOT EXISTS project_document_amounts (
-  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  document_type VARCHAR(100) NOT NULL,
-  amount DECIMAL(15, 2),
-  PRIMARY KEY(project_id, document_type)
+-- Office Expenses (Accounting)
+CREATE TABLE IF NOT EXISTS office_expenses (
+  id SERIAL PRIMARY KEY,
+  category VARCHAR(100) NOT NULL,
+  amount DECIMAL(15, 2) NOT NULL,
+  date DATE DEFAULT CURRENT_DATE,
+  description TEXT,
+  receipt_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Payroll table
+CREATE TABLE IF NOT EXISTS payroll (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  month INTEGER NOT NULL,
+  year INTEGER NOT NULL,
+  base_salary DECIMAL(15, 2) NOT NULL,
+  bonus DECIMAL(15, 2) DEFAULT 0,
+  deductions DECIMAL(15, 2) DEFAULT 0,
+  net_paid DECIMAL(15, 2) NOT NULL,
+  payment_date DATE DEFAULT CURRENT_DATE,
+  status VARCHAR(20) DEFAULT 'paid',
+  UNIQUE(user_id, month, year)
+);
+
+-- App Settings
+CREATE TABLE IF NOT EXISTS app_settings (
+  id SERIAL PRIMARY KEY,
+  key VARCHAR(50) UNIQUE NOT NULL,
+  value TEXT,
+  description TEXT
 );
 
 -- Tasks table
@@ -143,8 +212,10 @@ CREATE TABLE IF NOT EXISTS task_messages (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
+CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
-CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(assigned_to);
-CREATE INDEX IF NOT EXISTS idx_task_participants_task ON task_participants(task_id);
-CREATE INDEX IF NOT EXISTS idx_task_messages_task ON task_messages(task_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_project ON transactions(project_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_project ON invoices(project_id);
 
