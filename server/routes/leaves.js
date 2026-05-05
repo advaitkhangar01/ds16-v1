@@ -14,6 +14,7 @@ router.get('/', authenticate, async (req, res) => {
       LEFT JOIN users r ON l.reviewed_by = r.id
     `;
     const params = [];
+    console.log('[Leaves] Fetching leaves for user:', req.user.id, 'Role:', req.user.role);
 
     if (req.user.role !== USER_ROLES.ADMIN) {
       query += ` WHERE l.user_id = $1`;
@@ -21,12 +22,16 @@ router.get('/', authenticate, async (req, res) => {
     }
 
     query += ` ORDER BY l.start_date DESC`;
+    console.log('[Leaves] Final Query:', query);
+    console.log('[Leaves] Params:', params);
 
     const { rows } = await pool.query(query, params);
+    console.log('[Leaves] Found rows:', rows.length);
     res.json({ leaves: rows });
   } catch (err) {
-    console.error('Error fetching leaves:', err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('[Leaves Error] GET /:', err.message);
+    console.error(err.stack);
+    res.status(500).json({ error: 'Server error', details: err.message });
   }
 });
 
@@ -49,8 +54,8 @@ router.post('/', authenticate, async (req, res) => {
 
     res.status(201).json({ message: 'Leave request submitted', leave: rows[0] });
   } catch (err) {
-    console.error('Error applying for leave:', err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('[Leaves Error] POST /:', err.message);
+    res.status(500).json({ error: 'Server error', details: err.message });
   }
 });
 
@@ -79,8 +84,8 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
 
     res.json({ message: `Leave request ${status}`, leave: rows[0] });
   } catch (err) {
-    console.error('Error updating leave status:', err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('[Leaves Error] PATCH /:id:', err.message);
+    res.status(500).json({ error: 'Server error', details: err.message });
   }
 });
 
