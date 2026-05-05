@@ -25,26 +25,31 @@ pool.query('SELECT NOW()', (err) => {
     console.log('✅ Connected to PostgreSQL');
     
     // Auto-Migration: Ensure leave_requests exists
-    pool.query(`
-      CREATE TABLE IF NOT EXISTS leave_requests (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        start_date DATE NOT NULL,
-        end_date DATE NOT NULL,
-        type VARCHAR(50) NOT NULL,
-        reason TEXT,
-        status VARCHAR(20) DEFAULT 'pending',
-        remarks TEXT,
-        reviewed_by INTEGER REFERENCES users(id),
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id);
-      CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date);
-    `, (mErr) => {
-      if (mErr) console.error('❌ Migration failed (leave_requests):', mErr.message);
-      else console.log('✅ DB Schema verified (leave_requests)');
-    });
+    const ensureTable = async () => {
+      try {
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS leave_requests (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            type VARCHAR(50) NOT NULL,
+            reason TEXT,
+            status VARCHAR(20) DEFAULT 'pending',
+            remarks TEXT,
+            reviewed_by INTEGER REFERENCES users(id),
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+          )
+        `);
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id)');
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date)');
+        console.log('✅ DB Schema verified (leave_requests)');
+      } catch (mErr) {
+        console.error('❌ Migration failed (leave_requests):', mErr.message);
+      }
+    };
+    ensureTable();
   }
 });
 

@@ -202,8 +202,9 @@ export default function AttendancePage() {
       setLeaveLoading(true);
       const { data } = await api.get('/leaves');
       setLeaves(data.leaves || []);
-    } catch {
-      toast.error('Failed to load leaves');
+    } catch (err) {
+      const msg = err.response?.data?.details || err.response?.data?.error || 'Failed to load leaves';
+      toast.error(msg);
     } finally {
       setLeaveLoading(false);
     }
