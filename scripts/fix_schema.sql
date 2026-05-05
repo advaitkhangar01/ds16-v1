@@ -154,8 +154,10 @@ CREATE TABLE IF NOT EXISTS leave_requests (
 CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id);
 CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date);
 
--- 13. Fix Invoices (Add due_date)
+-- 13. Fix Invoices (Add due_date and signature_data)
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS due_date DATE;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS signature_data TEXT;
+
 
 -- 14. Fix Project Payment Stages (Make name nullable if it exists)
 DO $$

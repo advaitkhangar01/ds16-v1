@@ -68,8 +68,9 @@ pool.query('SELECT NOW()', (err) => {
         // 2. Fix attendance status default value
         await pool.query("ALTER TABLE attendance ALTER COLUMN status SET DEFAULT 'working'");
         
-        // 3. Ensure invoices table has due_date column
+        // 3. Ensure invoices table has due_date and signature_data columns
         await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS due_date DATE");
+        await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS signature_data TEXT");
         
         // 4. Ensure project_payment_stages is correct
         await pool.query(`
@@ -86,13 +87,24 @@ pool.query('SELECT NOW()', (err) => {
           )
         `);
 
-        // Make name nullable in case it was NOT NULL before
-        await pool.query("ALTER TABLE project_payment_stages ALTER COLUMN name DROP NOT NULL");
+        // Make name nullable safely
+        await pool.query(`
+          DO $$
+          BEGIN
+              IF EXISTS (
+                  SELECT 1 FROM information_schema.columns 
+                  WHERE table_name = 'project_payment_stages' AND column_name = 'name'
+              ) THEN
+                  ALTER TABLE project_payment_stages ALTER COLUMN name DROP NOT NULL;
+              END IF;
+          END $$;
+        `);
         
         // Add missing columns to project_payment_stages if they don't exist
         await pool.query("ALTER TABLE project_payment_stages ADD COLUMN IF NOT EXISTS document_type VARCHAR(100)");
         await pool.query("ALTER TABLE project_payment_stages ADD COLUMN IF NOT EXISTS initiated_by INTEGER REFERENCES users(id) ON DELETE SET NULL");
         await pool.query("ALTER TABLE project_payment_stages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()");
+
 
         // 5. Ensure project_document_amounts exists
         await pool.query(`
