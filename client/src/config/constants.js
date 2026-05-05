@@ -4,6 +4,7 @@
  */
 
 export const ATTENDANCE_STATUS = {
+  PRESENT: 'present',
   WORKING: 'working',
   COMPLETED: 'completed',
   ABSENT: 'absent',

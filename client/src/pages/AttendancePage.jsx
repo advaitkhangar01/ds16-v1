@@ -29,7 +29,7 @@ function AttendanceBadge({ status, checkIn, checkOut, settings }) {
   if (isHalfDay) {
     return <span className="badge bg-sky-50 text-sky-600 border-sky-200 font-bold">◑ Half Day</span>;
   }
-  if (status === 'working' || status === 'completed') {
+  if (status === 'working' || status === 'completed' || status === 'present') {
     return (
       <span className={`badge ${isLate ? 'bg-red-50 text-red-600 border-red-200' : 'badge-working'}`}>
         ● {isLate ? 'Late Arrival' : 'Present'}
@@ -544,7 +544,7 @@ export default function AttendancePage() {
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {!isFuture && (selectedUser ? users.filter(u => u.id === parseInt(selectedUser)) : users).map(u => {
                         const record = dayRecords.find(r => r.user_id === u.id);
-                        const isPresent = record && (record.status === ATTENDANCE_STATUS.WORKING || record.status === ATTENDANCE_STATUS.COMPLETED);
+                        const isPresent = record && (record.status === ATTENDANCE_STATUS.WORKING || record.status === ATTENDANCE_STATUS.COMPLETED || record.status === 'present');
                         
                         let statusText = 'Absent';
                         let styleClass = 'bg-red-50 text-red-700 border-red-500 hover:bg-red-100 hover:scale-105';
