@@ -67,6 +67,18 @@ function ProjectTypeStats({ counts }) {
 function FinancialStats({ finances }) {
   const stats = [
     { 
+      label: 'Total Project Value', 
+      value: finances?.total_amount ?? 0, 
+      color: 'text-gray-900', 
+      bg: 'bg-gray-50/50', 
+      border: 'border-gray-100',
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+        </svg>
+      )
+    },
+    { 
       label: 'Billed Amount', 
       value: finances?.billed_amount ?? 0, 
       color: 'text-blue-600', 
@@ -78,6 +90,19 @@ function FinancialStats({ finances }) {
           <path d="M6 8h12"></path>
           <path d="M6 13c6.667 0 6.667-10 0-10"></path>
           <path d="m11 13 6 8"></path>
+        </svg>
+      )
+    },
+    { 
+      label: 'Received Amount', 
+      value: finances?.received_amount ?? 0, 
+      color: 'text-emerald-600', 
+      bg: 'bg-emerald-50/50', 
+      border: 'border-emerald-100',
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+          <polyline points="22 4 12 14.01 9 11.01"></polyline>
         </svg>
       )
     },
@@ -111,7 +136,7 @@ function FinancialStats({ finances }) {
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
       {stats.map((s) => (
         <div key={s.label} className={`relative overflow-hidden group p-6 rounded-2xl bg-white border ${s.border} shadow-sm hover:shadow-md transition-all duration-300`}>
           <div className={`absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 rounded-full ${s.bg} opacity-50 group-hover:scale-110 transition-transform duration-500`} />

@@ -112,8 +112,12 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
       rendering: parseInt(typeCountsRows[0].rendering || 0),
     };
 
-    // 5. Financial Summary (Billed, Pending, Expenses)
-    // 5a. Billed/Received/Pending from payment stages
+    // 5. Financial Summary (Unified logic with finances.js)
+    // 5a. Total Project Value (Potential)
+    const { rows: incomeRows } = await pool.query('SELECT COALESCE(SUM(amount), 0) as total_value FROM project_document_amounts');
+    const totalValue = parseFloat(incomeRows[0].total_value);
+
+    // 5b. Billed/Received/Pending from payment stages
     const { rows: stagesRows } = await pool.query(
       `SELECT 
           COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) as received,
@@ -125,7 +129,7 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
     const pending = parseFloat(stagesRows[0].pending);
     const billed = received + pending;
 
-    // 5b. Expenses from transactions (excluding vendor payments)
+    // 5c. Expenses from transactions (excluding vendor payments)
     const { rows: expRows } = await pool.query(
       `SELECT COALESCE(SUM(amount), 0) as total_expense 
         FROM transactions 
@@ -134,7 +138,7 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
     const totalExpense = parseFloat(expRows[0].total_expense);
 
     // 6. All projects count
-    const { rows: countRows } = await pool.query('SELECT COUNT(*) FROM projects');
+    const { rows: countRows } = await pool.query('SELECT COUNT(*) as count FROM projects');
 
     res.json({
       attendance: {
@@ -147,7 +151,9 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
       kanban,
       type_counts,
       finances: {
+        total_amount: totalValue,
         billed_amount: billed,
+        received_amount: received,
         pending_amount: pending,
         expense_amount: totalExpense
       },
