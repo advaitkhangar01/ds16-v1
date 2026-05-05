@@ -59,10 +59,8 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
     // 3. Kanban - projects grouped by status and stages
     const { rows: projectRows } = await pool.query(
       `SELECT p.id, p.name, p.client_name, p.type, p.status,
-         COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
+         COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]'::json) as stages
        FROM projects p
-       LEFT JOIN project_stages ps ON ps.project_id = p.id
-       GROUP BY p.id
        ORDER BY p.created_at DESC 
        LIMIT 100`
     );

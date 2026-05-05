@@ -31,7 +31,7 @@ const PROJECT_TYPES = [
   'Other'
 ];
 
-const DEFAULT_STAGES = ['Proposal', 'Design', 'Submission', 'Working', 'Construction'];
+const DEFAULT_STAGES = ['Proposal', 'Design', 'Submission', 'Working', 'Execution'];
 
 const PROJECT_STATUSES = [
   'Design Proposal', 'Under Proposal', 'Under Designing',
@@ -306,7 +306,8 @@ function AssignProjectModal({ project, onClose }) {
 function ProjectCard({ project, isAdmin, onDelete }) {
   const typeStyle = TYPE_COLORS[project.type] || FALLBACK_TYPE_COLOR;
   const statusStyle = STATUS_COLORS[project.status] || FALLBACK_STATUS_COLOR;
-  const stages = project.stages?.filter(Boolean) || [];
+  const rawStages = Array.isArray(project.stages) ? project.stages : [];
+  const stages = rawStages.filter(Boolean);
   const completedCount = stages.filter(s => s.status === 'completed').length;
 
   const handleDelete = (e) => {

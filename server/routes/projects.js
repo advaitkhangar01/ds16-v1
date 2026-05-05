@@ -7,7 +7,6 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
 
 // Default stages
-// Default stages
 const DEFAULT_STAGES = ['Proposal', 'Design', 'Submission', 'Working', 'Execution'];
 
 // POST /api/projects
@@ -36,7 +35,7 @@ router.post('/', authenticate, async (req, res) => {
     const project = rows[0];
 
     // Auto-generate stages
-    const stagesToInsert = customStages || DEFAULT_STAGES;
+    const stagesToInsert = (customStages && Array.isArray(customStages) && customStages.length > 0) ? customStages : DEFAULT_STAGES;
     for (const stage of stagesToInsert) {
       await client.query(
         `INSERT INTO project_stages (project_id, stage_name, status) VALUES ($1, $2, 'pending')`,
@@ -78,15 +77,12 @@ router.get('/', authenticate, async (req, res) => {
           u.name as created_by_name,
           c.name as client_name,
           c.company_name as client_company,
-          ps_contacts.name as primary_contact_name,
-          ps_contacts.phone as primary_contact_phone,
-          COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
+          (SELECT name FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_name,
+          (SELECT phone FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_phone,
+          COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]'::json) as stages
         FROM projects p
         LEFT JOIN users u ON u.id = p.created_by
         LEFT JOIN clients c ON c.id = p.client_id
-        LEFT JOIN project_stakeholders ps_contacts ON ps_contacts.project_id = p.id AND ps_contacts.is_primary = TRUE
-        LEFT JOIN project_stages ps ON ps.project_id = p.id
-        GROUP BY p.id, u.name, c.name, c.company_name, ps_contacts.name, ps_contacts.phone
         ORDER BY p.created_at DESC
         LIMIT $1 OFFSET $2`;
       params = [limitInt, offset];
@@ -96,17 +92,14 @@ router.get('/', authenticate, async (req, res) => {
           u.name as created_by_name,
           c.name as client_name,
           c.company_name as client_company,
-          ps_contacts.name as primary_contact_name,
-          ps_contacts.phone as primary_contact_phone,
-          COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
+          (SELECT name FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_name,
+          (SELECT phone FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_phone,
+          COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]'::json) as stages
         FROM projects p
         JOIN project_assignments pa ON pa.project_id = p.id
         LEFT JOIN users u ON u.id = p.created_by
         LEFT JOIN clients c ON c.id = p.client_id
-        LEFT JOIN project_stakeholders ps_contacts ON ps_contacts.project_id = p.id AND ps_contacts.is_primary = TRUE
-        LEFT JOIN project_stages ps ON ps.project_id = p.id
         WHERE pa.user_id = $1
-        GROUP BY p.id, u.name, c.name, c.company_name, ps_contacts.name, ps_contacts.phone
         ORDER BY p.created_at DESC
         LIMIT $2 OFFSET $3`;
       params = [req.user.id, limitInt, offset];

@@ -277,7 +277,7 @@ export default function ProjectDetail() {
           <div className="card animate-in fade-in duration-300">
             <h3 className="text-sm font-semibold text-muted uppercase tracking-wide mb-4">Project Stages</h3>
             <div className="space-y-3">
-              {project.stages?.map((stage, index) => {
+              {(Array.isArray(project.stages) ? project.stages : []).map((stage, index) => {
                 const prevStage = project.stages[index - 1];
                 const isLocked = index > 0 && prevStage?.status !== 'completed';
                 
