@@ -43,11 +43,25 @@ const checkProjectAccess = (options = {}) => async (req, res, next) => {
     }
 
     if (!projectId) {
+      // If no project ID is found, and it's an admin, we're definitely okay.
+      // (Admin check is already above, but this is for clarity)
+      if (user.role === 'admin') return next();
+
+      // If no project ID is found, and it's an employee, we only block if 
+      // the route explicitly requires a project (which most do).
+      // For general expenses, we might want to block employees from creating them
+      // without a project, but let's be lenient for now if it's not specified.
+      if (options.required === false) return next();
+      
       return res.status(400).json({ error: 'project_id is required for access verification' });
     }
 
     const pid = parseInt(projectId);
-    if (isNaN(pid)) return res.status(400).json({ error: 'Invalid project_id format' });
+    if (isNaN(pid)) {
+      // If it's not a number, maybe it's a general request that shouldn't have been checked
+      if (user.role === 'admin') return next();
+      return res.status(400).json({ error: 'Invalid project_id format' });
+    }
 
     // Verify if employee is assigned to the project
     const { rows } = await pool.query(`

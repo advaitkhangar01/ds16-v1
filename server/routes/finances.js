@@ -74,7 +74,7 @@ router.get('/transactions', authenticate, async (req, res) => {
 });
 
 // POST /api/finances/transactions
-router.post('/transactions', authenticate, checkProjectAccess(), upload.single('receipt'), async (req, res) => {
+router.post('/transactions', authenticate, upload.single('receipt'), checkProjectAccess(), async (req, res) => {
   try {
     console.log('New Transaction:', req.body);
     if (req.file) console.log('Attached Receipt:', req.file.filename);
