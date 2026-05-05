@@ -14,6 +14,8 @@ obj/
 .env.development.local
 .env.test.local
 .env.production.local
+server/.env
+server/.env.*
 
 # Debug logs
 npm-debug.log*
@@ -35,3 +37,7 @@ yarn-error.log*
 .cache/
 .temp/
 .tmp/
+server/logs/
+server/uploads/
+*.csv
+*.txt

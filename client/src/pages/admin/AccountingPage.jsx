@@ -9,7 +9,7 @@ import {
 import { 
   TrendingUp, TrendingDown, IndianRupee, Briefcase, 
   Download, Calendar, Filter, ArrowUpRight, ArrowDownRight,
-  ChevronRight, Activity, Receipt, Plus, Trash2, FileText, CheckCircle2
+  Activity, Receipt, Trash2, FileText, CheckCircle2, Plus, X, Lock
 } from 'lucide-react';
 
 const EXPENSE_CATEGORIES = [
@@ -50,13 +50,15 @@ export default function AccountingPage() {
     categories: []
   });
 
-  // Project Health Data
-  const [projectHealth, setProjectHealth] = useState([]);
+
 
   // Expenses Data
   const [expenses, setExpenses] = useState([]);
-  const [newExpense, setNewExpense] = useState({ category: '', amount: '', date: new Date().toISOString().split('T')[0], description: '', project_id: '', receipt: null });
+
   const [projects, setProjects] = useState([]);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [modalData, setModalData] = useState({ category: '', amount: '', date: new Date().toISOString().split('T')[0], description: '', receipt: null });
 
   // Payroll Data
   const [employees, setEmployees] = useState([]);
@@ -97,7 +99,7 @@ export default function AccountingPage() {
       fetchAudits();
     }
     if (activeTab === 'payroll') fetchPayrollData();
-    if (activeTab === 'project-health') fetchProjectHealth();
+
   }, [activeTab, selectedMonth, selectedYear, filters]);
 
   const fetchProjects = async () => {
@@ -147,22 +149,14 @@ export default function AccountingPage() {
     }
   };
 
-  const fetchProjectHealth = async () => {
-    try {
-      const { data } = await api.get('/reports/project-pnl');
-      setProjectHealth(data);
-    } catch (err) {
-      toast.error('Failed to load project health report');
-    }
-  };
+
 
   const fetchExpenses = async () => {
     try {
-      const { startDate, endDate, projectId } = filters;
+      const { startDate, endDate } = filters;
       let url = `/finances/transactions?type=expense`;
       if (startDate) url += `&start_date=${startDate}`;
       if (endDate) url += `&end_date=${endDate}`;
-      if (projectId) url += `&project_id=${projectId}`;
       
       const { data } = await api.get(url);
       // Explicitly filter out vendor payments from the general expense list
@@ -213,32 +207,33 @@ export default function AccountingPage() {
     }
   };
 
+
+
   const handleAddExpense = async (e) => {
     e.preventDefault();
-    
-    const amountVal = parseFloat(newExpense.amount);
+    if (isSubmitting) return;
+
+    const amountVal = parseFloat(modalData.amount);
     if (isNaN(amountVal) || amountVal <= 0) {
       toast.error('Please enter a valid amount');
       return;
     }
 
-    if (!newExpense.category) {
-      toast.error('Please select a category');
+    if (!modalData.date) {
+      toast.error('Please select a date');
       return;
     }
 
+    setIsSubmitting(true);
     const formData = new FormData();
     formData.append('type', 'expense');
-    formData.append('category', newExpense.category); 
+    formData.append('category', modalData.category); 
     formData.append('amount', amountVal);
-    formData.append('date', newExpense.date);
-    formData.append('description', newExpense.description || '');
+    formData.append('date', modalData.date);
+    formData.append('description', modalData.description || '');
     
-    if (newExpense.project_id) {
-      formData.append('project_id', newExpense.project_id);
-    }
-    if (newExpense.receipt) {
-      formData.append('receipt', newExpense.receipt);
+    if (modalData.receipt) {
+      formData.append('receipt', modalData.receipt);
     }
 
     try {
@@ -246,16 +241,30 @@ export default function AccountingPage() {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       toast.success('Expense recorded');
-      setNewExpense({ category: '', amount: '', date: new Date().toISOString().split('T')[0], description: '', project_id: '', receipt: null });
+      setIsAddModalOpen(false);
+      setModalData({ category: '', amount: '', date: new Date().toISOString().split('T')[0], description: '', receipt: null });
       fetchExpenses();
       fetchSummary();
     } catch (err) {
-      console.error('Expense add error:', err.response?.data || err.message);
       toast.error(err.response?.data?.error || 'Failed to record expense');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleDeleteExpense = async (id) => {
+  const isDeletable = (dateStr) => {
+    if (!dateStr) return true;
+    const date = new Date(dateStr);
+    const diff = Date.now() - date.getTime();
+    const days = diff / (1000 * 60 * 60 * 24);
+    return days < 15;
+  };
+
+  const handleDeleteExpense = async (id, date) => {
+    if (!isDeletable(date)) {
+      toast.error('Expenses older than 15 days are irreversible');
+      return;
+    }
     if (!window.confirm('Delete this transaction?')) return;
     try {
       await api.delete(`/finances/transactions/${id}`);
@@ -269,7 +278,15 @@ export default function AccountingPage() {
 
   const handleProcessPayroll = async (emp) => {
     const suggested = emp.suggested_salary;
-    const finalAmount = prompt(`Confirm payment amount for ${emp.name} (${emp.days_present} days present):`, suggested);
+    const breakdown = `
+      Full Days: ${emp.full_days}
+      Half Days: ${emp.half_days} (${emp.half_days * 0.5}d)
+      Late Penalty: -${emp.late_penalty_days}d
+      Unpaid Leaves: -${emp.unpaid_leaves}
+      Paid Holidays: +${emp.paid_holidays}
+      Final Payable Days: ${emp.payable_days}
+    `;
+    const finalAmount = prompt(`Confirm payment for ${emp.name}:\n${breakdown}\nSuggested Amount:`, suggested);
     
     if (finalAmount === null) return;
 
@@ -310,11 +327,10 @@ export default function AccountingPage() {
       return;
     }
 
-    const headers = ['Date', 'Category', 'Project', 'Vendor', 'Description', 'Amount'];
+    const headers = ['Date', 'Category', 'Vendor', 'Description', 'Amount'];
     const rows = expenses.map(exp => [
       new Date(exp.date).toLocaleDateString(),
       exp.category,
-      exp.project_name || 'Global',
       exp.vendor_name || 'N/A',
       exp.description?.replace(/,/g, ';'), // Escape commas
       exp.amount
@@ -343,7 +359,7 @@ export default function AccountingPage() {
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold text-gray-900">Accounting Control</h1>
           <div className="flex bg-gray-100 p-1 rounded-lg">
-            {['summary', 'project-health', 'payroll', 'expenses'].map((tab) => (
+            {['summary', 'payroll', 'expenses'].map((tab) => (
               <button 
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -379,19 +395,21 @@ export default function AccountingPage() {
             />
           </div>
 
-          <div className="flex items-center gap-2">
-            <Briefcase size={14} className="text-gray-400" />
-            <select 
-              value={filters.projectId}
-              onChange={(e) => setFilters({...filters, projectId: e.target.value})}
-              className="bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 text-xs outline-none focus:border-primary min-w-[150px]"
-            >
-              <option value="">All Projects</option>
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
+          {activeTab !== 'expenses' && (
+            <div className="flex items-center gap-2">
+              <Briefcase size={14} className="text-gray-400" />
+              <select 
+                value={filters.projectId}
+                onChange={(e) => setFilters({...filters, projectId: e.target.value})}
+                className="bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 text-xs outline-none focus:border-primary min-w-[150px]"
+              >
+                <option value="">All Projects</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <button 
             onClick={() => setFilters({ startDate: '', endDate: '', projectId: '' })}
@@ -571,160 +589,12 @@ export default function AccountingPage() {
           </div>
         )}
 
-        {activeTab === 'project-health' && (
-          <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-500">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {projectHealth.map(proj => (
-                <div key={proj.id} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:border-primary/30 transition-all group">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-black text-gray-900 truncate group-hover:text-primary transition-colors">{proj.name}</h3>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">{proj.client_name}</p>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${
-                      proj.status === 'completed' ? 'bg-green-100 text-green-700' : 
-                      proj.status === 'execution' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {proj.status}
-                    </span>
-                  </div>
 
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-gray-500 font-medium">Invoiced Income</span>
-                      <span className="font-bold text-green-600">₹{parseFloat(proj.total_income).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-gray-500 font-medium">Direct Expenses</span>
-                      <span className="font-bold text-red-500">₹{parseFloat(proj.total_expense).toLocaleString()}</span>
-                    </div>
-                    <div className="pt-2 border-t border-gray-50 flex justify-between items-center">
-                      <span className="text-xs font-black text-gray-800 uppercase tracking-tighter">Gross Profit</span>
-                      <span className={`text-sm font-black ${proj.net_profit >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                        ₹{parseFloat(proj.net_profit).toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-3 flex justify-end border-t border-gray-50">
-                    <button 
-                      onClick={() => {
-                        setFilters({ ...filters, projectId: proj.id.toString() });
-                        setActiveTab('summary');
-                      }}
-                      className="text-[10px] font-black text-primary uppercase tracking-widest flex items-center gap-1 hover:gap-2 transition-all"
-                    >
-                      View Detailed P&L <ChevronRight size={12} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {projectHealth.length === 0 && (
-                <div className="col-span-full py-20 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400">
-                  <Activity size={48} className="mb-4 opacity-20" />
-                  <p className="text-sm font-bold uppercase tracking-widest">No project data found</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
         {activeTab === 'expenses' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             
-            {/* Quick Log Section */}
-            <div className="bg-gray-50/50 border-2 border-dashed border-gray-200 rounded-2xl p-6">
-              <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <Plus size={18} className="text-primary" />
-                Quick Log Expense
-              </h3>
-              
-              <form onSubmit={handleAddExpense} className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Category</label>
-                  <select 
-                    required
-                    value={newExpense.category}
-                    onChange={(e) => setNewExpense({...newExpense, category: e.target.value})}
-                    className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-primary shadow-sm"
-                  >
-                    <option value="">Select</option>
-                    {EXPENSE_CATEGORIES.map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
-                </div>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Amount (₹)</label>
-                  <input 
-                    type="number" required
-                    value={newExpense.amount}
-                    onChange={(e) => setNewExpense({...newExpense, amount: e.target.value})}
-                    placeholder="0.00"
-                    className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-primary shadow-sm font-mono"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Date</label>
-                  <input 
-                    type="date" required
-                    value={newExpense.date}
-                    onChange={(e) => setNewExpense({...newExpense, date: e.target.value})}
-                    className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-primary shadow-sm"
-                  />
-                </div>
-
-                <div className="space-y-1 lg:col-span-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Project</label>
-                  <select 
-                    value={newExpense.project_id}
-                    onChange={(e) => setNewExpense({...newExpense, project_id: e.target.value})}
-                    className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-primary shadow-sm"
-                  >
-                    <option value="">None (Office)</option>
-                    {projects.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1 lg:col-span-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Description</label>
-                  <input 
-                    type="text"
-                    value={newExpense.description}
-                    onChange={(e) => setNewExpense({...newExpense, description: e.target.value})}
-                    placeholder="Brief note..."
-                    className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-primary shadow-sm"
-                  />
-                </div>
-
-                <div className="flex items-end gap-2">
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Receipt</label>
-                    <label className="flex items-center justify-center h-[34px] bg-white border border-gray-200 rounded-lg cursor-pointer hover:border-primary hover:text-primary transition-all shadow-sm">
-                      <Receipt size={14} className={newExpense.receipt ? 'text-primary' : 'text-gray-400'} />
-                      <span className="text-[10px] font-bold ml-1 truncate max-w-[50px]">
-                        {newExpense.receipt ? 'File' : 'Link'}
-                      </span>
-                      <input 
-                        type="file" 
-                        onChange={(e) => setNewExpense({...newExpense, receipt: e.target.files[0]})}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                  <button 
-                    type="submit"
-                    className="h-[34px] px-4 bg-primary text-white rounded-lg text-xs font-bold shadow-lg shadow-orange-100 hover:bg-primary-dark transition-all active:scale-95 whitespace-nowrap"
-                  >
-                    Log
-                  </button>
-                </div>
-              </form>
-            </div>
 
             {/* Expense Matrix */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
@@ -778,7 +648,19 @@ export default function AccountingPage() {
                       return (
                         <tr key={cat} className="hover:bg-gray-50/50 transition-colors group">
                           <td className="px-6 py-4 align-top">
-                            <span className="text-xs font-bold text-gray-700 block mt-1">{cat}</span>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-xs font-bold text-gray-700">{cat}</span>
+                              <button 
+                                onClick={() => {
+                                  setModalData({ ...modalData, category: cat });
+                                  setIsAddModalOpen(true);
+                                }}
+                                className="w-7 h-7 rounded-lg bg-orange-600 text-white flex items-center justify-center hover:bg-orange-700 transition-all shadow-md active:scale-90 flex-shrink-0"
+                                title={`Add ${cat} Expense`}
+                              >
+                                <Plus size={16} strokeWidth={3} />
+                              </button>
+                            </div>
                           </td>
                           <td className="px-6 py-4 align-top">
                             <div className="flex flex-wrap gap-2">
@@ -798,12 +680,17 @@ export default function AccountingPage() {
                                           <Receipt size={10} />
                                         </a>
                                       )}
-                                      <button 
-                                        onClick={() => handleDeleteExpense(exp.id)}
-                                        className="ml-1 text-gray-300 hover:text-red-500 opacity-0 group-hover/chip:opacity-100 transition-opacity"
-                                      >
-                                        <Trash2 size={10} />
-                                      </button>
+                                      {isDeletable(exp.date) ? (
+                                        <button 
+                                          onClick={() => handleDeleteExpense(exp.id, exp.date)}
+                                          className="ml-1 text-gray-300 hover:text-red-500 opacity-0 group-hover/chip:opacity-100 transition-opacity"
+                                          title="Delete transaction"
+                                        >
+                                          <Trash2 size={10} />
+                                        </button>
+                                      ) : (
+                                        <Lock size={10} className="ml-1 text-gray-300" title="Irreversible (15+ days)" />
+                                      )}
                                     </div>
                                   </div>
                                 ))
@@ -883,30 +770,52 @@ export default function AccountingPage() {
               <table className="w-full text-left text-sm">
                 <thead className="bg-white border-b border-gray-200">
                   <tr>
-                    <th className="px-6 py-4 font-semibold text-gray-600">Employee</th>
-                    <th className="px-6 py-4 font-semibold text-gray-600">Department</th>
-                    <th className="px-6 py-4 font-semibold text-gray-600 text-center">Attendance</th>
-                    <th className="px-6 py-4 font-semibold text-gray-600 text-right">Base Salary</th>
-                    <th className="px-6 py-4 font-semibold text-gray-600 text-right">Payable (Suggested)</th>
-                    <th className="px-6 py-4 font-semibold text-gray-600 text-center">Status</th>
-                    <th className="px-6 py-4 font-semibold text-gray-600 text-center">Action</th>
+                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px]">Employee</th>
+                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Attendance</th>
+                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Half Days</th>
+                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Late</th>
+                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Leaves</th>
+                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-right">Base Salary</th>
+                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-right">Payable</th>
+                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Status</th>
+                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {employees.map(emp => {
                     const processed = payrollHistory.find(p => p.user_id === emp.id);
                     return (
-                      <tr key={emp.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 font-medium text-gray-900">{emp.name}</td>
-                        <td className="px-6 py-4 text-gray-600">{emp.department}</td>
+                      <tr key={emp.id} className="hover:bg-gray-50/80 transition-colors group/row">
+                        <td className="px-6 py-4">
+                          <div className="font-bold text-gray-900">{emp.name}</div>
+                          <div className="text-[10px] text-gray-400 font-bold uppercase">{emp.department}</div>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className="font-bold text-gray-800">{emp.full_days || 0}</span>
+                          <span className="text-[10px] text-gray-400 font-bold ml-1">/ {emp.total_days}</span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={`font-bold ${emp.half_days > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                            {emp.half_days || 0}
+                          </span>
+                        </td>
                         <td className="px-6 py-4 text-center">
                           <div className="flex flex-col items-center">
-                            <span className="font-bold text-gray-800">{emp.days_present || 0}</span>
-                            <span className="text-[10px] text-gray-400 uppercase tracking-tighter">of {emp.total_days} days</span>
+                            <span className={`font-bold ${emp.late_count > 0 ? 'text-red-500' : 'text-gray-400'}`}>
+                              {emp.late_count || 0}
+                            </span>
+                            {emp.late_penalty_days > 0 && (
+                              <span className="text-[9px] font-black text-red-400">-{emp.late_penalty_days}d</span>
+                            )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-right font-mono">
-                          <div className="flex items-center justify-end gap-2">
+                        <td className="px-6 py-4 text-center">
+                          <span className={`font-bold ${emp.unpaid_leaves > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                            {emp.unpaid_leaves || 0}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right font-mono text-xs font-bold text-gray-600">
+                          <div className="flex items-center justify-end gap-1">
                             <span>₹{parseFloat(emp.base_salary).toLocaleString('en-IN')}</span>
                             <button 
                               onClick={async () => {
@@ -921,27 +830,61 @@ export default function AccountingPage() {
                                   }
                                 }
                               }}
-                              className="text-gray-300 hover:text-primary"
+                              className="text-gray-300 hover:text-primary opacity-0 group-hover/row:opacity-100 transition-opacity"
                             >
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                             </button>
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-right font-mono font-bold text-primary">
-                          ₹{(processed ? processed.net_paid : emp.suggested_salary).toLocaleString('en-IN')}
+                        <td className="px-6 py-4 text-right relative group">
+                          <div className="font-black text-primary font-mono cursor-help">
+                            ₹{Number(processed ? processed.net_paid : emp.suggested_salary || 0).toLocaleString('en-IN')}
+                          </div>
+                          
+                          {/* Breakdown Tooltip */}
+                          <div className="absolute bottom-full right-0 mb-2 w-48 bg-gray-900 text-white rounded-xl p-3 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all z-50 transform translate-y-2 group-hover:translate-y-0">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 border-b border-gray-700 pb-1">Salary Breakdown</div>
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between text-[11px]">
+                                <span className="text-gray-400">Full Days:</span>
+                                <span className="font-bold">{emp.full_days}</span>
+                              </div>
+                              <div className="flex justify-between text-[11px]">
+                                <span className="text-gray-400">Half Days (0.5):</span>
+                                <span className="font-bold text-orange-400">{emp.half_days} ({emp.half_days * 0.5}d)</span>
+                              </div>
+                              <div className="flex justify-between text-[11px]">
+                                <span className="text-gray-400">Paid Holidays:</span>
+                                <span className="font-bold text-emerald-400">+{emp.paid_holidays}</span>
+                              </div>
+                              <div className="flex justify-between text-[11px]">
+                                <span className="text-gray-400">Late Cut:</span>
+                                <span className="font-bold text-red-400">-{emp.late_penalty_days}d</span>
+                              </div>
+                              <div className="flex justify-between text-[11px]">
+                                <span className="text-gray-400">Unpaid Leaves:</span>
+                                <span className="font-bold text-red-400">-{emp.unpaid_leaves}</span>
+                              </div>
+                              <div className="flex justify-between text-[11px] pt-1 border-t border-gray-700 mt-1">
+                                <span className="font-black">Payable Days:</span>
+                                <span className="font-black text-primary">{emp.payable_days}d</span>
+                              </div>
+                            </div>
+                            <div className="absolute top-full right-4 w-2 h-2 bg-gray-900 transform rotate-45 -translate-y-1"></div>
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-center">
                           {processed ? (
-                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-[10px] font-bold uppercase tracking-wide">Paid</span>
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[9px] font-black uppercase tracking-widest">Paid</span>
                           ) : (
-                            <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-[10px] font-bold uppercase tracking-wide">Pending</span>
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-[9px] font-black uppercase tracking-widest">Pending</span>
                           )}
                         </td>
                         <td className="px-6 py-4 text-center">
                           {!processed && (
                             <button 
                               onClick={() => handleProcessPayroll(emp)}
-                              className="text-primary hover:underline text-xs font-bold uppercase tracking-wider"
+                              className="bg-primary/10 hover:bg-primary text-primary hover:text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
                             >
                               Process
                             </button>
@@ -950,6 +893,164 @@ export default function AccountingPage() {
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        {/* Add Expense Modal */}
+        {isAddModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-100 animate-in zoom-in-95 duration-300">
+              <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
+                <div>
+                  <h2 className="text-lg font-black text-gray-900">Add Office Expense</h2>
+                  <p className="text-[10px] font-bold text-primary uppercase tracking-widest">{modalData.category}</p>
+                </div>
+                <button 
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="p-2 hover:bg-white rounded-full transition-colors text-gray-400 hover:text-gray-600 shadow-sm"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleAddExpense} className="p-6 space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Amount (₹)</label>
+                  <input 
+                    type="number" required autoFocus
+                    value={modalData.amount}
+                    onChange={(e) => setModalData({...modalData, amount: e.target.value})}
+                    placeholder="0.00"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary focus:bg-white transition-all shadow-inner font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Date</label>
+                  <input 
+                    type="date" required
+                    value={modalData.date}
+                    onChange={(e) => setModalData({...modalData, date: e.target.value})}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary focus:bg-white transition-all shadow-inner"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Description</label>
+                  <textarea 
+                    value={modalData.description}
+                    onChange={(e) => setModalData({...modalData, description: e.target.value})}
+                    placeholder="Enter brief remarks..."
+                    rows={3}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary focus:bg-white transition-all shadow-inner resize-none"
+                  />
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Receipt</label>
+                    <label className="flex items-center justify-center w-full h-[46px] bg-gray-50 border border-gray-200 rounded-xl cursor-pointer hover:border-primary hover:text-primary transition-all shadow-inner group">
+                      <Receipt size={16} className={modalData.receipt ? 'text-primary' : 'text-gray-400'} />
+                      <span className="text-xs font-bold ml-2 truncate max-w-[150px]">
+                        {modalData.receipt ? modalData.receipt.name : 'Attach Bill'}
+                      </span>
+                      <input 
+                        type="file" 
+                        onChange={(e) => setModalData({...modalData, receipt: e.target.files[0]})}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button 
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="w-full h-12 bg-orange-600 text-white rounded-xl text-sm font-black uppercase tracking-widest shadow-lg shadow-orange-100 hover:bg-orange-700 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      'Save Transaction'
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'expenses' && (
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                <TrendingUp size={18} className="text-emerald-500" />
+                Recent Expense History
+              </h3>
+              <p className="text-[10px] font-bold text-gray-400 italic">Records older than 15 days are locked for auditing integrity</p>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50/30">
+                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date</th>
+                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Category</th>
+                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Description</th>
+                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Amount</th>
+                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {expenses.slice().sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0, 20).map(exp => (
+                    <tr key={exp.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-6 py-4 text-xs font-medium text-gray-500">
+                        {new Date(exp.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-[9px] font-black uppercase tracking-widest">
+                          {exp.category}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-xs text-gray-600 italic">
+                        {exp.description || '-'}
+                      </td>
+                      <td className="px-6 py-4 text-right font-mono text-xs font-black text-gray-900">
+                        ₹{parseFloat(exp.amount).toLocaleString('en-IN')}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        {isDeletable(exp.date) ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Editable" />
+                            <button 
+                              onClick={() => handleDeleteExpense(exp.id, exp.date)}
+                              className="text-gray-300 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-2 text-gray-400">
+                            <Lock size={12} />
+                            <span className="text-[9px] font-bold uppercase">Locked</span>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {expenses.length === 0 && (
+                    <tr>
+                      <td colSpan="5" className="px-6 py-12 text-center text-gray-400 italic text-sm">
+                        No recent history available
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

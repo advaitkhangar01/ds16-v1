@@ -1,24 +1,25 @@
 // client/src/App.jsx
 // Main router - protected routes with role-based redirects
 
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-// Pages
-import LoginPage from './pages/LoginPage';
-import AdminDashboard from './pages/admin/AdminDashboard';
-import EmployeeDashboard from './pages/employee/EmployeeDashboard';
-import ProjectsPage from './pages/ProjectsPage';
-import ProjectDetail from './pages/ProjectDetail';
-import AttendancePage from './pages/AttendancePage';
-import VendorsPage from './pages/VendorsPage';
-import ClientsPage from './pages/ClientsPage';
-import ClientDetail from './pages/admin/ClientDetail';
-import InvoicePage from './pages/admin/InvoicePage';
-import TasksPage from './pages/TasksPage';
-import AccountingPage from './pages/admin/AccountingPage';
-import SettingsPage from './pages/admin/SettingsPage';
+// Pages - Lazy loaded
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+const EmployeeDashboard = lazy(() => import('./pages/employee/EmployeeDashboard'));
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
+const ProjectDetail = lazy(() => import('./pages/ProjectDetail'));
+const AttendancePage = lazy(() => import('./pages/AttendancePage'));
+const VendorsPage = lazy(() => import('./pages/VendorsPage'));
+const ClientsPage = lazy(() => import('./pages/ClientsPage'));
+const ClientDetail = lazy(() => import('./pages/admin/ClientDetail'));
+const InvoicePage = lazy(() => import('./pages/admin/InvoicePage'));
+const TasksPage = lazy(() => import('./pages/TasksPage'));
+const AccountingPage = lazy(() => import('./pages/admin/AccountingPage'));
+const SettingsPage = lazy(() => import('./pages/admin/SettingsPage'));
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading } = useAuth();
@@ -50,54 +51,56 @@ function LoadingScreen() {
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/" element={<RoleRouter />} />
+    <Suspense fallback={<LoadingScreen />}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/" element={<RoleRouter />} />
 
-      {/* Admin */}
-      <Route path="/admin/dashboard" element={
-        <ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>
-      } />
-      <Route path="/admin/invoice" element={
-        <ProtectedRoute adminOnly><InvoicePage /></ProtectedRoute>
-      } />
-      <Route path="/admin/accounting" element={
-        <ProtectedRoute adminOnly><AccountingPage /></ProtectedRoute>
-      } />
-      <Route path="/admin/settings" element={
-        <ProtectedRoute adminOnly><SettingsPage /></ProtectedRoute>
-      } />
+        {/* Admin */}
+        <Route path="/admin/dashboard" element={
+          <ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>
+        } />
+        <Route path="/admin/invoice" element={
+          <ProtectedRoute adminOnly><InvoicePage /></ProtectedRoute>
+        } />
+        <Route path="/admin/accounting" element={
+          <ProtectedRoute adminOnly><AccountingPage /></ProtectedRoute>
+        } />
+        <Route path="/admin/settings" element={
+          <ProtectedRoute adminOnly><SettingsPage /></ProtectedRoute>
+        } />
 
-      {/* Employee */}
-      <Route path="/employee/dashboard" element={
-        <ProtectedRoute><EmployeeDashboard /></ProtectedRoute>
-      } />
+        {/* Employee */}
+        <Route path="/employee/dashboard" element={
+          <ProtectedRoute><EmployeeDashboard /></ProtectedRoute>
+        } />
 
-      {/* Shared */}
-      <Route path="/projects" element={
-        <ProtectedRoute><ProjectsPage /></ProtectedRoute>
-      } />
-      <Route path="/projects/:id" element={
-        <ProtectedRoute><ProjectDetail /></ProtectedRoute>
-      } />
-      <Route path="/attendance" element={
-        <ProtectedRoute><AttendancePage /></ProtectedRoute>
-      } />
-      <Route path="/tasks" element={
-        <ProtectedRoute><TasksPage /></ProtectedRoute>
-      } />
-      <Route path="/vendors" element={
-        <ProtectedRoute><VendorsPage /></ProtectedRoute>
-      } />
-      <Route path="/clients" element={
-        <ProtectedRoute><ClientsPage /></ProtectedRoute>
-      } />
-      <Route path="/clients/:id" element={
-        <ProtectedRoute><ClientDetail /></ProtectedRoute>
-      } />
+        {/* Shared */}
+        <Route path="/projects" element={
+          <ProtectedRoute><ProjectsPage /></ProtectedRoute>
+        } />
+        <Route path="/projects/:id" element={
+          <ProtectedRoute><ProjectDetail /></ProtectedRoute>
+        } />
+        <Route path="/attendance" element={
+          <ProtectedRoute><AttendancePage /></ProtectedRoute>
+        } />
+        <Route path="/tasks" element={
+          <ProtectedRoute><TasksPage /></ProtectedRoute>
+        } />
+        <Route path="/vendors" element={
+          <ProtectedRoute><VendorsPage /></ProtectedRoute>
+        } />
+        <Route path="/clients" element={
+          <ProtectedRoute><ClientsPage /></ProtectedRoute>
+        } />
+        <Route path="/clients/:id" element={
+          <ProtectedRoute><ClientDetail /></ProtectedRoute>
+        } />
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 

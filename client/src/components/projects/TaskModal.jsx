@@ -93,15 +93,7 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
     }
   }
 
-  async function handleStageChange(newStage) {
-    try {
-      const { data } = await api.patch(`/tasks/${taskId}`, { stage: newStage });
-      setTask(prev => ({ ...prev, stage: data.task.stage }));
-      toast.success('Task stage updated');
-    } catch {
-      toast.error('Failed to update stage');
-    }
-  }
+  // Removed handleStageChange as stage is being deprecated from tasks UI
 
   if (!isOpen) return null;
 
@@ -140,36 +132,43 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
             </div>
             
             <div className="flex items-center gap-3 flex-wrap mt-2">
-              {/* Stage Select/Badge */}
-              <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-muted font-bold uppercase tracking-tight">Stage:</span>
-                <select
-                  className="bg-transparent text-xs font-bold text-[#1A1A1A] focus:outline-none"
-                  value={task?.stage}
-                  onChange={(e) => handleStageChange(e.target.value)}
-                >
-                  <option value="proposal">Proposal</option>
-                  <option value="design">Design</option>
-                  <option value="execution">Execution</option>
-                  <option value="sanction">Sanction</option>
-                  <option value="completed">Completed</option>
-                </select>
-              </div>
+              {/* Removed Stage Select as requested */}
 
               {/* Status Select/Badge */}
               <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200">
                 <span className="text-[10px] text-muted font-bold uppercase tracking-tight">Status:</span>
                 <select
-                  className="bg-transparent text-xs font-bold text-[#1A1A1A] focus:outline-none"
+                  className="bg-transparent text-xs font-bold text-[#1A1A1A] focus:outline-none disabled:opacity-50"
                   value={task?.status}
+                  disabled={user?.role !== 'admin' && (task?.status === 'review' || task?.status === 'passed')}
                   onChange={(e) => handleStatusChange(e.target.value)}
                 >
                   <option value="pending">Pending</option>
                   <option value="in_progress">In Progress</option>
                   <option value="review">Review</option>
-                  <option value="done">Done</option>
+                  {/* "done" is being phased out, but kept for legacy support if needed */}
+                  {task?.status === 'done' && <option value="done">Done</option>}
+                  {task?.status === 'passed' && <option value="passed">Passed</option>}
                 </select>
               </div>
+
+              {/* Admin Actions */}
+              {user?.role === 'admin' && task?.status === 'review' && (
+                <div className="flex items-center gap-2 ml-auto">
+                  <button 
+                    onClick={() => handleStatusChange('passed')}
+                    className="px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-sm transition-all"
+                  >
+                    Pass Task
+                  </button>
+                  <button 
+                    onClick={() => handleStatusChange('in_progress')}
+                    className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-sm transition-all"
+                  >
+                    Reassign
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

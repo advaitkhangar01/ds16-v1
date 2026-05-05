@@ -2,19 +2,20 @@ import React, { useState, useEffect, useMemo } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
-import { 
-  Users, 
-  Clock, 
-  Calendar as CalendarIcon, 
-  Trash2, 
-  Plus, 
-  Shield, 
-  UserPlus, 
+import {
+  Users,
+  Clock,
+  Calendar as CalendarIcon,
+  Trash2,
+  Plus,
+  Shield,
+  UserPlus,
   Key,
   Lock,
   Search,
   RefreshCw,
-  X
+  X,
+  MapPin,
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -32,13 +33,27 @@ export default function SettingsPage() {
 
   // Payroll Rules State
   const [payrollSettings, setPayrollSettings] = useState({
-    office_start_time: '09:30',
+    office_start_time: '10:00',
+    late_threshold_time: '10:15',
+    late_penalty_rule_count: '3',
+    late_penalty_rule_days: '0.5',
+    half_day_cutoff_time: '13:00',
+    min_working_hours: '4',
+    // legacy fields
     late_threshold_mins: '15',
     late_penalty_amount: '50',
     half_day_threshold_hours: '4',
     half_day_penalty_percent: '50',
-    leave_penalty_type: 'daily_wage',
-    leave_penalty_fixed: '0'
+  });
+
+  // Geo-fence State
+  const [geoSettings, setGeoSettings] = useState({
+    geofence_enabled:       'false',
+    office_lat:             '21.107331867053905',
+    office_lng:             '79.06281798771569',
+    geofence_strict_radius: '25',
+    geofence_buffer_radius: '50',
+    geofence_max_accuracy:  '50',
   });
 
   // Holidays State
@@ -61,6 +76,9 @@ export default function SettingsPage() {
       } else if (activeTab === 'holidays') {
         const { data } = await api.get('/settings/holidays');
         setHolidays(data || []);
+      } else if (activeTab === 'geofence') {
+        const { data } = await api.get('/settings/app');
+        setGeoSettings(prev => ({ ...prev, ...data }));
       }
     } catch (err) {
       toast.error('Failed to load data');
@@ -116,6 +134,24 @@ export default function SettingsPage() {
     }
   };
 
+  // Geo-fence Handlers
+  const handleUpdateGeoSettings = async (e) => {
+    e.preventDefault();
+    // Safeguard: cannot enable without lat/lng
+    if (geoSettings.geofence_enabled === 'true') {
+      if (!geoSettings.office_lat || !geoSettings.office_lng) {
+        toast.error('Set office latitude and longitude before enabling geo-fence');
+        return;
+      }
+    }
+    try {
+      await api.post('/settings/app', geoSettings);
+      toast.success('Geo-fence settings saved');
+    } catch (err) {
+      toast.error('Failed to save geo-fence settings');
+    }
+  };
+
   // Payroll Handlers
   const handleUpdatePayrollSettings = async (e) => {
     e.preventDefault();
@@ -162,6 +198,12 @@ export default function SettingsPage() {
 
         {/* Tabs */}
         <div className="flex gap-2 p-1 bg-gray-100 w-fit rounded-xl">
+        <button
+            onClick={() => setActiveTab('geofence')}
+            className={`flex items-center gap-2 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'geofence' ? 'bg-white shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <MapPin size={14} /> Geo-Fence
+          </button>
           <button 
             onClick={() => setActiveTab('payroll')}
             className={`flex items-center gap-2 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'payroll' ? 'bg-white shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700'}`}
@@ -286,6 +328,188 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {/* Geo-fence Configuration */}
+          {activeTab === 'geofence' && (
+            <div className="p-8">
+              <div className="max-w-3xl">
+                <div className="flex items-center gap-3 mb-8">
+                  <div className="p-3 bg-emerald-50 rounded-2xl">
+                    <MapPin className="text-emerald-600" size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">Geo-Fence Configuration</h2>
+                    <p className="text-sm text-gray-500">Control employee check-in location boundaries</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleUpdateGeoSettings} className="space-y-10">
+
+                  {/* Master Toggle */}
+                  <section className="space-y-4">
+                    <h3 className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em] border-b border-gray-100 pb-3 flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      Master Switch
+                    </h3>
+                    <div className="flex items-center justify-between bg-gray-50 p-5 rounded-2xl border border-gray-100">
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">Enable Geo-Fencing</p>
+                        <p className="text-xs text-gray-400 font-medium mt-0.5">
+                          When enabled, employees must be within the defined radius to check in
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setGeoSettings(prev => ({
+                          ...prev,
+                          geofence_enabled: prev.geofence_enabled === 'true' ? 'false' : 'true'
+                        }))}
+                        className={`relative w-14 h-7 rounded-full transition-all duration-300 ${
+                          geoSettings.geofence_enabled === 'true'
+                            ? 'bg-emerald-500 shadow-lg shadow-emerald-200'
+                            : 'bg-gray-200'
+                        }`}
+                      >
+                        <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-all duration-300 ${
+                          geoSettings.geofence_enabled === 'true' ? 'translate-x-7' : 'translate-x-0'
+                        }`} />
+                      </button>
+                    </div>
+                    {geoSettings.geofence_enabled === 'false' && (
+                      <div className="flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-xl p-4">
+                        <span className="text-amber-500 text-sm mt-0.5">⚠</span>
+                        <p className="text-xs text-amber-700 font-medium">
+                          Geo-fencing is <strong>disabled</strong>. Employees can check in from anywhere.
+                          Location data is still captured for audit purposes.
+                        </p>
+                      </div>
+                    )}
+                    {geoSettings.geofence_enabled === 'true' && (
+                      <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-100 rounded-xl p-4">
+                        <span className="text-emerald-500 text-sm mt-0.5">✓</span>
+                        <p className="text-xs text-emerald-700 font-medium">
+                          Geo-fencing is <strong>active</strong>. Check-ins outside the buffer zone will be rejected.
+                        </p>
+                      </div>
+                    )}
+                  </section>
+
+                  {/* Office Location */}
+                  <section className="space-y-6">
+                    <h3 className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em] border-b border-gray-100 pb-3 flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      Office Location
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight">Latitude</label>
+                        <input
+                          type="number" step="any"
+                          value={geoSettings.office_lat}
+                          onChange={(e) => setGeoSettings({...geoSettings, office_lat: e.target.value})}
+                          placeholder="e.g. 21.107331867053905"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-3 text-sm font-mono outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-50 transition-all"
+                        />
+                        <p className="text-[10px] text-gray-400 font-medium italic">Decimal degrees (e.g. 21.1073)</p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight">Longitude</label>
+                        <input
+                          type="number" step="any"
+                          value={geoSettings.office_lng}
+                          onChange={(e) => setGeoSettings({...geoSettings, office_lng: e.target.value})}
+                          placeholder="e.g. 79.06281798771569"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-3 text-sm font-mono outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-50 transition-all"
+                        />
+                        <p className="text-[10px] text-gray-400 font-medium italic">Decimal degrees (e.g. 79.0628)</p>
+                      </div>
+                    </div>
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-xs font-mono text-slate-500 flex items-center gap-3">
+                      <MapPin size={14} className="text-emerald-500 shrink-0" />
+                      <span>
+                        {geoSettings.office_lat && geoSettings.office_lng
+                          ? `📍 ${parseFloat(geoSettings.office_lat).toFixed(6)}, ${parseFloat(geoSettings.office_lng).toFixed(6)}`
+                          : 'No office location set'}
+                      </span>
+                    </div>
+                  </section>
+
+                  {/* Radius Settings */}
+                  <section className="space-y-6">
+                    <h3 className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em] border-b border-gray-100 pb-3 flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      Zone Radii &amp; Accuracy
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-emerald-600 uppercase tracking-tight">✅ Strict Zone (m)</label>
+                        <div className="relative">
+                          <input
+                            type="number" min="1"
+                            value={geoSettings.geofence_strict_radius}
+                            onChange={(e) => setGeoSettings({...geoSettings, geofence_strict_radius: e.target.value})}
+                            className="w-full bg-emerald-50 border border-emerald-100 rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-emerald-400 transition-all"
+                          />
+                          <span className="absolute right-5 top-1/2 -translate-y-1/2 text-[10px] font-black text-emerald-400">M</span>
+                        </div>
+                        <p className="text-[10px] text-gray-400 font-medium italic">Direct check-in, high confidence</p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-amber-600 uppercase tracking-tight">🟡 Buffer Zone (m)</label>
+                        <div className="relative">
+                          <input
+                            type="number" min="1"
+                            value={geoSettings.geofence_buffer_radius}
+                            onChange={(e) => setGeoSettings({...geoSettings, geofence_buffer_radius: e.target.value})}
+                            className="w-full bg-amber-50 border border-amber-100 rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-amber-400 transition-all"
+                          />
+                          <span className="absolute right-5 top-1/2 -translate-y-1/2 text-[10px] font-black text-amber-400">M</span>
+                        </div>
+                        <p className="text-[10px] text-gray-400 font-medium italic">Allowed with GPS-variance warning</p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight">📡 Max GPS Accuracy (m)</label>
+                        <div className="relative">
+                          <input
+                            type="number" min="1"
+                            value={geoSettings.geofence_max_accuracy}
+                            onChange={(e) => setGeoSettings({...geoSettings, geofence_max_accuracy: e.target.value})}
+                            className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-gray-400 transition-all"
+                          />
+                          <span className="absolute right-5 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-400">M</span>
+                        </div>
+                        <p className="text-[10px] text-gray-400 font-medium italic">Reject if GPS error exceeds this</p>
+                      </div>
+                    </div>
+
+                    {/* Zone diagram */}
+                    <div className="bg-gray-50 rounded-2xl border border-gray-100 p-5 flex flex-col gap-3">
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Zone Preview</p>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold">
+                          ● 0 – {geoSettings.geofence_strict_radius}m: Strict (Direct check-in)
+                        </span>
+                        <span className="text-gray-300 font-bold">→</span>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-bold">
+                          ⚠ {geoSettings.geofence_strict_radius}–{geoSettings.geofence_buffer_radius}m: Buffer (Allowed with warning)
+                        </span>
+                        <span className="text-gray-300 font-bold">→</span>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-full text-xs font-bold">
+                          ✕ &gt;{geoSettings.geofence_buffer_radius}m: Rejected
+                        </span>
+                      </div>
+                    </div>
+                  </section>
+
+                  <div className="pt-8 flex justify-end">
+                    <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-10 py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-emerald-100 transition-all active:scale-95">
+                      Save Geo-Fence Settings
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
           {/* Payroll Rules */}
           {activeTab === 'payroll' && (
             <div className="p-8">
@@ -300,63 +524,92 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <form onSubmit={handleUpdatePayrollSettings} className="space-y-8">
-                  <section className="space-y-4">
-                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 pb-2">Office Timing & Lateness</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-700">Standard Start Time</label>
+                <form onSubmit={handleUpdatePayrollSettings} className="space-y-10">
+                  <section className="space-y-6">
+                    <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-100 pb-3 flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                      Attendance Thresholds
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight">Office Start Time</label>
                         <input 
                           type="time"
                           value={payrollSettings.office_start_time}
                           onChange={(e) => setPayrollSettings({...payrollSettings, office_start_time: e.target.value})}
-                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all"
                         />
+                        <p className="text-[10px] text-gray-400 font-medium italic">Base time for late minutes calculation</p>
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-700">Grace Period (Minutes)</label>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight text-red-500">Late Threshold (10:15 AM)</label>
+                        <input 
+                          type="time"
+                          value={payrollSettings.late_threshold_time}
+                          onChange={(e) => setPayrollSettings({...payrollSettings, late_threshold_time: e.target.value})}
+                          className="w-full bg-gray-50 border-red-100 border rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all"
+                        />
+                        <p className="text-[10px] text-gray-400 font-medium italic">Marked "Late" after this time</p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight text-orange-500">Half-Day Cutoff (1:00 PM)</label>
+                        <input 
+                          type="time"
+                          value={payrollSettings.half_day_cutoff_time}
+                          onChange={(e) => setPayrollSettings({...payrollSettings, half_day_cutoff_time: e.target.value})}
+                          className="w-full bg-gray-50 border-orange-100 border rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all"
+                        />
+                        <p className="text-[10px] text-gray-400 font-medium italic">Automatic half-day if check-in after this</p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight">Min. Work Hours</label>
+                        <div className="relative">
+                          <input 
+                            type="number"
+                            value={payrollSettings.min_working_hours}
+                            onChange={(e) => setPayrollSettings({...payrollSettings, min_working_hours: e.target.value})}
+                            className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all"
+                          />
+                          <span className="absolute right-5 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-400 uppercase">Hours</span>
+                        </div>
+                        <p className="text-[10px] text-gray-400 font-medium italic">Must work at least this much for full day</p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-6">
+                    <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-100 pb-3 flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                      Late Penalty Rule
+                    </h3>
+                    <div className="bg-orange-50/50 p-6 rounded-3xl border border-orange-100">
+                      <div className="flex flex-wrap items-center gap-4">
+                        <span className="text-sm font-bold text-gray-700">Every</span>
                         <input 
                           type="number"
-                          value={payrollSettings.late_threshold_mins}
-                          onChange={(e) => setPayrollSettings({...payrollSettings, late_threshold_mins: e.target.value})}
-                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all"
+                          value={payrollSettings.late_penalty_rule_count}
+                          onChange={(e) => setPayrollSettings({...payrollSettings, late_penalty_rule_count: e.target.value})}
+                          className="w-20 bg-white border border-orange-200 rounded-xl px-4 py-2 text-sm font-black text-center outline-none focus:border-primary"
                         />
+                        <span className="text-sm font-bold text-gray-700">late arrivals, deduct</span>
+                        <input 
+                          type="number" step="0.5"
+                          value={payrollSettings.late_penalty_rule_days}
+                          onChange={(e) => setPayrollSettings({...payrollSettings, late_penalty_rule_days: e.target.value})}
+                          className="w-20 bg-white border border-orange-200 rounded-xl px-4 py-2 text-sm font-black text-center outline-none focus:border-primary"
+                        />
+                        <span className="text-sm font-bold text-gray-700">day(s) salary.</span>
                       </div>
+                      <p className="mt-4 text-[11px] text-orange-600 font-bold bg-white/50 w-fit px-3 py-1 rounded-full border border-orange-100">
+                        Current Rule: {payrollSettings.late_penalty_rule_count} lates = {payrollSettings.late_penalty_rule_days} day cut
+                      </p>
                     </div>
                   </section>
 
-                  <section className="space-y-4">
-                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 pb-2">Penalty Structure</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-700">Late Arrival Penalty (₹)</label>
-                        <div className="relative">
-                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-xs">₹</span>
-                          <input 
-                            type="number"
-                            value={payrollSettings.late_penalty_amount}
-                            onChange={(e) => setPayrollSettings({...payrollSettings, late_penalty_amount: e.target.value})}
-                            className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-8 pr-4 py-2.5 text-sm outline-none focus:border-primary"
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-700">Half Day Penalty (%)</label>
-                        <div className="relative">
-                          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-xs">%</span>
-                          <input 
-                            type="number"
-                            value={payrollSettings.half_day_penalty_percent}
-                            onChange={(e) => setPayrollSettings({...payrollSettings, half_day_penalty_percent: e.target.value})}
-                            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-
-                  <div className="pt-6 border-t border-gray-100 flex justify-end">
-                    <button type="submit" className="btn-primary px-8">Save Payroll Rules</button>
+                  <div className="pt-8 flex justify-end">
+                    <button type="submit" className="bg-primary hover:bg-[#C94E16] text-white px-10 py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-orange-100 transition-all active:scale-95">
+                      Save Calculation Rules
+                    </button>
                   </div>
                 </form>
               </div>

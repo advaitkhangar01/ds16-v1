@@ -28,7 +28,7 @@ export default function AppLayout({ children }) {
       {/* Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile top bar */}
-        <div className="hidden lg:hidden sticky top-0 z-10 glass border-b border-[#E0E0E0] px-4 py-3 flex items-center gap-3">
+        <div className="lg:hidden sticky top-0 z-10 glass border-b border-[#E0E0E0] px-4 py-3 flex items-center gap-3">
           <button
             onClick={() => setSidebarOpen(true)}
             className="p-2 rounded-lg hover:bg-[#F0F0F0] text-muted"

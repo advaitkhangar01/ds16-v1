@@ -9,6 +9,18 @@ export function mapAttendance(data) {
     lat: data.lat,
     lng: data.lng,
     date: data.date,
+    // Geo-fence: check-in
+    checkinZone:          data.checkin_zone        ?? data.checkinZone        ?? null,
+    checkinDistance:      data.checkin_distance    ?? data.checkinDistance    ?? null,
+    checkinAccuracy:      data.checkin_accuracy    ?? data.checkinAccuracy    ?? null,
+    isBoundaryCheckin:    data.is_boundary_checkin ?? data.isBoundaryCheckin  ?? false,
+    checkinVerified:      data.checkin_verified    ?? data.checkinVerified    ?? false,
+    // Geo-fence: checkout
+    checkoutLat:          data.checkout_lat        ?? data.checkoutLat        ?? null,
+    checkoutLng:          data.checkout_lng        ?? data.checkoutLng        ?? null,
+    checkoutZone:         data.checkout_zone       ?? data.checkoutZone       ?? null,
+    checkoutDistance:     data.checkout_distance   ?? data.checkoutDistance   ?? null,
+    checkoutOutsideZone:  data.checkout_outside_zone ?? data.checkoutOutsideZone ?? false,
   };
 
   // Ensure status is calculated if missing (helpful for dashboard consistency)

@@ -59,6 +59,40 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
+// GET /api/invoices/latest/number
+router.get('/latest/number', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT invoice_no 
+      FROM invoices 
+      WHERE invoice_no LIKE 'DS16-%' 
+      ORDER BY created_at DESC 
+      LIMIT 1
+    `);
+    
+    const year = new Date().getFullYear();
+    let nextNum = 1;
+    
+    if (rows.length > 0) {
+      const lastNo = rows[0].invoice_no;
+      const parts = lastNo.split('-');
+      if (parts.length === 3) {
+        const lastYear = parseInt(parts[1]);
+        const lastCount = parseInt(parts[2]);
+        if (lastYear === year) {
+          nextNum = lastCount + 1;
+        }
+      }
+    }
+    
+    const paddedCount = String(nextNum).padStart(3, '0');
+    res.json({ nextNo: `DS16-${year}-${paddedCount}` });
+  } catch (err) {
+    console.error('Get latest invoice number error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/invoices/:id - Get specific invoice details
 router.get('/:id', authenticate, checkProjectAccess({ idIsResource: 'invoice' }), async (req, res) => {
   try {
@@ -82,7 +116,8 @@ router.get('/:id', authenticate, checkProjectAccess({ idIsResource: 'invoice' })
   }
 });
 
-// POST /api/invoices - Create or update an invoice (UPSERT)
+// POST /api/invoices - Strictly CREATE a new invoice (no silent overwrites)
+// Returns 409 Conflict if the invoice_no already exists
 router.post('/', authenticate, requireAdmin, async (req, res) => {
   try {
     const { 
@@ -95,31 +130,34 @@ router.post('/', authenticate, requireAdmin, async (req, res) => {
       items, 
       tax_details, 
       status,
-      due_date 
+      due_date,
+      signature_data
     } = req.body;
 
     if (!invoice_no || !client_name || !amount || !items) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ error: 'Missing required fields: invoice_no, client_name, amount, items' });
     }
 
-    // Use native SQL ON CONFLICT for true atomic UPSERT
+    // Validate amount is a positive number
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ error: 'Amount must be a positive number' });
+    }
+
+    // Validate status if provided
+    const validStatuses = ['draft', 'generated', 'sent', 'paid', 'cancelled'];
+    const resolvedStatus = status || 'generated';
+    if (!validStatuses.includes(resolvedStatus)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+    }
+
+    // Strict INSERT — will throw a unique_violation (code 23505) if invoice_no already exists
     const query = `
       INSERT INTO invoices (
         invoice_no, project_id, client_id, client_name, amount, 
-        date, items, tax_details, status, due_date, created_by
+        date, items, tax_details, status, due_date, signature_data, created_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      ON CONFLICT (invoice_no) 
-      DO UPDATE SET 
-        project_id = EXCLUDED.project_id,
-        client_id = EXCLUDED.client_id,
-        client_name = EXCLUDED.client_name,
-        amount = EXCLUDED.amount,
-        date = EXCLUDED.date,
-        items = EXCLUDED.items,
-        tax_details = EXCLUDED.tax_details,
-        status = EXCLUDED.status,
-        due_date = EXCLUDED.due_date
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *;
     `;
 
@@ -128,26 +166,156 @@ router.post('/', authenticate, requireAdmin, async (req, res) => {
       project_id || null, 
       client_id || null, 
       client_name, 
-      amount, 
+      parsedAmount, 
       date || new Date(), 
       JSON.stringify(items), 
-      JSON.stringify(tax_details), 
-      status || 'generated', 
-      due_date || null, 
+      JSON.stringify(tax_details || {}), 
+      resolvedStatus,
+      due_date || null,
+      signature_data || null,
       req.user.id
     ]);
 
     res.status(201).json({ invoice: rows[0] });
   } catch (err) {
-    console.error('Create/Update invoice error:', err);
+    // PostgreSQL unique_violation error code
+    if (err.code === '23505') {
+      return res.status(409).json({ 
+        error: 'Invoice number already exists', 
+        code: 'DUPLICATE_INVOICE_NO',
+        message: `An invoice with number "${req.body.invoice_no}" already exists. Please use a different invoice number.`
+      });
+    }
+    console.error('Create invoice error:', err);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PATCH /api/invoices/:id/status - Update invoice status and/or signature only
+router.patch('/:id/status', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { status, signature_data } = req.body;
+    const { id } = req.params;
+
+    const validStatuses = ['draft', 'generated', 'sent', 'paid', 'cancelled'];
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+    }
+
+    // Build update fields dynamically
+    const updates = [];
+    const params = [];
+    let idx = 1;
+
+    if (status) {
+      updates.push(`status = $${idx++}`);
+      params.push(status);
+    }
+    if (signature_data !== undefined) {
+      updates.push(`signature_data = $${idx++}`);
+      params.push(signature_data);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    params.push(id);
+    const query = `UPDATE invoices SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`;
+    const { rows } = await pool.query(query, params);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    res.json({ invoice: rows[0] });
+  } catch (err) {
+    console.error('Update invoice status error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/invoices/:id/mark-paid — Atomic: records finance transaction + marks invoice paid
+// Wrapped in a single DB transaction. If either step fails, both are rolled back.
+router.post('/:id/mark-paid', authenticate, requireAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+
+    // 1. Fetch invoice to get project/amount details
+    const { rows: invoiceRows } = await client.query(
+      'SELECT * FROM invoices WHERE id = $1',
+      [id]
+    );
+
+    if (invoiceRows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const invoice = invoiceRows[0];
+
+    if (invoice.status === 'paid') {
+      return res.status(400).json({ error: 'Invoice is already marked as paid' });
+    }
+
+    if (!invoice.project_id) {
+      return res.status(400).json({ error: 'Invoice has no linked project. Cannot record income.' });
+    }
+
+    const amount = parseFloat(invoice.amount);
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Invoice amount must be greater than 0' });
+    }
+
+    // Begin atomic transaction
+    await client.query('BEGIN');
+
+    // Step 1: Insert finance transaction (table: transactions, matches finances.js schema)
+    await client.query(
+      `INSERT INTO transactions 
+        (type, category, amount, description, project_id, reference_id, date, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        'income',
+        'project_receipt',
+        amount,
+        `Invoice ${invoice.invoice_no} - ${invoice.client_name}`,
+        invoice.project_id,
+        invoice.invoice_no,
+        invoice.date,
+        req.user.id
+      ]
+    );
+
+    // Step 2: Mark invoice as paid
+    const { rows: updatedRows } = await client.query(
+      `UPDATE invoices SET status = 'paid' WHERE id = $1 RETURNING *`,
+      [id]
+    );
+
+    // Commit only if both steps succeeded
+    await client.query('COMMIT');
+
+    res.json({ 
+      invoice: updatedRows[0],
+      message: 'Invoice marked as paid and income recorded successfully'
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Mark paid atomic transaction error:', err);
+    res.status(500).json({ error: 'Failed to process payment. All changes have been rolled back.' });
+  } finally {
+    client.release();
   }
 });
 
 // DELETE /api/invoices/:id
 router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
   try {
-    await pool.query('DELETE FROM invoices WHERE id = $1', [req.params.id]);
+    const { rows } = await pool.query('DELETE FROM invoices WHERE id = $1 RETURNING id', [req.params.id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
     res.json({ message: 'Invoice deleted' });
   } catch (err) {
     console.error('Delete invoice error:', err);

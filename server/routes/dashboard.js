@@ -29,20 +29,21 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
 // ... (skipping some unchanged lines for brevity in replacement, but I must provide full target content)
 // Wait, I should replace exactly what I target.
 
-    // 2. Today's tasks (comments with assigned_to, grouped by project)
+    // 2. Today's tasks (grouped by project)
     const { rows: taskRows } = await pool.query(
       `SELECT 
-         c.id, c.message, c.task_status, c.created_at,
+         t.id, t.title, t.status, t.created_at,
          p.id as project_id, p.name as project_name,
          u.name as assigned_to_name, u.username as assigned_to_username,
          au.name as assigned_by_name
-       FROM comments c
-       JOIN projects p ON p.id = c.project_id
-       JOIN users u ON u.id = c.assigned_to
-       JOIN users au ON au.id = c.user_id
-       WHERE c.assigned_to IS NOT NULL
-         AND DATE(c.created_at AT TIME ZONE 'Asia/Kolkata') = $1::date
-       ORDER BY p.name, c.created_at DESC`,
+       FROM tasks t
+       JOIN projects p ON p.id = t.project_id
+       JOIN users u ON u.id = t.assigned_to
+       JOIN users au ON au.id = t.created_by
+       WHERE t.assigned_to IS NOT NULL
+         AND DATE(t.created_at AT TIME ZONE 'Asia/Kolkata') = $1::date
+         AND t.status != 'passed'
+       ORDER BY p.name, t.created_at DESC`,
       [today]
     );
 
@@ -113,7 +114,28 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
       rendering: parseInt(typeCountsRows[0].rendering || 0),
     };
 
-    // 5. All projects count
+    // 5. Financial Summary (Billed, Pending, Expenses)
+    // 5a. Billed/Received/Pending from payment stages
+    const { rows: stagesRows } = await pool.query(
+      `SELECT 
+          COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) as received,
+          COALESCE(SUM(CASE WHEN status IN ('bill generated', 'bill delivered') THEN amount ELSE 0 END), 0) as pending
+        FROM project_payment_stages
+        WHERE status != 'cancelled'`
+    );
+    const received = parseFloat(stagesRows[0].received);
+    const pending = parseFloat(stagesRows[0].pending);
+    const billed = received + pending;
+
+    // 5b. Expenses from transactions (excluding vendor payments)
+    const { rows: expRows } = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0) as total_expense 
+        FROM transactions 
+        WHERE type = 'expense' AND category != 'vendor_payment'`
+    );
+    const totalExpense = parseFloat(expRows[0].total_expense);
+
+    // 6. All projects count
     const { rows: countRows } = await pool.query('SELECT COUNT(*) FROM projects');
 
     res.json({
@@ -126,6 +148,11 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
       todays_tasks: Object.values(tasksByProject),
       kanban,
       type_counts,
+      finances: {
+        billed_amount: billed,
+        pending_amount: pending,
+        expense_amount: totalExpense
+      },
       total_projects: parseInt(countRows[0].count),
     });
   } catch (err) {
@@ -163,14 +190,14 @@ router.get('/employee', authenticate, async (req, res) => {
     // 2. My assigned tasks
     const { rows: taskRows } = await pool.query(
       `SELECT 
-         c.id, c.message, c.task_status, c.created_at,
+         t.id, t.title, t.status, t.created_at,
          p.id as project_id, p.name as project_name,
          au.name as assigned_by_name
-       FROM comments c
-       JOIN projects p ON p.id = c.project_id
-       JOIN users au ON au.id = c.user_id
-       WHERE c.assigned_to = $1
-       ORDER BY c.created_at DESC`,
+       FROM tasks t
+       JOIN projects p ON p.id = t.project_id
+       JOIN users au ON au.id = t.created_by
+       WHERE t.assigned_to = $1 AND t.status != 'passed'
+       ORDER BY t.created_at DESC`,
       [userId]
     );
 
@@ -186,15 +213,18 @@ router.get('/employee', authenticate, async (req, res) => {
       [userId]
     );
 
-    // 4. Project Kanban (Same as admin)
+    // 4. Project Kanban (Filtered for employee)
     const { rows: projectRows } = await pool.query(
       `SELECT p.id, p.name, p.client_name, p.type, p.status,
          COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
        FROM projects p
+       JOIN project_assignments pa ON pa.project_id = p.id
        LEFT JOIN project_stages ps ON ps.project_id = p.id
+       WHERE pa.user_id = $1
        GROUP BY p.id
        ORDER BY p.created_at DESC 
-       LIMIT 100`
+       LIMIT 100`,
+      [userId]
     );
     const kanban = { pending: [], design_proposal: [], sanction: [], execution: [], completed: [] };
     projectRows.forEach((p) => {

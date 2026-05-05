@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Attendance table (one check-in per user per date)
+-- Attendance table
 CREATE TABLE IF NOT EXISTS attendance (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS project_assignments (
   UNIQUE(project_id, user_id)
 );
 
--- Comments / Tasks (unified system)
+-- Comments (Discussion System)
 CREATE TABLE IF NOT EXISTS comments (
   id SERIAL PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -67,8 +67,6 @@ CREATE TABLE IF NOT EXISTS comments (
   message TEXT NOT NULL,
   parent_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
   assigned_to INTEGER REFERENCES users(id),   -- parsed from @mention
-  task_due_text VARCHAR(200),                  -- e.g. "by 22 March"
-  task_status VARCHAR(30) DEFAULT 'pending' CHECK (task_status IN ('pending', 'in_progress', 'completed')),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -76,7 +74,10 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE TABLE IF NOT EXISTS vendors (
   id SERIAL PRIMARY KEY,
   category VARCHAR(100) NOT NULL,
-  name VARCHAR(100) NOT NULL
+  name VARCHAR(100) NOT NULL,
+  phone VARCHAR(20),
+  email VARCHAR(100),
+  remarks TEXT
 );
 
 -- Documents table
@@ -107,3 +108,43 @@ CREATE TABLE IF NOT EXISTS project_document_amounts (
   amount DECIMAL(15, 2),
   PRIMARY KEY(project_id, document_type)
 );
+
+-- Tasks table
+CREATE TABLE IF NOT EXISTS tasks (
+  id SERIAL PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  stage VARCHAR(50) NOT NULL DEFAULT 'proposal',
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  assigned_to INTEGER REFERENCES users(id),
+  created_by INTEGER REFERENCES users(id),
+  status VARCHAR(30) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'review', 'done', 'passed')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Task participants
+CREATE TABLE IF NOT EXISTS task_participants (
+  id SERIAL PRIMARY KEY,
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  added_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(task_id, user_id)
+);
+
+-- Task messages
+CREATE TABLE IF NOT EXISTS task_messages (
+  id SERIAL PRIMARY KEY,
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  sender_id INTEGER REFERENCES users(id),
+  message TEXT NOT NULL,
+  mentions JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_task_participants_task ON task_participants(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_messages_task ON task_messages(task_id);
+

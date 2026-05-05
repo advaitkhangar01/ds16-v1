@@ -64,7 +64,7 @@ export default function ProjectDetail() {
   // New task creation state
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskAssignedTo, setNewTaskAssignedTo] = useState('');
-  const [newTaskStage, setNewTaskStage] = useState('proposal');
+  const [newTaskStage, setNewTaskStage] = useState('general');
 
   const fetchProject = useCallback(async () => {
     try {
@@ -436,20 +436,7 @@ export default function ProjectDetail() {
                       ))}
                     </select>
                   </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-muted uppercase">Stage</label>
-                    <select 
-                      className="input mt-1"
-                      value={newTaskStage}
-                      onChange={(e) => setNewTaskStage(e.target.value)}
-                    >
-                      <option value="proposal">Proposal</option>
-                      <option value="design">Design</option>
-                      <option value="execution">Execution</option>
-                      <option value="sanction">Sanction</option>
-                      <option value="completed">Completed</option>
-                    </select>
-                  </div>
+                  {/* Stage selection removed as requested */}
                 </div>
 
                 <div className="flex justify-end pt-2">
@@ -486,6 +473,7 @@ export default function ProjectDetail() {
                       </p>
                     </div>
                       <span className={`badge ${
+                        t.status === 'passed' ? 'badge-completed' :
                         t.status === 'done' ? 'badge-completed' :
                         t.status === 'in_progress' ? 'badge-in-progress' :
                         t.status === 'review' ? 'badge-pending bg-purple-50 text-purple-600 border-purple-200' :
@@ -496,7 +484,7 @@ export default function ProjectDetail() {
                     </div>
 
                     <div className="flex items-center gap-2 mt-4 text-xs text-muted flex-wrap">
-                      <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-bold uppercase tracking-tighter text-[9px] text-slate-500">{t.stage}</span>
+                      {/* Stage label removed as requested */}
                       {t.assigned_to_name && (
                         <span className="flex items-center gap-1 font-medium">
                           👤 {t.assigned_to_name}
@@ -513,7 +501,7 @@ export default function ProjectDetail() {
         {activeTab === 'documents' && <DocumentsTab projectId={id} currentUser={user} />}
         {activeTab === 'payments' && <PaymentStagesTab projectId={id} project={project} />}
         {activeTab === 'finances' && <ProjectFinancesTab projectId={id} />}
-        {activeTab === 'invoices' && <InvoiceHistoryTab projectId={id} />}
+        {activeTab === 'invoices' && <InvoiceHistoryTab projectId={id} project={project} />}
         {activeTab === 'site-photos' && <SitePhotographsTab projectId={id} currentUser={user} />}
         {activeTab === 'vendors' && <VendorsTab projectId={id} isAdmin={isAdmin} />}
       </div>

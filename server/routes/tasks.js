@@ -33,7 +33,7 @@ router.post('/', authenticate, checkProjectAccess(), async (req, res) => {
       INSERT INTO tasks (project_id, stage, title, description, assigned_to, created_by, status, created_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), NOW())
       RETURNING *
-    `, [project_id, stage || 'proposal', title.trim(), description || null, assigned_to || null, req.user.id]);
+    `, [project_id, stage || 'general', title.trim(), description || null, assigned_to || null, req.user.id]);
 
     // Ensure assigned_to and creator are participants
     const uniqueParticipants = new Set(participants || []);
@@ -72,9 +72,9 @@ router.post('/', authenticate, checkProjectAccess(), async (req, res) => {
 // GET /api/tasks
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { view, project_id } = req.query;
+    const { view, project_id, status } = req.query;
 
-    if (view === 'kanban') {
+    if (view === 'kanban' || view === 'history') {
       // Group by assigned_to
       // We fetch all employees
       const { rows: employees } = await pool.query(`
@@ -99,11 +99,14 @@ router.get('/', authenticate, async (req, res) => {
       `;
       
       const tasksParams = [];
+      if (view === 'history') {
+        tasksQuery += ` WHERE t.status = 'passed' `;
+      } else {
+        tasksQuery += ` WHERE t.status != 'passed' `;
+      }
+
       if (req.user.role !== 'admin') {
-        tasksQuery += `
-          JOIN project_assignments pa ON pa.project_id = t.project_id
-          WHERE pa.user_id = $1 OR t.assigned_to = $1
-        `;
+        tasksQuery += ` AND (t.assigned_to = $1 OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $1)) `;
         tasksParams.push(req.user.id);
       }
 
@@ -136,12 +139,18 @@ router.get('/', authenticate, async (req, res) => {
       tasks.forEach(t => {
         if (t.assigned_to && kanban[t.assigned_to]) {
           kanban[t.assigned_to].tasks.push(t);
-        } else {
+        } else if (!t.assigned_to) {
           kanban['unassigned'].tasks.push(t);
         }
       });
 
-      return res.json({ kanban: Object.values(kanban) });
+      // Filter out empty columns for History view to keep it "simply written"
+      let result = Object.values(kanban);
+      if (view === 'history') {
+        result = result.filter(col => col.tasks.length > 0);
+      }
+
+      return res.json({ kanban: result });
     }
 
     // Default list view (filter by project)
@@ -159,7 +168,7 @@ router.get('/', authenticate, async (req, res) => {
           LEFT JOIN users u ON u.id = t.assigned_to
           LEFT JOIN task_participants tp ON tp.task_id = t.id
           LEFT JOIN users part_u ON part_u.id = tp.user_id
-          WHERE t.project_id = $1
+          WHERE t.project_id = $1 AND t.status != 'passed'
           GROUP BY t.id, u.name 
           ORDER BY t.created_at DESC
         `;
@@ -183,11 +192,14 @@ router.get('/', authenticate, async (req, res) => {
     `;
     const params = [];
 
+    if (view === 'history') {
+      query += ` WHERE t.status = 'passed' `;
+    } else {
+      query += ` WHERE t.status != 'passed' `;
+    }
+
     if (req.user.role !== 'admin') {
-      query += `
-        JOIN project_assignments pa ON pa.project_id = t.project_id
-        WHERE pa.user_id = $1 OR t.assigned_to = $1
-      `;
+      query += ` AND (t.assigned_to = $1 OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $1)) `;
       params.push(req.user.id);
     }
 
@@ -321,8 +333,11 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
     let count = 1;
 
     if (status) {
-      if (!['pending', 'in_progress', 'review', 'done'].includes(status)) {
+      if (!['pending', 'in_progress', 'review', 'done', 'passed'].includes(status)) {
         return res.status(400).json({ error: 'Invalid status' });
+      }
+      if (status === 'passed' && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only admins can pass tasks' });
       }
       updates.push(`status = $${count++}`);
       params.push(status);
@@ -361,5 +376,26 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+// 6. Cleanup old passed tasks (90 days)
+async function cleanupOldTasks() {
+  try {
+    const { rowCount } = await pool.query(`
+      DELETE FROM tasks 
+      WHERE status = 'passed' 
+      AND created_at < NOW() - INTERVAL '90 days'
+    `);
+    if (rowCount > 0) {
+      console.log(`🧹 Cleaned up ${rowCount} old passed tasks.`);
+    }
+  } catch (err) {
+    console.error('Cleanup error:', err);
+  }
+}
+
+// Run daily
+setInterval(cleanupOldTasks, 24 * 60 * 60 * 1000);
+// Also run once on startup
+setTimeout(cleanupOldTasks, 5000);
 
 module.exports = router;

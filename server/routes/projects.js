@@ -71,25 +71,46 @@ router.get('/', authenticate, async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const limitInt = parseInt(limit);
 
-    // Both admin and employees can see all projects
-
-    query = `
-      SELECT p.*, 
-        u.name as created_by_name,
-        c.name as client_name,
-        c.company_name as client_company,
-        ps_contacts.name as primary_contact_name,
-        ps_contacts.phone as primary_contact_phone,
-        COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
-      FROM projects p
-      LEFT JOIN users u ON u.id = p.created_by
-      LEFT JOIN clients c ON c.id = p.client_id
-      LEFT JOIN project_stakeholders ps_contacts ON ps_contacts.project_id = p.id AND ps_contacts.is_primary = TRUE
-      LEFT JOIN project_stages ps ON ps.project_id = p.id
-      GROUP BY p.id, u.name, c.name, c.company_name, ps_contacts.name, ps_contacts.phone
-      ORDER BY p.created_at DESC
-      LIMIT $1 OFFSET $2`;
-    params = [limitInt, offset];
+    // Admins see all projects, employees only see assigned projects
+    if (req.user.role === 'admin') {
+      query = `
+        SELECT p.*, 
+          u.name as created_by_name,
+          c.name as client_name,
+          c.company_name as client_company,
+          ps_contacts.name as primary_contact_name,
+          ps_contacts.phone as primary_contact_phone,
+          COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
+        FROM projects p
+        LEFT JOIN users u ON u.id = p.created_by
+        LEFT JOIN clients c ON c.id = p.client_id
+        LEFT JOIN project_stakeholders ps_contacts ON ps_contacts.project_id = p.id AND ps_contacts.is_primary = TRUE
+        LEFT JOIN project_stages ps ON ps.project_id = p.id
+        GROUP BY p.id, u.name, c.name, c.company_name, ps_contacts.name, ps_contacts.phone
+        ORDER BY p.created_at DESC
+        LIMIT $1 OFFSET $2`;
+      params = [limitInt, offset];
+    } else {
+      query = `
+        SELECT p.*, 
+          u.name as created_by_name,
+          c.name as client_name,
+          c.company_name as client_company,
+          ps_contacts.name as primary_contact_name,
+          ps_contacts.phone as primary_contact_phone,
+          COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
+        FROM projects p
+        JOIN project_assignments pa ON pa.project_id = p.id
+        LEFT JOIN users u ON u.id = p.created_by
+        LEFT JOIN clients c ON c.id = p.client_id
+        LEFT JOIN project_stakeholders ps_contacts ON ps_contacts.project_id = p.id AND ps_contacts.is_primary = TRUE
+        LEFT JOIN project_stages ps ON ps.project_id = p.id
+        WHERE pa.user_id = $1
+        GROUP BY p.id, u.name, c.name, c.company_name, ps_contacts.name, ps_contacts.phone
+        ORDER BY p.created_at DESC
+        LIMIT $2 OFFSET $3`;
+      params = [req.user.id, limitInt, offset];
+    }
 
     const { rows } = await pool.query(query, params);
     res.json({ projects: rows, page: parseInt(page), limit: limitInt });
@@ -355,7 +376,7 @@ router.patch('/:id/stages/:stageId', authenticate, async (req, res) => {
 });
 
 // POST /api/projects/:id/assign  (assign employee)
-router.post('/:id/assign', authenticate, async (req, res) => {
+router.post('/:id/assign', authenticate, requireAdmin, async (req, res) => {
   try {
     const { user_id } = req.body;
     await pool.query(
@@ -365,6 +386,20 @@ router.post('/:id/assign', authenticate, async (req, res) => {
     res.json({ message: 'Assigned successfully' });
   } catch (err) {
     console.error('Assign error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE /api/projects/:id/assign/:userId (unassign employee)
+router.delete('/:id/assign/:userId', authenticate, requireAdmin, async (req, res) => {
+  try {
+    await pool.query(
+      `DELETE FROM project_assignments WHERE project_id = $1 AND user_id = $2`,
+      [req.params.id, req.params.userId]
+    );
+    res.json({ message: 'Unassigned successfully' });
+  } catch (err) {
+    console.error('Unassign error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });

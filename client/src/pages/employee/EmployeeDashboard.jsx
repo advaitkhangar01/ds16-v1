@@ -11,26 +11,57 @@ import AttendanceCard from '../../components/ui/AttendanceCard';
 import toast from 'react-hot-toast';
 import TaskModal from '../../components/projects/TaskModal';
 import KanbanBoard from '../../components/dashboard/KanbanBoard';
+import { getPosition, classifyZone, ZONE_CONFIG } from '../../utils/geofence';
 
 // --- New Compact Components ---
 
 function QuickStats({ salary, attendance }) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Earnings Card */}
       <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Monthly Earned</p>
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Earnings (This Month)</p>
         <div className="flex items-baseline gap-1.5">
           <span className="text-xl font-black text-slate-900 font-mono tracking-tight">₹{salary?.earned_this_month ?? 0}</span>
           {salary?.today_earned > 0 && <span className="text-[10px] font-bold text-emerald-500 font-mono">+{salary.today_earned}</span>}
         </div>
       </div>
-      <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Monthly Deductions</p>
+
+      {/* Adjustments Card with tooltip */}
+      <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all relative group">
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+          Adjustments
+          {/* Tooltip trigger icon */}
+          <span className="w-3 h-3 rounded-full border border-slate-300 text-slate-300 text-[8px] font-black flex items-center justify-center cursor-help leading-none">?</span>
+        </p>
         <div className="flex items-baseline gap-1.5">
-          <span className="text-xl font-black text-red-500 font-mono tracking-tight">₹{salary?.deductions_this_month ?? 0}</span>
-          {salary?.today_deductions > 0 && <span className="text-[10px] font-bold text-red-400 font-mono">+{salary.today_deductions}</span>}
+          <span className="text-xl font-black text-amber-600 font-mono tracking-tight">₹{salary?.deductions_this_month ?? 0}</span>
+          {salary?.today_deductions > 0 && <span className="text-[10px] font-bold text-amber-400 font-mono">+{salary.today_deductions}</span>}
+        </div>
+        <p className="text-[10px] text-slate-400 mt-1 leading-tight">Leaves, late arrivals &amp; half days</p>
+
+        {/* Hover tooltip breakdown */}
+        <div className="absolute bottom-full left-0 mb-2 w-52 bg-slate-900 text-white text-[10px] rounded-xl p-3 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
+          <p className="font-black uppercase tracking-widest text-slate-400 mb-2">Adjustment Breakdown</p>
+          <div className="space-y-1">
+            <div className="flex justify-between">
+              <span className="text-slate-300">Leaves taken</span>
+              <span className="font-mono font-bold text-white">{salary?.leaves_count ?? 0} day(s)</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-300">Late arrivals</span>
+              <span className="font-mono font-bold text-white">{salary?.late_count ?? 0} day(s)</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-300">Half days</span>
+              <span className="font-mono font-bold text-white">{salary?.half_day_count ?? 0} day(s)</span>
+            </div>
+          </div>
+          {/* Tooltip arrow */}
+          <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-900" />
         </div>
       </div>
+
       <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-2xl shadow-sm">
         <p className="text-[10px] font-black text-emerald-700/60 uppercase tracking-widest mb-1">Team Present</p>
         <span className="text-xl font-black text-emerald-600 font-mono tracking-tight">{attendance?.present ?? 0}</span>
@@ -43,34 +74,143 @@ function QuickStats({ salary, attendance }) {
   );
 }
 
+
+// ─── Zone Badge ──────────────────────────────────────────────────────────────
+function ZoneBadge({ zone, distance }) {
+  if (!zone || zone === 'unknown') return null;
+  const cfg = ZONE_CONFIG[zone] || ZONE_CONFIG.outside;
+  return (
+    <span
+      style={{
+        color: cfg.color,
+        background: cfg.bg,
+        border: `1px solid ${cfg.border}`,
+      }}
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest"
+    >
+      <span>{cfg.dot}</span>
+      {cfg.label}
+      {distance != null && <span className="font-mono opacity-70">· {distance}m</span>}
+    </span>
+  );
+}
+
+// ─── GPS Status Indicator ─────────────────────────────────────────────────────
+function GpsStatusDot({ state }) {
+  // state: 'idle' | 'fetching' | 'ok' | 'error'
+  const colors = {
+    idle:     'bg-slate-600',
+    fetching: 'bg-amber-400 animate-pulse',
+    ok:       'bg-emerald-500',
+    error:    'bg-red-500',
+  };
+  const labels = {
+    idle:     'GPS idle',
+    fetching: 'Getting location…',
+    ok:       'Location acquired',
+    error:    'GPS unavailable',
+  };
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={`w-1.5 h-1.5 rounded-full ${colors[state] || colors.idle}`} />
+      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{labels[state]}</span>
+    </span>
+  );
+}
+
+// ─── AttendanceStatus ─────────────────────────────────────────────────────────
 function AttendanceStatus({ attendance, onAction }) {
-  const [loading, setLoading] = useState(false);
-  const hasIn = !!attendance?.checkIn;
+  const [loading,   setLoading ]  = useState(false);
+  const [gpsState,  setGpsState]  = useState('idle'); // 'idle' | 'fetching' | 'ok' | 'error'
+  const [lastZone,  setLastZone]  = useState(attendance?.checkinZone || null);
+  const [lastDist,  setLastDist]  = useState(attendance?.checkinDistance || null);
+
+  const hasIn  = !!attendance?.checkIn;
   const hasOut = !!attendance?.checkOut;
+
+  // Sync zone/distance from existing attendance (on mount / refresh)
+  useEffect(() => {
+    if (attendance?.checkinZone)     setLastZone(attendance.checkinZone);
+    if (attendance?.checkinDistance) setLastDist(attendance.checkinDistance);
+  }, [attendance]);
 
   async function handleCheck(type) {
     setLoading(true);
     try {
       if (type === 'in') {
+        // ── Step 1: Acquire GPS ──────────────────────────────────────────────
+        setGpsState('fetching');
         let coords = {};
-        if (navigator.geolocation) {
-          coords = await new Promise((res) => {
-            navigator.geolocation.getCurrentPosition(
-              (p) => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
-              () => res({}),
-              { timeout: 5000 }
-            );
-          });
+        try {
+          coords = await getPosition({ enableHighAccuracy: true, timeout: 10000 });
+          setGpsState('ok');
+        } catch (_) {
+          setGpsState('error');
+          // Continue without location — server will reject if geo-fence is ON
+          toast('📡 Could not get GPS. Trying without location…', { duration: 3000 });
         }
-        await api.post('/attendance/checkin', coords);
-        toast.success('Check-in success! 🌅');
+
+        // ── Step 2: POST check-in ────────────────────────────────────────────
+        const { data } = await api.post('/attendance/checkin', coords);
+
+        // ── Step 3: Zone-aware toast ─────────────────────────────────────────
+        const zone = data.zone;
+        if (zone === 'buffer') {
+          toast(
+            <div>
+              <p className="font-bold text-sm">🟡 Checked In (Boundary)</p>
+              <p className="text-xs text-gray-500 mt-0.5">{data.geoMessage || 'GPS variation detected'}</p>
+            </div>,
+            { duration: 5000, style: { border: '1px solid #fde68a' } }
+          );
+        } else {
+          toast.success('✅ Checked in successfully!');
+        }
+
+        setLastZone(zone);
+        setLastDist(data.distance);
+
       } else {
-        await api.post('/attendance/checkout');
-        toast.success('Check-out success! 👋');
+        // ── Checkout: capture location silently ──────────────────────────────
+        setGpsState('fetching');
+        let coords = {};
+        try {
+          coords = await getPosition({ enableHighAccuracy: false, timeout: 6000 });
+          setGpsState('ok');
+        } catch (_) {
+          setGpsState('idle');
+        }
+
+        const { data } = await api.post('/attendance/checkout', coords);
+
+        if (data.checkoutOutsideZone) {
+          toast(
+            <div>
+              <p className="font-bold text-sm">👋 Checked Out</p>
+              <p className="text-xs text-amber-600 mt-0.5">Outside office location</p>
+            </div>,
+            { duration: 4000 }
+          );
+        } else {
+          toast.success('👋 Checked out successfully!');
+        }
       }
+
       onAction();
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Operation failed');
+      setGpsState('idle');
+      const errData = err.response?.data;
+      const reason  = errData?.reason;
+
+      if (reason === 'outside_zone') {
+        toast.error(`❌ ${errData.error || 'You are outside allowed office location'}`, { duration: 5000 });
+      } else if (reason === 'low_accuracy') {
+        toast.error(`📡 ${errData.error || 'GPS signal too weak. Move to open area.'}`, { duration: 5000 });
+      } else if (reason === 'no_location') {
+        toast.error('📍 Enable GPS to check in', { duration: 4000 });
+      } else {
+        toast.error(errData?.error || 'Operation failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -79,14 +219,26 @@ function AttendanceStatus({ attendance, onAction }) {
   return (
     <div className="bg-slate-900 text-white rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
       <div className="flex items-center gap-4">
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${hasIn ? 'border-emerald-500/50 text-emerald-500' : 'border-slate-700 text-slate-500'}`}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+        <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${
+          hasIn ? 'border-emerald-500/50 text-emerald-500' : 'border-slate-700 text-slate-500'
+        }`}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+          </svg>
         </div>
         <div>
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Attendance Status</p>
           <p className="text-xs font-bold uppercase tracking-tight">
             {!hasIn ? 'Not Checked In' : hasOut ? 'Day Completed' : 'Shift Active'}
           </p>
+          {/* Zone badge shown after check-in */}
+          {hasIn && lastZone && (
+            <div className="mt-1">
+              <ZoneBadge zone={lastZone} distance={lastDist} />
+            </div>
+          )}
+          {/* GPS state shown while fetching */}
+          {loading && <div className="mt-1"><GpsStatusDot state={gpsState} /></div>}
         </div>
         <div className="h-8 w-px bg-slate-800 mx-2 hidden md:block" />
         <div className="hidden md:flex gap-4">
@@ -102,19 +254,19 @@ function AttendanceStatus({ attendance, onAction }) {
       </div>
 
       <div className="flex gap-2 w-full md:w-auto">
-        <button 
+        <button
           onClick={() => handleCheck('in')}
           disabled={hasIn || loading}
           className="flex-1 md:flex-none px-6 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-emerald-500/20"
         >
-          {loading && !hasIn ? '...' : 'Check In'}
+          {loading && !hasIn ? '⏳ Getting GPS…' : 'Check In'}
         </button>
-        <button 
+        <button
           onClick={() => handleCheck('out')}
           disabled={!hasIn || hasOut || loading}
           className="flex-1 md:flex-none px-6 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all"
         >
-          {loading && hasIn ? '...' : 'Check Out'}
+          {loading && hasIn ? '…' : 'Check Out'}
         </button>
       </div>
     </div>
@@ -193,15 +345,16 @@ function MyTasksTable({ tasks }) {
                   <p className="text-[11px] font-black text-[#E05A1E] uppercase tracking-tight">{task.project_name}</p>
                 </td>
                 <td className="px-6 py-4 min-w-[200px]">
-                  <p className="text-xs font-bold text-slate-800 line-clamp-1">{task.message}</p>
+                  <p className="text-xs font-bold text-slate-800 line-clamp-1">{task.title}</p>
                 </td>
                 <td className="px-6 py-4">
                   <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
-                    task.task_status === 'completed' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' :
-                    task.task_status === 'in_progress' ? 'bg-amber-50 border-amber-100 text-amber-600' :
+                    task.status === 'passed' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' :
+                    task.status === 'done' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' :
+                    task.status === 'in_progress' ? 'bg-amber-50 border-amber-100 text-amber-600' :
                     'bg-slate-100 border-slate-200 text-slate-500'
                   }`}>
-                    {task.task_status}
+                    {task.status}
                   </span>
                 </td>
                 <td className="px-6 py-4 text-right">
@@ -277,10 +430,11 @@ function TaskKanbanBoard() {
                   <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-2 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
                   
                   <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
-                    <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
-                      {t.stage}
+                    <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
+                      {t.project_name}
                     </span>
                     <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
+                      t.status === 'passed' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
                       t.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
                       t.status === 'in_progress' ? 'bg-amber-50 border-amber-200 text-amber-600' :
                       t.status === 'review' ? 'bg-purple-50 border-purple-200 text-purple-600' :

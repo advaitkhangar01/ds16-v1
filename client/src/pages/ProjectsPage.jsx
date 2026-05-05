@@ -204,6 +204,104 @@ function CreateProjectModal({ onClose, onCreated, initialClientId }) {
   );
 }
 
+// ── Assign project modal
+function AssignProjectModal({ project, onClose }) {
+  const [users, setUsers] = useState([]);
+  const [assigned, setAssigned] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [usersRes, projectRes] = await Promise.all([
+          api.get('/settings/users'),
+          api.get(`/projects/${project.id}`)
+        ]);
+        setUsers(usersRes.data.users || []);
+        setAssigned(projectRes.data.project.assignments?.map(a => a.id) || []);
+      } catch (err) {
+        toast.error('Failed to load assignment data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [project.id]);
+
+  const toggleAssignment = async (userId) => {
+    setUpdating(userId);
+    try {
+      if (assigned.includes(userId)) {
+        await api.delete(`/projects/${project.id}/assign/${userId}`);
+        setAssigned(prev => prev.filter(id => id !== userId));
+        toast.success('Employee unassigned');
+      } else {
+        await api.post(`/projects/${project.id}/assign`, { user_id: userId });
+        setAssigned(prev => [...prev, userId]);
+        toast.success('Employee assigned');
+      }
+    } catch (err) {
+      toast.error('Update failed');
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-md card border border-[#E0E0E0] shadow-2xl">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="text-base font-semibold text-[#1A1A1A]">Assign Project</h3>
+            <p className="text-xs text-[#E05A1E] font-medium">{project.name}</p>
+          </div>
+          <button onClick={onClose} className="text-muted hover:text-[#1A1A1A] transition-colors">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="space-y-3 py-4">
+            {[1, 2, 3].map(i => <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-lg" />)}
+          </div>
+        ) : (
+          <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-1">
+            {users.filter(u => u.role === 'employee').map(user => (
+              <div key={user.id} className="flex items-center justify-between p-3 rounded-xl border border-[#F0F0F0] hover:bg-[#F9F9F9] transition-colors">
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-[#1A1A1A]">{user.name}</p>
+                  <p className="text-[10px] text-muted">{user.department || 'No Department'} • {user.username}</p>
+                </div>
+                <button
+                  onClick={() => toggleAssignment(user.id)}
+                  disabled={updating === user.id}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    assigned.includes(user.id)
+                      ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                      : 'bg-[#F5F5F5] text-[#6B6B6B] border border-[#E0E0E0] hover:border-[#E05A1E] hover:text-[#E05A1E]'
+                  }`}
+                >
+                  {updating === user.id ? '...' : assigned.includes(user.id) ? 'Assigned' : 'Assign'}
+                </button>
+              </div>
+            ))}
+            {users.filter(u => u.role === 'employee').length === 0 && (
+              <p className="text-center py-8 text-muted text-sm">No employees found.</p>
+            )}
+          </div>
+        )}
+
+        <div className="mt-6">
+          <button onClick={onClose} className="btn-secondary w-full justify-center">Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Project card
 function ProjectCard({ project, isAdmin, onDelete }) {
   const typeStyle = TYPE_COLORS[project.type] || FALLBACK_TYPE_COLOR;
@@ -238,15 +336,26 @@ function ProjectCard({ project, isAdmin, onDelete }) {
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2">
             {isAdmin && (
-              <button 
-                onClick={handleDelete}
-                className="p-1.5 text-muted hover:text-red-500 hover:bg-red-50 rounded-md transition-all opacity-0 group-hover:opacity-100"
-                title="Delete Project"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>
-                </svg>
-              </button>
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); project.onAssign(project); }}
+                  className="p-1.5 text-muted hover:text-[#E05A1E] hover:bg-orange-50 rounded-md transition-all"
+                  title="Assign Employees"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                  </svg>
+                </button>
+                <button 
+                  onClick={handleDelete}
+                  className="p-1.5 text-muted hover:text-red-500 hover:bg-red-50 rounded-md transition-all"
+                  title="Delete Project"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>
+                  </svg>
+                </button>
+              </div>
             )}
             <span className={`badge flex-shrink-0 ${statusStyle.bg} ${statusStyle.text} border ${statusStyle.border}`}>
               {project.status || 'Design Proposal'}
@@ -295,6 +404,7 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [assignProject, setAssignProject] = useState(null);
   const [preSelectedClient, setPreSelectedClient] = useState(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -404,7 +514,7 @@ export default function ProjectsPage() {
             {filtered.map((p) => (
               <ProjectCard 
                 key={p.id} 
-                project={p} 
+                project={{ ...p, onAssign: setAssignProject }} 
                 isAdmin={isAdmin} 
                 onDelete={handleDeleteProject}
               />
@@ -418,6 +528,13 @@ export default function ProjectsPage() {
           initialClientId={preSelectedClient}
           onClose={() => { setShowModal(false); setPreSelectedClient(null); }} 
           onCreated={(p) => setProjects([p, ...projects])} 
+        />
+      )}
+
+      {assignProject && (
+        <AssignProjectModal 
+          project={assignProject}
+          onClose={() => setAssignProject(null)}
         />
       )}
     </AppLayout>

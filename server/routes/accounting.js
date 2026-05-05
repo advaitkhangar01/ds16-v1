@@ -136,74 +136,61 @@ router.get('/payroll/employees', async (req, res) => {
     const holidays = holidaysRes.rows;
     const paidHolidayCount = holidays.filter(h => h.is_paid).length;
 
-    // 4. Fetch detailed attendance for the month
+    // 4. Fetch Leave Summary
+    const leaveRes = await pool.query(`
+      SELECT user_id, unpaid_leaves 
+      FROM employee_leave_summary 
+      WHERE month = $1 AND year = $2
+    `, [month, year]);
+    const leaveSummaries = leaveRes.rows.reduce((acc, row) => {
+      acc[row.user_id] = row.unpaid_leaves;
+      return acc;
+    }, {});
+
+    // 5. Fetch detailed attendance for the month
     const attendanceRes = await pool.query(`
-      SELECT user_id, check_in, check_out, date
+      SELECT user_id, check_in, check_out, date, status, is_late
       FROM attendance
       WHERE EXTRACT(MONTH FROM date) = $1 AND EXTRACT(YEAR FROM date) = $2
     `, [month, year]);
     const attendanceRecords = attendanceRes.rows;
 
-    // 5. Calculate suggested salary for each employee
+    // 6. Calculate suggested salary for each employee
     const daysInMonth = new Date(year, month, 0).getDate();
-    const officeStartTimeStr = settings.office_start_time || '09:30';
-    const lateThresholdMins = parseInt(settings.late_threshold_mins || 15);
-    const latePenaltyAmount = parseFloat(settings.late_penalty_amount || 0);
-    const halfDayThresholdHours = parseFloat(settings.half_day_threshold_hours || 4);
-    const halfDayPenaltyPercent = parseFloat(settings.half_day_penalty_percent || 50);
+    const latePenaltyRuleCount = parseInt(settings.late_penalty_rule_count || 3);
+    const latePenaltyRuleDays = parseFloat(settings.late_penalty_rule_days || 0.5);
 
     const result = employees.map(emp => {
       const myRecords = attendanceRecords.filter(r => r.user_id === emp.id);
-      const daysPresent = myRecords.length;
+      
+      const fullDays = myRecords.filter(r => r.status === 'present').length;
+      const halfDays = myRecords.filter(r => r.status === 'half_day').length;
+      const lateCount = myRecords.filter(r => r.is_late).length;
+      const unpaidLeaves = parseFloat(leaveSummaries[emp.id]) || 0;
+
       const baseSalary = parseFloat(emp.base_salary) || 0;
-      const dailyWage = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
+      const perDaySalary = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
 
-      let lateDeductions = 0;
-      let halfDayDeductions = 0;
-      let lateCount = 0;
-      let halfDayCount = 0;
+      // Rule: Every X late = Y day deduction
+      const latePenaltyDays = Math.floor(lateCount / latePenaltyRuleCount) * latePenaltyRuleDays;
 
-      myRecords.forEach(record => {
-        if (!record.check_in) return;
-
-        // Lateness check
-        const checkIn = new Date(record.check_in);
-        const [startH, startM] = officeStartTimeStr.split(':').map(Number);
-        const officeStart = new Date(checkIn);
-        officeStart.setHours(startH, startM, 0, 0);
-        
-        const diffMins = (checkIn - officeStart) / (1000 * 60);
-        if (diffMins > lateThresholdMins) {
-          lateCount++;
-          lateDeductions += latePenaltyAmount;
-        }
-
-        // Half day check
-        if (record.check_out) {
-          const checkOut = new Date(record.check_out);
-          const hoursWorked = (checkOut - checkIn) / (1000 * 60 * 60);
-          if (hoursWorked < halfDayThresholdHours) {
-            halfDayCount++;
-            halfDayDeductions += (dailyWage * halfDayPenaltyPercent / 100);
-          }
-        }
-      });
-
-      // Total days credited = Present Days + Paid Holidays
-      // (Ensuring we don't exceed days in month if someone worked on a holiday)
-      const creditedDays = Math.min(daysInMonth, daysPresent + paidHolidayCount);
-      const grossPay = dailyWage * creditedDays;
-      const suggestedSalary = Math.round(grossPay - lateDeductions - halfDayDeductions);
+      // Effective Days = full_days + (half_days * 0.5) + paid_holidays - unpaid_leaves
+      const effectiveDays = fullDays + (halfDays * 0.5) + paidHolidayCount - unpaidLeaves;
+      const finalPayableDays = Math.max(0, effectiveDays - latePenaltyDays);
+      
+      const suggestedSalary = Math.round(perDaySalary * finalPayableDays) || 0;
 
       return {
         ...emp,
-        days_present: daysPresent,
-        paid_holidays: paidHolidayCount,
-        total_days: daysInMonth,
+        full_days: fullDays,
+        half_days: halfDays,
         late_count: lateCount,
-        half_day_count: halfDayCount,
-        late_deductions: lateDeductions,
-        half_day_deductions: halfDayDeductions,
+        unpaid_leaves: unpaidLeaves,
+        paid_holidays: paidHolidayCount,
+        effective_days: effectiveDays,
+        late_penalty_days: latePenaltyDays,
+        payable_days: finalPayableDays,
+        total_days: daysInMonth,
         suggested_salary: suggestedSalary < 0 ? 0 : suggestedSalary
       };
     });

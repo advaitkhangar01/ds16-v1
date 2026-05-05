@@ -20,22 +20,25 @@ const checkProjectAccess = (options = {}) => async (req, res, next) => {
 
     let projectId = req.params.projectId || req.query?.project_id || req.body?.project_id;
     
-    // If id is provided in params, decide if it's a projectId or other resourceId
-    if (req.params.id) {
+    // Extract the primary ID from params (either 'id' or resource-specific name)
+    const resourceId = req.params.id || req.params.task_id || req.params.document_id || req.params.invoice_id || req.params.stage_id;
+    
+    // If resourceId is provided in params, decide if it's a projectId or other resourceId
+    if (resourceId) {
       if (options.idIsResource === 'document') {
-        const { rows } = await pool.query('SELECT project_id FROM documents WHERE id = $1', [req.params.id]);
+        const { rows } = await pool.query('SELECT project_id FROM documents WHERE id = $1', [resourceId]);
         if (rows[0]) projectId = rows[0].project_id;
       } else if (options.idIsResource === 'task') {
-        const { rows } = await pool.query('SELECT project_id FROM tasks WHERE id = $1', [req.params.id]);
+        const { rows } = await pool.query('SELECT project_id FROM tasks WHERE id = $1', [resourceId]);
         if (rows[0]) projectId = rows[0].project_id;
       } else if (options.idIsResource === 'invoice') {
-        const { rows } = await pool.query('SELECT project_id FROM invoices WHERE id = $1', [req.params.id]);
+        const { rows } = await pool.query('SELECT project_id FROM invoices WHERE id = $1', [resourceId]);
         if (rows[0]) projectId = rows[0].project_id;
       } else if (options.idIsResource === 'payment-stage') {
-        const { rows } = await pool.query('SELECT project_id FROM project_payment_stages WHERE id = $1', [req.params.id]);
+        const { rows } = await pool.query('SELECT project_id FROM project_payment_stages WHERE id = $1', [resourceId]);
         if (rows[0]) projectId = rows[0].project_id;
       } else {
-        projectId = req.params.id;
+        projectId = resourceId;
       }
     }
 
@@ -46,14 +49,15 @@ const checkProjectAccess = (options = {}) => async (req, res, next) => {
     const pid = parseInt(projectId);
     if (isNaN(pid)) return res.status(400).json({ error: 'Invalid project_id format' });
 
-    // Allow all employees to access any project
+    // Verify if employee is assigned to the project
     const { rows } = await pool.query(`
-      SELECT 1 FROM projects WHERE id = $1
+      SELECT 1 FROM project_assignments 
+      WHERE project_id = $1 AND user_id = $2
       LIMIT 1
-    `, [pid]);
+    `, [pid, user.id]);
 
     if (rows.length === 0) {
-      return res.status(404).json({ error: 'Project not found' });
+      return res.status(403).json({ error: 'Access denied. You are not assigned to this project.' });
     }
 
     next();

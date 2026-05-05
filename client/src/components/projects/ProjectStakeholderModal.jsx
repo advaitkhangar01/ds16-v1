@@ -15,7 +15,7 @@ export default function ProjectStakeholderModal({ projectId, stakeholder, onClos
 
   useEffect(() => {
     if (!stakeholder) {
-      api.get('/clients').then(res => setClients(res.data)).catch(console.error);
+      api.get('/clients').then(res => setClients(res.data.clients || [])).catch(console.error);
     }
   }, [stakeholder]);
 

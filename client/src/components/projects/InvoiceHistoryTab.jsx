@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
 
-export default function InvoiceHistoryTab({ projectId }) {
+export default function InvoiceHistoryTab({ projectId, project }) {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -11,9 +11,11 @@ export default function InvoiceHistoryTab({ projectId }) {
   const fetchInvoices = useCallback(async () => {
     try {
       const { data } = await api.get(`/invoices?project_id=${projectId}`);
-      setInvoices(data.invoices);
+      // Phase 3.4: Defensive guard — fall back to empty array if response is malformed
+      setInvoices(Array.isArray(data?.invoices) ? data.invoices : []);
     } catch (err) {
       toast.error('Failed to load invoice history');
+      setInvoices([]); // Ensure empty state renders cleanly
     } finally {
       setLoading(false);
     }
@@ -24,15 +26,28 @@ export default function InvoiceHistoryTab({ projectId }) {
   }, [fetchInvoices]);
 
   const handleViewInvoice = (invoice) => {
-    // Navigate to InvoicePage with preFill data
     navigate('/admin/invoice', { 
       state: { 
         preFill: {
-          ...invoice,
-          // Map stored JSON back to form fields if necessary
-          cgstPercent: invoice.tax_details?.cgstPercent || 9,
-          sgstPercent: invoice.tax_details?.sgstPercent || 9,
-          igstPercent: invoice.tax_details?.igstPercent || 18,
+          // Explicit mapping — never spread raw DB record to avoid snake_case/null contamination
+          project_id: invoice.project_id || null,
+          invoiceNo: invoice.invoice_no || '',
+          date: invoice.date ? String(invoice.date).split('T')[0] : '',
+          dueDate: invoice.due_date ? String(invoice.due_date).split('T')[0] : '',
+          billToName: invoice.client_name || '',
+          billToAddress: invoice.bill_to_address || '',
+          billToGst: invoice.bill_to_gst || '',
+          billToPhone: invoice.bill_to_phone || '',
+          billToEmail: invoice.bill_to_email || '',
+          accountNo: invoice.account_no || '',
+          ifsc: invoice.ifsc || '',
+          bankName: invoice.bank_name || '',
+          items: Array.isArray(invoice.items) && invoice.items.length > 0
+            ? invoice.items
+            : [{ id: Date.now(), description: '', hsn: '', quantity: 1, rate: 0 }],
+          cgstPercent: invoice.tax_details?.cgstPercent ?? 9,
+          sgstPercent: invoice.tax_details?.sgstPercent ?? 9,
+          igstPercent: invoice.tax_details?.igstPercent ?? 18,
         } 
       } 
     });
@@ -62,7 +77,19 @@ export default function InvoiceHistoryTab({ projectId }) {
           Invoice Archive
         </h3>
         <button 
-          onClick={() => navigate('/admin/invoice', { state: { preFill: { project_id: projectId } } })}
+          onClick={() => navigate('/admin/invoice', { 
+            state: { 
+              preFill: { 
+                project_id: projectId,
+                billToName: project?.client_display_name || project?.client_name || '',
+                billToAddress: project?.location || '',
+                billToGst: project?.gst_number || '',
+                billToPhone: project?.primary_contact_phone || '',
+                billToEmail: project?.primary_contact_email || '',
+                items: [{ id: Date.now(), description: '', quantity: 1, rate: 0 }]
+              } 
+            } 
+          })}
           className="text-[10px] font-bold text-[#E05A1E] uppercase tracking-widest hover:underline"
         >
           + Generate New

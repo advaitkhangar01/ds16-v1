@@ -24,7 +24,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
-          icons: ['lucide-react'],
+          ui: ['react-hot-toast', 'lucide-react'],
         },
       },
     },
