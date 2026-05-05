@@ -253,7 +253,7 @@ router.get('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task' 
       messages
     });
   } catch (err) {
-    console.error('Fetch task thread error:', err);
+    console.error(`Fetch task thread error [Task: ${req.params.task_id}, User: ${req.user?.id}]:`, err);
     res.status(500).json({ error: 'Server error' });
   }
 });
