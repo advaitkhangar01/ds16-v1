@@ -42,6 +42,12 @@ pool.query('SELECT NOW()', (err) => {
             updated_at TIMESTAMPTZ DEFAULT NOW()
           )
         `);
+        // Ensure missing columns exist in case table was created previously
+        await pool.query('ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS remarks TEXT');
+        await pool.query('ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS reviewed_by INTEGER REFERENCES users(id)');
+        await pool.query('ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()');
+        await pool.query('ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()');
+        
         await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id)');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date)');
         console.log('✅ DB Schema verified (leave_requests)');
