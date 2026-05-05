@@ -24,30 +24,37 @@ pool.query('SELECT NOW()', (err) => {
   } else {
     console.log('✅ Connected to PostgreSQL');
     
-    // Auto-Migration: Ensure schema is correct for user deletion
+    // Auto-Migration: Ensure schema is correct for user deletion and missing columns
     const runMigrations = async () => {
       try {
         // 1. Fix Foreign Keys for users(id) to support deletion
+        // Using PostgreSQL compatible query (no referenced_table_name)
         await pool.query(`
           DO $$ 
           DECLARE 
               r RECORD;
           BEGIN
               FOR r IN (
-                  SELECT tc.table_name, tc.constraint_name, kcu.column_name
-                  FROM information_schema.table_constraints AS tc 
-                  JOIN information_schema.key_column_usage AS kcu
-                    ON tc.constraint_name = kcu.constraint_name
-                    AND tc.table_schema = kcu.table_schema
+                  SELECT 
+                      tc.table_name, 
+                      tc.constraint_name, 
+                      kcu.column_name
+                  FROM 
+                      information_schema.table_constraints AS tc 
+                      JOIN information_schema.key_column_usage AS kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                      JOIN information_schema.constraint_column_usage AS ccu
+                        ON ccu.constraint_name = tc.constraint_name
+                        AND ccu.table_schema = tc.table_schema
                   WHERE tc.constraint_type = 'FOREIGN KEY' 
-                    AND kcu.referenced_table_name = 'users'
-                    AND kcu.referenced_column_name = 'id'
+                    AND ccu.table_name = 'users'
+                    AND ccu.column_name = 'id'
               ) LOOP
                   EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT ' || quote_ident(r.constraint_name);
                   
                   -- Determine if it should be CASCADE or SET NULL
-                  -- CASCADE for ownership/private data, SET NULL for metadata/tracking
-                  IF r.column_name = 'user_id' OR r.table_name = 'attendance_attempts' OR r.table_name = 'payroll' OR r.table_name = 'employee_leave_summary' THEN
+                  IF r.column_name = 'user_id' OR r.table_name = 'attendance' OR r.table_name = 'payroll' OR r.table_name = 'leave_requests' THEN
                       EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' ADD CONSTRAINT ' || quote_ident(r.constraint_name) || 
                               ' FOREIGN KEY (' || quote_ident(r.column_name) || ') REFERENCES users(id) ON DELETE CASCADE';
                   ELSE
@@ -61,7 +68,73 @@ pool.query('SELECT NOW()', (err) => {
         // 2. Fix attendance status default value
         await pool.query("ALTER TABLE attendance ALTER COLUMN status SET DEFAULT 'working'");
         
-        // 3. Ensure leave_requests exists
+        // 3. Ensure invoices table has due_date column
+        await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS due_date DATE");
+        
+        // 4. Ensure project_payment_stages is correct
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS project_payment_stages (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            name VARCHAR(255),
+            amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
+            status VARCHAR(50) DEFAULT 'bill generated',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            document_type VARCHAR(100),
+            initiated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+          )
+        `);
+
+        // Make name nullable in case it was NOT NULL before
+        await pool.query("ALTER TABLE project_payment_stages ALTER COLUMN name DROP NOT NULL");
+        
+        // Add missing columns to project_payment_stages if they don't exist
+        await pool.query("ALTER TABLE project_payment_stages ADD COLUMN IF NOT EXISTS document_type VARCHAR(100)");
+        await pool.query("ALTER TABLE project_payment_stages ADD COLUMN IF NOT EXISTS initiated_by INTEGER REFERENCES users(id) ON DELETE SET NULL");
+        await pool.query("ALTER TABLE project_payment_stages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()");
+
+        // 5. Ensure project_document_amounts exists
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS project_document_amounts (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            document_type VARCHAR(100) NOT NULL,
+            amount DECIMAL(15, 2),
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(project_id, document_type)
+          )
+        `);
+
+        // 6. Ensure documents table exists
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS documents (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            file_name VARCHAR(255) NOT NULL,
+            file_path TEXT NOT NULL,
+            file_type VARCHAR(100),
+            file_size INTEGER,
+            remark TEXT,
+            category VARCHAR(50) DEFAULT 'document',
+            document_type VARCHAR(100),
+            created_at TIMESTAMPTZ DEFAULT NOW()
+          )
+        `);
+
+        // 7. Ensure comments table exists
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS comments (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            message TEXT NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+          )
+        `);
+
+        // 8. Ensure leave_requests exists
         await pool.query(`
           CREATE TABLE IF NOT EXISTS leave_requests (
             id SERIAL PRIMARY KEY,
@@ -77,9 +150,6 @@ pool.query('SELECT NOW()', (err) => {
             updated_at TIMESTAMPTZ DEFAULT NOW()
           )
         `);
-        
-        await pool.query('ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS remarks TEXT');
-        await pool.query('ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL');
         
         await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id)');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date)');

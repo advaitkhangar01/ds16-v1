@@ -37,7 +37,8 @@ npm ci --omit=dev
 # 4. Build frontend
 echo "==> Building frontend..."
 cd ../client
-npm ci
+# Use install --include=dev to ensure vite plugins are available for build
+npm install --include=dev
 npm run build
 
 # 5. Reload server via PM2 (Zero-downtime)

@@ -91,6 +91,29 @@ CREATE TABLE IF NOT EXISTS project_stages (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Project Payment Stages (Financial tracking for project phases)
+CREATE TABLE IF NOT EXISTS project_payment_stages (
+  id SERIAL PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name VARCHAR(255),
+  amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
+  status VARCHAR(50) DEFAULT 'bill generated',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  document_type VARCHAR(100),
+  initiated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Project Document Amounts (Target amounts for specific document types)
+CREATE TABLE IF NOT EXISTS project_document_amounts (
+  id SERIAL PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  document_type VARCHAR(100) NOT NULL,
+  amount DECIMAL(15, 2),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(project_id, document_type)
+);
+
 -- Project employee assignments
 CREATE TABLE IF NOT EXISTS project_assignments (
   id SERIAL PRIMARY KEY,
@@ -107,6 +130,30 @@ CREATE TABLE IF NOT EXISTS vendors (
   phone VARCHAR(20),
   email VARCHAR(100),
   remarks TEXT
+);
+
+-- Documents table
+CREATE TABLE IF NOT EXISTS documents (
+  id SERIAL PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  file_name VARCHAR(255) NOT NULL,
+  file_path TEXT NOT NULL,
+  file_type VARCHAR(100),
+  file_size INTEGER,
+  remark TEXT,
+  category VARCHAR(50) DEFAULT 'document',
+  document_type VARCHAR(100),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Comments table (for document remarks and project updates)
+CREATE TABLE IF NOT EXISTS comments (
+  id SERIAL PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  message TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Invoices table
