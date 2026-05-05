@@ -2,6 +2,7 @@
 // Employee dashboard: check-in/out, my tasks, my projects
 
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import AppLayout from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
@@ -251,6 +252,21 @@ function AttendanceStatus({ attendance, onAction }) {
             <p className="text-xs font-mono font-black">{hasOut ? formatTimeIST(attendance.checkOut) : '--:--'}</p>
           </div>
         </div>
+        <div className="h-8 w-px bg-slate-800 mx-2 hidden md:block" />
+        <Link 
+          to="/attendance" 
+          className="group/link flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800/50 hover:bg-slate-800 transition-all border border-slate-700/50 hover:border-slate-600"
+        >
+          <div className="text-right hidden sm:block">
+            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest group-hover/link:text-emerald-500 transition-colors">Leaves & History</p>
+            <p className="text-[10px] font-bold text-slate-300">View All</p>
+          </div>
+          <div className="w-7 h-7 rounded-lg bg-slate-900 flex items-center justify-center text-slate-400 group-hover/link:text-white transition-colors">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M5 12h14M12 5l7 7-7 7"/>
+            </svg>
+          </div>
+        </Link>
       </div>
 
       <div className="flex gap-2 w-full md:w-auto">

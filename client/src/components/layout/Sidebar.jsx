@@ -22,6 +22,7 @@ const EMP_LINKS = [
   { to: '/employee/dashboard', label: 'Dashboard', icon: 'grid' },
   { to: '/projects', label: 'My Projects', icon: 'folder' },
   { to: '/tasks', label: 'Tasks', icon: 'check_square' },
+  { to: '/attendance', label: 'Attendance', icon: 'clock' },
   { to: '/clients', label: 'Clients', icon: 'users' },
   { to: '/vendors', label: 'Vendors', icon: 'tool' },
 ];
