@@ -1,5 +1,5 @@
 // scripts/restore_stages.js
-require('dotenv').config({ path: './server/.env' });
+require('dotenv').config({ path: './.env' });
 const { Pool } = require('pg');
 
 const pool = new Pool({
