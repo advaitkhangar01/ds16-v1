@@ -65,7 +65,7 @@ export default function SitePhotographsTab({ projectId, currentUser }) {
     formData.append('file', file);
 
     try {
-      const { data } = await api.post('/documents/upload', formData, {
+      const { data } = await api.post(`/documents/upload?project_id=${projectId}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       

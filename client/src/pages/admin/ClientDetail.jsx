@@ -7,6 +7,7 @@ import AppLayout from '../../components/layout/AppLayout';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
 import { formatIST } from '../../utils/time';
+import { useAuth } from '../../context/AuthContext';
 import LinkProjectModal from '../../components/clients/LinkProjectModal';
 import ClientModal from '../../components/clients/ClientModal';
 
@@ -25,7 +26,7 @@ export default function ClientDetail() {
     try {
       const [clientRes, suggestionsRes] = await Promise.all([
         api.get(`/clients/${id}`),
-        api.get(`/projects/suggestions/${id}`)
+        isAdmin ? api.get(`/projects/suggestions/${id}`) : Promise.resolve({ data: { suggestions: [] } })
       ]);
       setData(clientRes.data);
       setSuggestions(suggestionsRes.data.suggestions || []);
@@ -35,7 +36,7 @@ export default function ClientDetail() {
     } finally {
       setLoading(false);
     }
-  }, [id, navigate]);
+  }, [id, navigate, isAdmin]);
 
   useEffect(() => { fetchClientData(); }, [fetchClientData]);
 

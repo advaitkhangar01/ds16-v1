@@ -129,7 +129,7 @@ export default function DocumentsTab({ projectId, currentUser }) {
     formData.append('file', file);
 
     try {
-      await api.post('/documents/upload', formData, {
+      await api.post(`/documents/upload?project_id=${projectId}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       

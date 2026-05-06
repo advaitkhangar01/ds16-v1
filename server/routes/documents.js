@@ -16,16 +16,23 @@ const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.dwg', '.docx', '.
 // Configure Multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const { project_id } = req.body;
-    // Sanitize project_id to prevent path traversal
+    const project_id = req.query.project_id || req.body.project_id;
     const pid = parseInt(project_id);
     if (isNaN(pid)) {
+      console.error('[Multer] Invalid project_id during storage destination check:', { query: req.query, body: req.body });
       return cb(new Error('Invalid project_id'));
     }
     // Create project-specific directory if it doesn't exist
-    const dir = path.join(__dirname, '..', 'uploads', 'projects', String(pid));
-    fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
+    try {
+      const dir = path.join(__dirname, '..', 'uploads', 'projects', String(pid));
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      cb(null, dir);
+    } catch (err) {
+      console.error('[Multer] Directory creation error:', err);
+      cb(err);
+    }
   },
   filename: (req, file, cb) => {
     // timestamp_originalname.ext to avoid collisions
@@ -50,8 +57,10 @@ const upload = multer({
 router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
   upload.single('file')(req, res, (err) => {
     if (err instanceof multer.MulterError) {
+      console.error('[Upload] Multer error:', err);
       return res.status(400).json({ error: `Upload error: ${err.message}` });
     } else if (err) {
+      console.error('[Upload] General error:', err);
       return res.status(400).json({ error: err.message });
     }
     next();
@@ -59,7 +68,8 @@ router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
 }, async (req, res) => {
   const client = await pool.connect();
   try {
-    const { project_id, remark, category = 'document', document_type } = req.body;
+    const project_id = req.query.project_id || req.body.project_id;
+    const { remark, category = 'document', document_type } = req.body;
     const file = req.file;
 
     if (document_type && !DOCUMENT_TAGS.includes(document_type)) {
@@ -67,7 +77,12 @@ router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
     }
 
     if (!project_id || !file) {
-      console.error('Upload missing project_id or file:', { project_id, file: !!file });
+      console.error('[Upload] Missing data:', { 
+        project_id, 
+        file: !!file,
+        body: req.body,
+        query: req.query 
+      });
       return res.status(400).json({ error: 'project_id and file are required' });
     }
 
