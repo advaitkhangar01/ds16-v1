@@ -79,6 +79,7 @@ export default function InvoicePage() {
     fetchClients();
     fetchRecentInvoices();
     fetchProjects();
+    fetchBankSettings();
     
     // Check for pre-fill data from ProjectDetail page
     if (location.state?.preFill) {
@@ -165,6 +166,21 @@ export default function InvoicePage() {
       setProjectStats(data);
     } catch (err) {
       console.error('Failed to fetch project stats', err);
+    }
+  };
+
+  const fetchBankSettings = async () => {
+    try {
+      const { data } = await api.get('/settings/app');
+      setFormData(prev => ({
+        ...prev,
+        accountNo: prev.accountNo || data.company_bank_account_no || '',
+        ifsc: prev.ifsc || data.company_bank_ifsc || '',
+        bankName: prev.bankName || data.company_bank_name_branch || '',
+        upiId: prev.upiId || data.company_bank_upi_id || ''
+      }));
+    } catch (err) {
+      console.error('Failed to fetch bank settings', err);
     }
   };
 

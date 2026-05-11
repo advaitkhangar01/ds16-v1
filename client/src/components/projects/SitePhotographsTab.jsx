@@ -62,7 +62,7 @@ export default function SitePhotographsTab({ projectId, currentUser }) {
     if (remark.trim()) {
       formData.append('remark', remark.trim());
     }
-    formData.append('file', file);
+    formData.append('files', file);
 
     try {
       const { data } = await api.post(`/documents/upload?project_id=${projectId}`, formData, {
@@ -70,7 +70,7 @@ export default function SitePhotographsTab({ projectId, currentUser }) {
       });
       
       const newPhoto = {
-        ...data.document,
+        ...(data.documents?.[0] || {}),
         uploaded_by_name: currentUser.name
       };
       setPhotos(prev => [newPhoto, ...prev]);

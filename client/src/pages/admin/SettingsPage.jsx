@@ -644,6 +644,55 @@ export default function SettingsPage() {
                   <section className="space-y-6">
                     <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-100 pb-3 flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                      Organization Banking (For Invoices)
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight">Account Number</label>
+                        <input 
+                          type="text"
+                          value={payrollSettings.company_bank_account_no || ''}
+                          onChange={(e) => setPayrollSettings({...payrollSettings, company_bank_account_no: e.target.value})}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all"
+                          placeholder="e.g. 1234567890"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight">IFSC Code</label>
+                        <input 
+                          type="text"
+                          value={payrollSettings.company_bank_ifsc || ''}
+                          onChange={(e) => setPayrollSettings({...payrollSettings, company_bank_ifsc: e.target.value})}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all"
+                          placeholder="e.g. HDFC0001234"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight">Bank Name & Branch</label>
+                        <input 
+                          type="text"
+                          value={payrollSettings.company_bank_name_branch || ''}
+                          onChange={(e) => setPayrollSettings({...payrollSettings, company_bank_name_branch: e.target.value})}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all"
+                          placeholder="e.g. HDFC Bank, Khamla Branch"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight">UPI ID</label>
+                        <input 
+                          type="text"
+                          value={payrollSettings.company_bank_upi_id || ''}
+                          onChange={(e) => setPayrollSettings({...payrollSettings, company_bank_upi_id: e.target.value})}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all"
+                          placeholder="e.g. ds16@upi"
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-6">
+                    <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-100 pb-3 flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary" />
                       Late Penalty Rule
                     </h3>
                     <div className="bg-orange-50/50 p-6 rounded-3xl border border-orange-100">

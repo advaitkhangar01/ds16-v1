@@ -178,7 +178,7 @@ router.post('/app', requireAdmin, async (req, res) => {
     const settings = req.body; // { key: value, ... }
     for (const [key, value] of Object.entries(settings)) {
       await pool.query(
-        'INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()',
+        'INSERT INTO app_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value',
         [key, String(value)]
       );
     }

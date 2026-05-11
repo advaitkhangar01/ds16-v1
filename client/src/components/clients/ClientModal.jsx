@@ -23,11 +23,11 @@ export default function ClientModal({ client: initialClient, onClose, onSave }) 
         try {
           const { data } = await api.get(`/clients/${initialClient.id}`);
           setForm({
-            name: data.name || '',
-            company_name: data.company_name || '',
-            gst_number: data.gst_number || '',
-            pan_number: data.pan_number || '',
-            notes: data.notes || '',
+            name: data.client.name || '',
+            company_name: data.client.company_name || '',
+            gst_number: data.client.gst_number || '',
+            pan_number: data.client.pan_number || '',
+            notes: data.client.notes || '',
             contacts: data.contacts?.length ? data.contacts : [{ name: '', role: 'POC', phone: '', email: '', is_primary: true }],
             addresses: data.addresses?.length ? data.addresses : [{ type: 'Office', address: '', city: '', state: '', pincode: '' }],
             banking: data.banking?.length ? data.banking : [{ account_name: '', account_number: '', ifsc: '', bank_name: '', branch: '', upi_id: '', is_primary: true }]
