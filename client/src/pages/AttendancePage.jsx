@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import AppLayout from '../components/layout/AppLayout';
 import api from '../api/client';
-import { formatTimeIST, formatDateIST, todayIST } from '../utils/time';
+import { formatTimeIST, formatDateIST, todayIST, getISODateIST } from '../utils/time';
 import { mapAttendance } from '../utils/attendance';
 import AttendanceCard from '../components/ui/AttendanceCard';
 import toast from 'react-hot-toast';
 import { UserCheck, UserX, CalendarOff, Clock, UserMinus } from 'lucide-react';
 import { ATTENDANCE_STATUS, VIEW_MODES } from '../config/constants';
 
-function AttendanceBadge({ status, checkIn, checkOut, settings }) {
+function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: data_hours_worked }) {
   const officeStartTimeStr = settings?.office_start_time || '09:30';
   const lateThresholdMins = parseInt(settings?.late_threshold_mins || 15);
   const halfDayThresholdHours = parseFloat(settings?.half_day_threshold_hours || 4);
@@ -16,15 +16,23 @@ function AttendanceBadge({ status, checkIn, checkOut, settings }) {
   let isLate = false;
   if (checkIn) {
     const checkInTime = new Date(checkIn);
+    // Format check-in time as HH:mm in IST
+    const checkInStr = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(checkInTime);
+
+    const [ciH, ciM] = checkInStr.split(':').map(Number);
     const [startH, startM] = officeStartTimeStr.split(':').map(Number);
-    const officeStart = new Date(checkInTime);
-    officeStart.setHours(startH, startM, 0, 0);
-    const diffMins = (checkInTime - officeStart) / (1000 * 60);
+    
+    const diffMins = (ciH * 60 + ciM) - (startH * 60 + startM);
     isLate = diffMins > lateThresholdMins;
   }
 
-  const hoursWorked = checkIn && checkOut ? (new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60) : 0;
-  const isHalfDay = checkIn && checkOut && hoursWorked > 0 && hoursWorked < halfDayThresholdHours;
+  const hoursWorked = data_hours_worked || (checkIn && checkOut ? (new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60) : 0);
+  const isHalfDay = status === 'half_day' || (checkIn && checkOut && hoursWorked > 0 && hoursWorked < halfDayThresholdHours);
 
   if (isHalfDay) {
     return <span className="badge bg-sky-50 text-sky-600 border-sky-200 font-bold">◑ Half Day</span>;
@@ -61,7 +69,7 @@ export default function AttendancePage() {
   const [leaveForm, setLeaveForm] = useState({ start_date: '', end_date: '', type: 'casual', reason: '' });
   const [manualForm, setManualForm] = useState({ 
     user_id: '', 
-    date: todayIST(), 
+    date: getISODateIST(), 
     check_in: '', 
     check_out: '', 
     status: ATTENDANCE_STATUS.WORKING,
@@ -623,6 +631,7 @@ export default function AttendancePage() {
                     <th className="px-5 py-4 text-[11px] font-black text-muted uppercase tracking-widest">Team Member</th>
                     {view === 'all' && <th className="px-5 py-4 text-[11px] font-black text-muted uppercase tracking-widest">Date</th>}
                     <th className="px-5 py-4 text-[11px] font-black text-muted uppercase tracking-widest">In / Out</th>
+                    <th className="px-5 py-4 text-[11px] font-black text-muted uppercase tracking-widest">Hours</th>
                     <th className="px-5 py-4 text-[11px] font-black text-muted uppercase tracking-widest">Status</th>
                     <th className="px-5 py-4 text-[11px] font-black text-muted uppercase tracking-widest text-right">Geo Zone</th>
                   </tr>
@@ -665,7 +674,14 @@ export default function AttendancePage() {
                           </div>
                         </td>
                         <td className="px-5 py-4">
-                          <AttendanceBadge status={r.status} checkIn={r.checkIn} checkOut={r.checkOut} settings={settings} />
+                          <div className="flex flex-col">
+                            <span className="text-xs font-black text-slate-700">
+                              {r.hours_worked ? `${Number(r.hours_worked).toFixed(2)}h` : '—'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <AttendanceBadge status={r.status} checkIn={r.checkIn} checkOut={r.checkOut} settings={settings} hours_worked={r.hours_worked} />
                         </td>
                         <td className="px-5 py-4 text-right">
                           {r.checkin_zone ? (

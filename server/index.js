@@ -15,12 +15,12 @@ const dashboardRoutes = require('./routes/dashboard');
 const vendorRoutes = require('./routes/vendors');
 const clientRoutes = require('./routes/clients');
 const documentsRoutes = require('./routes/documents');
-const tasksRoutes = require('./routes/tasks');
+const { router: tasksRoutes, cleanupOldTasks } = require('./routes/tasks');
 const settingsRoutes = require('./routes/settings');
 const financeRoutes = require('./routes/finances');
 const accountingRoutes = require('./routes/accounting');
 const invoiceRoutes = require('./routes/invoices');
-const reportsRoutes = require('./routes/reports');
+
 const leaveRoutes = require('./routes/leaves');
 
 const app = express();
@@ -75,7 +75,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/finances', financeRoutes);
 app.use('/api/accounting', accountingRoutes);
 app.use('/api/invoices', invoiceRoutes);
-app.use('/api/reports', reportsRoutes);
+
 app.use('/api/leaves', leaveRoutes);
 
 // 404 handler for API routes
@@ -111,5 +111,13 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 DS16 API running on port ${PORT} (${process.env.NODE_ENV || 'development'})`);
 });
+
+// Background Tasks - Only run on the first instance in cluster mode
+const isPrimaryInstance = process.env.NODE_APP_INSTANCE === undefined || process.env.NODE_APP_INSTANCE === '0';
+
+if (cleanupOldTasks && isPrimaryInstance) {
+  setInterval(cleanupOldTasks, 24 * 60 * 60 * 1000);
+  setTimeout(cleanupOldTasks, 5000);
+}
 
 module.exports = app;

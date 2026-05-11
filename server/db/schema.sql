@@ -1,9 +1,9 @@
 -- DS16 Database Schema
--- Run this first: psql -U postgres -d ds16 -f schema.sql
+-- Consolidation of main schema and fix_schema.sql updates
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Users table
+-- 1. Users table
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
@@ -13,28 +13,15 @@ CREATE TABLE IF NOT EXISTS users (
   username VARCHAR(50) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   base_salary DECIMAL(15, 2) DEFAULT 0,
+  hourly_rate DECIMAL(15, 2) DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Attendance table
-CREATE TABLE IF NOT EXISTS attendance (
-  id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  check_in TIMESTAMPTZ,
-  check_out TIMESTAMPTZ,
-  lat DECIMAL(10, 8),
-  lng DECIMAL(11, 8),
-  date DATE NOT NULL DEFAULT CURRENT_DATE,
-  status VARCHAR(20) DEFAULT 'working', -- working, half_day, absent, leave
-  is_late BOOLEAN DEFAULT FALSE,
-  UNIQUE(user_id, date)
-);
-
--- Clients table
+-- 2. Clients table
 CREATE TABLE IF NOT EXISTS clients (
   id SERIAL PRIMARY KEY,
   name VARCHAR(200) NOT NULL,
-  company_name VARCHAR(200),
+  company_name VARCHAR(200) UNIQUE,
   gst_number VARCHAR(50),
   pan_number VARCHAR(50),
   notes TEXT,
@@ -44,7 +31,7 @@ CREATE TABLE IF NOT EXISTS clients (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Client Contacts
+-- 2.1 Client Contacts
 CREATE TABLE IF NOT EXISTS client_contacts (
   id SERIAL PRIMARY KEY,
   client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
@@ -55,7 +42,7 @@ CREATE TABLE IF NOT EXISTS client_contacts (
   is_primary BOOLEAN DEFAULT FALSE
 );
 
--- Client Addresses
+-- 2.2 Client Addresses
 CREATE TABLE IF NOT EXISTS client_addresses (
   id SERIAL PRIMARY KEY,
   client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
@@ -66,7 +53,20 @@ CREATE TABLE IF NOT EXISTS client_addresses (
   pincode VARCHAR(20)
 );
 
--- Projects table
+-- 2.3 Client Banking
+CREATE TABLE IF NOT EXISTS client_banking (
+  id SERIAL PRIMARY KEY,
+  client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+  account_name VARCHAR(200),
+  account_number VARCHAR(100),
+  ifsc VARCHAR(50),
+  bank_name VARCHAR(200),
+  branch VARCHAR(200),
+  upi_id VARCHAR(100),
+  is_primary BOOLEAN DEFAULT FALSE
+);
+
+-- 3. Projects table
 CREATE TABLE IF NOT EXISTS projects (
   id SERIAL PRIMARY KEY,
   name VARCHAR(200) NOT NULL,
@@ -79,10 +79,84 @@ CREATE TABLE IF NOT EXISTS projects (
   status VARCHAR(50) DEFAULT 'Under Proposal',
   start_date DATE,
   created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT uq_project_name_client UNIQUE (name, client_name)
 );
 
--- Project stages
+-- 4. Attendance table (with Geo-fencing & Late minutes)
+CREATE TABLE IF NOT EXISTS attendance (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  check_in TIMESTAMPTZ,
+  check_out TIMESTAMPTZ,
+  lat DECIMAL(10, 8),
+  lng DECIMAL(11, 8),
+  date DATE NOT NULL DEFAULT CURRENT_DATE,
+  status VARCHAR(20) DEFAULT 'working',
+  is_late BOOLEAN DEFAULT FALSE,
+  late_minutes INTEGER DEFAULT 0,
+  checkin_accuracy DECIMAL(10, 2),
+  checkin_distance DECIMAL(10, 2),
+  checkin_zone VARCHAR(20),
+  is_boundary_checkin BOOLEAN DEFAULT FALSE,
+  checkin_verified BOOLEAN DEFAULT FALSE,
+  checkout_lat DECIMAL(10, 8),
+  checkout_lng DECIMAL(11, 8),
+  checkout_accuracy DECIMAL(10, 2),
+  checkout_distance DECIMAL(10, 2),
+  checkout_zone VARCHAR(20),
+  checkout_outside_zone BOOLEAN DEFAULT FALSE,
+  hours_worked DECIMAL(10, 2) DEFAULT 0,
+  UNIQUE(user_id, date)
+);
+
+-- 5. Attendance Attempts table
+CREATE TABLE IF NOT EXISTS attendance_attempts (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  lat DECIMAL(10, 8),
+  lng DECIMAL(11, 8),
+  accuracy DECIMAL(10, 2),
+  distance DECIMAL(10, 2),
+  zone VARCHAR(20),
+  reason TEXT,
+  attempted_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. Leave Requests table
+CREATE TABLE IF NOT EXISTS leave_requests (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  type VARCHAR(50) NOT NULL,
+  reason TEXT,
+  status VARCHAR(20) DEFAULT 'pending',
+  remarks TEXT,
+  reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. Holidays
+CREATE TABLE IF NOT EXISTS holidays (
+  id SERIAL PRIMARY KEY,
+  date DATE NOT NULL UNIQUE,
+  name VARCHAR(100) NOT NULL,
+  is_paid BOOLEAN DEFAULT TRUE
+);
+
+-- 8. Employee Leave Summary (Monthly)
+CREATE TABLE IF NOT EXISTS employee_leave_summary (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  month INTEGER NOT NULL,
+  year INTEGER NOT NULL,
+  unpaid_leaves DECIMAL(5, 2) DEFAULT 0,
+  UNIQUE(user_id, month, year)
+);
+
+-- 9. Project stages
 CREATE TABLE IF NOT EXISTS project_stages (
   id SERIAL PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -91,20 +165,21 @@ CREATE TABLE IF NOT EXISTS project_stages (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Project Payment Stages (Financial tracking for project phases)
+-- 10. Project Payment Stages
 CREATE TABLE IF NOT EXISTS project_payment_stages (
   id SERIAL PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   name VARCHAR(255),
   amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
   status VARCHAR(50) DEFAULT 'bill generated',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
   document_type VARCHAR(100),
   initiated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT uq_project_payment_stages_type UNIQUE (project_id, document_type)
 );
 
--- Project Document Amounts (Target amounts for specific document types)
+-- 11. Project Document Amounts
 CREATE TABLE IF NOT EXISTS project_document_amounts (
   id SERIAL PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -114,7 +189,7 @@ CREATE TABLE IF NOT EXISTS project_document_amounts (
   UNIQUE(project_id, document_type)
 );
 
--- Project employee assignments
+-- 12. Project assignments
 CREATE TABLE IF NOT EXISTS project_assignments (
   id SERIAL PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -122,7 +197,7 @@ CREATE TABLE IF NOT EXISTS project_assignments (
   UNIQUE(project_id, user_id)
 );
 
--- Vendors table
+-- 13. Vendors
 CREATE TABLE IF NOT EXISTS vendors (
   id SERIAL PRIMARY KEY,
   category VARCHAR(100) NOT NULL,
@@ -132,7 +207,7 @@ CREATE TABLE IF NOT EXISTS vendors (
   remarks TEXT
 );
 
--- Documents table
+-- 14. Documents table
 CREATE TABLE IF NOT EXISTS documents (
   id SERIAL PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -147,16 +222,20 @@ CREATE TABLE IF NOT EXISTS documents (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Comments table (for document remarks and project updates)
+-- 15. Comments table (Threaded discussion)
 CREATE TABLE IF NOT EXISTS comments (
   id SERIAL PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   message TEXT NOT NULL,
+  parent_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+  assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  is_task BOOLEAN DEFAULT FALSE,
+  task_status VARCHAR(20) DEFAULT 'pending',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Invoices table
+-- 16. Invoices table
 CREATE TABLE IF NOT EXISTS invoices (
   id SERIAL PRIMARY KEY,
   invoice_no VARCHAR(50) UNIQUE NOT NULL,
@@ -174,7 +253,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Transactions (Finance)
+-- 17. Transactions (Finance)
 CREATE TABLE IF NOT EXISTS transactions (
   id SERIAL PRIMARY KEY,
   type VARCHAR(10) CHECK (type IN ('income', 'expense')),
@@ -191,7 +270,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Office Expenses (Accounting)
+-- 18. Office Expenses
 CREATE TABLE IF NOT EXISTS office_expenses (
   id SERIAL PRIMARY KEY,
   category VARCHAR(100) NOT NULL,
@@ -202,7 +281,18 @@ CREATE TABLE IF NOT EXISTS office_expenses (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Payroll table
+-- 19. Expense Audits
+CREATE TABLE IF NOT EXISTS expense_audits (
+  category VARCHAR(100) NOT NULL,
+  month INTEGER NOT NULL,
+  year INTEGER NOT NULL,
+  is_verified BOOLEAN DEFAULT FALSE,
+  verified_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  verified_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (category, month, year)
+);
+
+-- 20. Payroll table
 CREATE TABLE IF NOT EXISTS payroll (
   id SERIAL PRIMARY KEY,
   user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -210,6 +300,7 @@ CREATE TABLE IF NOT EXISTS payroll (
   year INTEGER NOT NULL,
   base_salary DECIMAL(15, 2) NOT NULL,
   bonus DECIMAL(15, 2) DEFAULT 0,
+  incentives DECIMAL(15, 2) DEFAULT 0,
   deductions DECIMAL(15, 2) DEFAULT 0,
   net_paid DECIMAL(15, 2) NOT NULL,
   payment_date DATE DEFAULT CURRENT_DATE,
@@ -217,7 +308,7 @@ CREATE TABLE IF NOT EXISTS payroll (
   UNIQUE(user_id, month, year)
 );
 
--- App Settings
+-- 21. App Settings
 CREATE TABLE IF NOT EXISTS app_settings (
   id SERIAL PRIMARY KEY,
   key VARCHAR(50) UNIQUE NOT NULL,
@@ -225,7 +316,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
   description TEXT
 );
 
--- Tasks table
+-- 22. Tasks table
 CREATE TABLE IF NOT EXISTS tasks (
   id SERIAL PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -239,7 +330,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Task participants
+-- 23. Task participants
 CREATE TABLE IF NOT EXISTS task_participants (
   id SERIAL PRIMARY KEY,
   task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -249,7 +340,7 @@ CREATE TABLE IF NOT EXISTS task_participants (
   UNIQUE(task_id, user_id)
 );
 
--- Task messages
+-- 24. Task messages
 CREATE TABLE IF NOT EXISTS task_messages (
   id SERIAL PRIMARY KEY,
   task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -259,10 +350,15 @@ CREATE TABLE IF NOT EXISTS task_messages (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Indexes for performance
+-- 25. Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_project ON transactions(project_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_project ON invoices(project_id);
+CREATE INDEX IF NOT EXISTS idx_documents_project ON documents(project_id);
+CREATE INDEX IF NOT EXISTS idx_payment_stages_project ON project_payment_stages(project_id);
+CREATE INDEX IF NOT EXISTS idx_comments_project ON comments(project_id);
+CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date);
 

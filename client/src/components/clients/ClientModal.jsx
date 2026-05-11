@@ -63,15 +63,27 @@ export default function ClientModal({ client: initialClient, onClose, onSave }) 
   async function handleSubmit(e) {
     e.preventDefault();
     if (!form.name.trim()) return toast.error('Client name is required');
-    if (form.contacts.some(c => !c.name.trim())) return toast.error('All contacts must have a name');
     
+    // Ensure at least one contact exists and has a phone number
+    if (!form.contacts[0]?.phone?.trim()) {
+      return toast.error('Phone number is required');
+    }
+
+    // Auto-fill contact name if missing
+    const updatedContacts = form.contacts.map(c => ({
+      ...c,
+      name: c.name.trim() || form.name.trim()
+    }));
+
     setLoading(true);
+    const payload = { ...form, contacts: updatedContacts };
+
     try {
       if (initialClient?.id) {
-        await api.patch(`/clients/${initialClient.id}`, form);
+        await api.patch(`/clients/${initialClient.id}`, payload);
         toast.success('Client updated');
       } else {
-        await api.post('/clients', form);
+        await api.post('/clients', payload);
         toast.success('Client created');
       }
       onSave();
@@ -120,6 +132,15 @@ export default function ClientModal({ client: initialClient, onClose, onSave }) 
               <div>
                 <label className="label">PAN Number</label>
                 <input className="input" placeholder="ABCDE1234F" value={form.pan_number} onChange={(e) => setForm({ ...form, pan_number: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Phone Number *</label>
+                <input 
+                  className="input" 
+                  placeholder="e.g. 9876543210" 
+                  value={form.contacts[0]?.phone || ''} 
+                  onChange={(e) => updateContact(0, 'phone', e.target.value)} 
+                />
               </div>
             </div>
             <div>

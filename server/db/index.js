@@ -1,6 +1,4 @@
-// server/db/index.js
-// PostgreSQL connection pool
-
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), override: true });
 const { Pool } = require('pg');
 
 const pool = new Pool({
@@ -135,6 +133,17 @@ pool.query('SELECT NOW()', (err) => {
           )
         `);
 
+        // 6b. Add new document metadata columns (non-destructive — nullable)
+        await pool.query("ALTER TABLE documents ADD COLUMN IF NOT EXISTS original_name VARCHAR(500)");
+        await pool.query("ALTER TABLE documents ADD COLUMN IF NOT EXISTS stored_name  VARCHAR(500)");
+        await pool.query("ALTER TABLE documents ADD COLUMN IF NOT EXISTS extension    VARCHAR(20)");
+
+        // 6c. Performance index for document lookups by project + type
+        await pool.query(`
+          CREATE INDEX IF NOT EXISTS idx_documents_project_type
+            ON documents(project_id, document_type)
+        `);
+
         // 7. Ensure comments table exists
         await pool.query(`
           CREATE TABLE IF NOT EXISTS comments (
@@ -166,6 +175,13 @@ pool.query('SELECT NOW()', (err) => {
         await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id)');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date)');
         
+        // 9. Ensure payroll table has incentives column
+        await pool.query("ALTER TABLE payroll ADD COLUMN IF NOT EXISTS incentives DECIMAL(15, 2) DEFAULT 0");
+
+        // 10. Hourly Salary & Attendance Hours
+        await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_rate DECIMAL(15, 2) DEFAULT 0");
+        await pool.query("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS hours_worked DECIMAL(10, 2) DEFAULT 0");
+
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
         console.error('❌ Migration failed:', mErr.message);

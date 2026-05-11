@@ -245,6 +245,8 @@ router.post('/checkout', authenticate, async (req, res) => {
       [userId, today]
     );
 
+    console.log(`[ATTENDANCE] Check-out lookup: user=${userId}, date=${today}, found=${existing.length}`);
+
     if (!existing.length || !existing[0].check_in) {
       return res.status(400).json({ error: 'Please check in first' });
     }
@@ -290,16 +292,19 @@ router.post('/checkout', authenticate, async (req, res) => {
       `UPDATE attendance SET
          check_out = $1, status = $2,
          checkout_lat = $3, checkout_lng = $4, checkout_accuracy = $5,
-         checkout_distance = $6, checkout_zone = $7, checkout_outside_zone = $8
-       WHERE user_id = $9 AND date = $10::date
+         checkout_distance = $6, checkout_zone = $7, checkout_outside_zone = $8,
+         hours_worked = $9
+       WHERE user_id = $10 AND date = $11::date
        RETURNING *`,
       [
         nowIso, newStatus,
         lat || null, lng || null, parseFloat(accuracy) || null,
         checkoutDistance, checkoutZone, checkoutOutsideZone,
-        userId, today,
+        hoursWorked, userId, today,
       ]
     );
+
+    console.log(`[ATTENDANCE] Check-out update: user=${userId}, date=${today}, success=${rows.length > 0}`);
 
     const msg = checkoutOutsideZone
       ? 'Checked out outside office location'
@@ -327,7 +332,7 @@ router.get('/today', authenticate, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT
          u.id as user_id, u.name, u.role, u.department,
-         a.check_in, a.check_out, a.lat, a.lng, a.date, a.is_late, a.late_minutes,
+         a.check_in, a.check_out, a.lat, a.lng, a.date, a.is_late, a.late_minutes, a.hours_worked,
          a.checkin_zone, a.checkin_distance, a.checkin_accuracy,
          a.is_boundary_checkin, a.checkin_verified,
          a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
@@ -382,7 +387,7 @@ router.get('/all', authenticate, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT
          u.id as user_id, u.name, u.role, u.department,
-         a.check_in, a.check_out, a.lat, a.lng, a.date, a.is_late, a.late_minutes,
+         a.check_in, a.check_out, a.lat, a.lng, a.date, a.is_late, a.late_minutes, a.hours_worked,
          a.checkin_zone, a.checkin_distance, a.checkin_accuracy,
          a.is_boundary_checkin, a.checkin_verified,
          a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
@@ -430,23 +435,28 @@ router.post('/manual', authenticate, requireAdmin, async (req, res) => {
       [user_id, date]
     );
 
+    let hours_worked = 0;
+    if (check_in && check_out) {
+      hours_worked = (new Date(check_out) - new Date(check_in)) / (1000 * 60 * 60);
+    }
+
     let row;
     if (existing.length > 0) {
       const { rows } = await pool.query(
         `UPDATE attendance SET
            check_in = $1, check_out = $2, status = $3,
-           is_late = $4, late_minutes = $5
-         WHERE id = $6
+           is_late = $4, late_minutes = $5, hours_worked = $6
+         WHERE id = $7
          RETURNING *`,
-        [check_in, check_out, status, is_late, late_minutes, existing[0].id]
+        [check_in, check_out, status, is_late, late_minutes, hours_worked, existing[0].id]
       );
       row = rows[0];
     } else {
       const { rows } = await pool.query(
-        `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *`,
-        [user_id, date, check_in, check_out, status, is_late, late_minutes]
+        [user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked]
       );
       row = rows[0];
     }

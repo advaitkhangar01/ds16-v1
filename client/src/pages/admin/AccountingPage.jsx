@@ -9,21 +9,28 @@ import {
 import { 
   TrendingUp, TrendingDown, IndianRupee, Briefcase, 
   Download, Calendar, Filter, ArrowUpRight, ArrowDownRight,
-  Activity, Receipt, Trash2, FileText, CheckCircle2, Plus, X, Lock
+  Activity, Receipt, Trash2, FileText, CheckCircle2, Plus, X, Lock,
+  LayoutList, LayoutDashboard, CreditCard, Clock, Search
 } from 'lucide-react';
 
 const EXPENSE_CATEGORIES = [
+  "Mobile Bill",
+  "Electric Bill",
   "Rent",
-  "Electricity",
-  "Water",
-  "Stationery",
-  "Software/SaaS",
-  "Travel",
-  "Marketing",
-  "Site Labor",
-  "Materials",
-  "Furniture",
-  "Miscellaneous"
+  "Bank installments",
+  "Office maintenance",
+  "Stationary",
+  "Printer Agency Payment",
+  "Liasoning Agency Payment",
+  "Computer Maintainence",
+  "Travel Convinience",
+  "Other 1",
+  "Other 2",
+  "Other 3",
+  "Other 4",
+  "Other 5",
+  "Incentives",
+  "Salaries"
 ];
 
 export default function AccountingPage() {
@@ -36,6 +43,8 @@ export default function AccountingPage() {
     endDate: '',
     projectId: ''
   });
+  const [rowIncentives, setRowIncentives] = useState({});
+  const [isProcessing, setIsProcessing] = useState({});
 
   // Summary Data
   const [summary, setSummary] = useState({
@@ -58,6 +67,7 @@ export default function AccountingPage() {
   const [projects, setProjects] = useState([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [viewType, setViewType] = useState('table'); // table or kanban
   const [modalData, setModalData] = useState({ category: '', amount: '', date: new Date().toISOString().split('T')[0], description: '', receipt: null });
 
   // Payroll Data
@@ -127,6 +137,7 @@ export default function AccountingPage() {
         receivedIncome: data.received_income,
         pendingIncome: data.pending_income,
         unbilledIncome: data.unbilled_income,
+        totalIncentives: data.total_incentives || 0,
         totalExpense: data.total_expense,
         netProfit: data.net_profit
       });
@@ -139,9 +150,12 @@ export default function AccountingPage() {
 
   const fetchChartData = async () => {
     try {
-      const { projectId } = filters;
+      const { startDate, endDate, projectId } = filters;
       let url = `/finances/charts?`;
+      if (startDate) url += `&start_date=${startDate}`;
+      if (endDate) url += `&end_date=${endDate}`;
       if (projectId) url += `&project_id=${projectId}`;
+      
       const { data } = await api.get(url);
       setChartData(data);
     } catch (err) {
@@ -276,19 +290,38 @@ export default function AccountingPage() {
     }
   };
 
-  const handleProcessPayroll = async (emp) => {
+  const handleProcessPayroll = async (emp, manualIncentive = null) => {
     const suggested = emp.suggested_salary;
-    const breakdown = `
-      Full Days: ${emp.full_days}
-      Half Days: ${emp.half_days} (${emp.half_days * 0.5}d)
-      Late Penalty: -${emp.late_penalty_days}d
-      Unpaid Leaves: -${emp.unpaid_leaves}
-      Paid Holidays: +${emp.paid_holidays}
-      Final Payable Days: ${emp.payable_days}
-    `;
-    const finalAmount = prompt(`Confirm payment for ${emp.name}:\n${breakdown}\nSuggested Amount:`, suggested);
+    const isManual = manualIncentive !== null;
     
-    if (finalAmount === null) return;
+    let incentiveAmount = isManual ? manualIncentive : '0';
+    let finalAmount = suggested + parseFloat(incentiveAmount || 0);
+
+    if (!isManual) {
+      const isHourly = parseFloat(emp.hourly_rate) > 0;
+      const breakdown = isHourly 
+        ? `
+        Hourly Rate: ₹${emp.hourly_rate}
+        Total Hours: ${emp.total_hours}h
+        Calculation: ₹${emp.hourly_rate} * ${emp.total_hours}
+      `
+        : `
+        Full Days: ${emp.full_days}
+        Half Days: ${emp.half_days} (${emp.half_days * 0.5}d)
+        Late Penalty: -${emp.late_penalty_days}d
+        Unpaid Leaves: -${emp.unpaid_leaves}
+        Paid Holidays: +${emp.paid_holidays}
+        Final Payable Days: ${emp.payable_days}
+      `;
+      incentiveAmount = prompt(`Enter Incentives for ${emp.name} (optional):`, '0');
+      if (incentiveAmount === null) return;
+
+      finalAmount = prompt(`Confirm payment for ${emp.name}:\n${breakdown}\nIncentive: ₹${incentiveAmount}\nSuggested Amount:`, (emp.suggested_salary + parseFloat(incentiveAmount || 0)));
+      if (finalAmount === null) return;
+    }
+
+    setIsProcessing(prev => ({ ...prev, [emp.id]: true }));
+
 
     try {
       // 1. Save to payroll table (legacy/detail)
@@ -296,6 +329,7 @@ export default function AccountingPage() {
         user_id: emp.id,
         base_salary: emp.base_salary,
         bonus: 0,
+        incentives: parseFloat(incentiveAmount) || 0,
         deductions: 0,
         net_paid: parseFloat(finalAmount),
         month: selectedMonth,
@@ -303,21 +337,15 @@ export default function AccountingPage() {
         status: 'paid'
       });
 
-      // 2. Save to unified transactions (financial source of truth)
-      await api.post('/finances/transactions', {
-        type: 'expense',
-        category: 'salary',
-        amount: parseFloat(finalAmount),
-        date: new Date().toISOString().split('T')[0],
-        description: `Salary for ${emp.name} - ${new Date(0, selectedMonth - 1).toLocaleString('default', { month: 'long' })} ${selectedYear}`,
-        employee_id: emp.id
-      });
-
+      // 2. Refresh local data
       toast.success(`Payroll processed for ${emp.name}`);
       fetchPayrollData();
       fetchSummary();
+      fetchExpenses(); // Added to refresh the expense matrix
     } catch (err) {
       toast.error('Failed to process payroll');
+    } finally {
+      setIsProcessing(prev => ({ ...prev, [emp.id]: false }));
     }
   };
 
@@ -508,6 +536,14 @@ export default function AccountingPage() {
                   </div>
                 </div>
               </div>
+              {/* Box 8: Incentives */}
+              <div className="bg-white p-5 rounded-xl border border-purple-100 shadow-sm relative overflow-hidden group">
+                <p className="text-[10px] font-bold text-purple-600 uppercase tracking-widest">Incentives Paid</p>
+                <h3 className="text-2xl font-black text-purple-600 mt-2">₹{(Number(summary.totalIncentives) || 0).toLocaleString('en-IN')}</h3>
+                <div className="absolute top-0 right-0 p-3 opacity-10 text-purple-600">
+                  <TrendingUp size={40} />
+                </div>
+              </div>
             </div>
 
             {/* Charts Section */}
@@ -680,7 +716,7 @@ export default function AccountingPage() {
                                           <Receipt size={10} />
                                         </a>
                                       )}
-                                      {isDeletable(exp.date) ? (
+                                      {isDeletable(exp.date) && exp.source !== 'payroll' ? (
                                         <button 
                                           onClick={() => handleDeleteExpense(exp.id, exp.date)}
                                           className="ml-1 text-gray-300 hover:text-red-500 opacity-0 group-hover/chip:opacity-100 transition-opacity"
@@ -688,6 +724,8 @@ export default function AccountingPage() {
                                         >
                                           <Trash2 size={10} />
                                         </button>
+                                      ) : exp.source === 'payroll' ? (
+                                        <Lock size={10} className="ml-1 text-blue-400" title="System Generated (Payroll)" />
                                       ) : (
                                         <Lock size={10} className="ml-1 text-gray-300" title="Irreversible (15+ days)" />
                                       )}
@@ -740,161 +778,447 @@ export default function AccountingPage() {
         )}
 
         {activeTab === 'payroll' && (
-          <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-xl border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-800">Payroll Management</h2>
-              <div className="flex gap-2">
-                <select 
-                  value={selectedMonth} 
-                  onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                  className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-primary"
-                >
-                  {Array.from({ length: 12 }, (_, i) => (
-                    <option key={i+1} value={i+1}>{new Date(0, i).toLocaleString('default', { month: 'long' })}</option>
-                  ))}
-                </select>
-                <select 
-                  value={selectedYear} 
-                  onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                  className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-primary"
-                >
-                  {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
-                </select>
+          <div className="space-y-6 animate-in fade-in duration-500">
+            {/* Payroll Header & Month Picker */}
+            <div className="flex flex-col gap-6 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-primary/10 rounded-xl text-primary">
+                    <CreditCard size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-gray-900 tracking-tight">Active Monthly Payroll</h2>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Processing salaries for all departments</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex bg-gray-100 p-1 rounded-xl mr-2">
+                    <button 
+                      onClick={() => setViewType('table')}
+                      className={`p-1.5 rounded-lg transition-all ${viewType === 'table' ? 'bg-white shadow-sm text-primary' : 'text-gray-400 hover:text-gray-600'}`}
+                      title="Table View"
+                    >
+                      <LayoutList size={18} />
+                    </button>
+                    <button 
+                      onClick={() => setViewType('kanban')}
+                      className={`p-1.5 rounded-lg transition-all ${viewType === 'kanban' ? 'bg-white shadow-sm text-primary' : 'text-gray-400 hover:text-gray-600'}`}
+                      title="Kanban View"
+                    >
+                      <LayoutDashboard size={18} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 px-3 py-2 rounded-xl">
+                    <Calendar size={16} className="text-gray-400" />
+                    <select 
+                      value={selectedMonth}
+                      onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                      className="bg-transparent text-sm font-bold outline-none cursor-pointer"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <option key={i + 1} value={i + 1}>{new Date(0, i).toLocaleString('default', { month: 'long' })}</option>
+                      ))}
+                    </select>
+                    <select 
+                      value={selectedYear}
+                      onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                      className="bg-transparent text-sm font-bold outline-none cursor-pointer border-l border-gray-200 pl-2"
+                    >
+                      {[2024, 2025, 2026].map(y => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Search & Progress Bar */}
+              <div className="flex flex-col md:flex-row items-center gap-6 pt-4 border-t border-gray-50">
+                <div className="relative flex-1 group w-full">
+                  <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-primary transition-colors" />
+                  <input 
+                    type="text"
+                    placeholder="Search by name or department..."
+                    value={filters.payrollSearch || ''}
+                    onChange={(e) => setFilters({...filters, payrollSearch: e.target.value})}
+                    className="w-full bg-gray-50 border border-gray-100 rounded-xl pl-11 pr-4 py-3 text-sm outline-none focus:bg-white focus:border-primary/30 transition-all shadow-inner"
+                  />
+                </div>
+
+                <div className="flex-1 w-full space-y-2">
+                  <div className="flex justify-between items-end">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Disbursement Progress</p>
+                    <p className="text-xs font-black text-primary font-mono">{payrollHistory.length} / {employees.length}</p>
+                  </div>
+                  <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden shadow-inner">
+                    <div 
+                      className="h-full bg-primary transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(224,90,30,0.3)]"
+                      style={{ width: `${(payrollHistory.length / (employees.length || 1)) * 100}%` }}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="p-4 bg-gray-50 border-b border-gray-200">
-                <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider">Active Employees</h3>
-              </div>
-              <table className="w-full text-left text-sm">
-                <thead className="bg-white border-b border-gray-200">
-                  <tr>
-                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px]">Employee</th>
-                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Attendance</th>
-                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Half Days</th>
-                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Late</th>
-                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Leaves</th>
-                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-right">Base Salary</th>
-                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-right">Payable</th>
-                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Status</th>
-                    <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {employees.map(emp => {
-                    const processed = payrollHistory.find(p => p.user_id === emp.id);
-                    return (
-                      <tr key={emp.id} className="hover:bg-gray-50/80 transition-colors group/row">
-                        <td className="px-6 py-4">
-                          <div className="font-bold text-gray-900">{emp.name}</div>
-                          <div className="text-[10px] text-gray-400 font-bold uppercase">{emp.department}</div>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="font-bold text-gray-800">{emp.full_days || 0}</span>
-                          <span className="text-[10px] text-gray-400 font-bold ml-1">/ {emp.total_days}</span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className={`font-bold ${emp.half_days > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
-                            {emp.half_days || 0}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <div className="flex flex-col items-center">
-                            <span className={`font-bold ${emp.late_count > 0 ? 'text-red-500' : 'text-gray-400'}`}>
-                              {emp.late_count || 0}
-                            </span>
-                            {emp.late_penalty_days > 0 && (
-                              <span className="text-[9px] font-black text-red-400">-{emp.late_penalty_days}d</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className={`font-bold ${emp.unpaid_leaves > 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                            {emp.unpaid_leaves || 0}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right font-mono text-xs font-bold text-gray-600">
-                          <div className="flex items-center justify-end gap-1">
-                            <span>₹{parseFloat(emp.base_salary).toLocaleString('en-IN')}</span>
-                            <button 
-                              onClick={async () => {
-                                const newSal = prompt('Enter new base salary:', emp.base_salary);
-                                if (newSal !== null) {
-                                  try {
-                                    await api.put(`/accounting/payroll/employees/${emp.id}`, { base_salary: parseFloat(newSal) });
-                                    toast.success('Salary updated');
-                                    fetchPayrollData();
-                                  } catch (err) {
-                                    toast.error('Update failed');
-                                  }
-                                }
-                              }}
-                              className="text-gray-300 hover:text-primary opacity-0 group-hover/row:opacity-100 transition-opacity"
-                            >
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                            </button>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right relative group">
-                          <div className="font-black text-primary font-mono cursor-help">
-                            ₹{Number(processed ? processed.net_paid : emp.suggested_salary || 0).toLocaleString('en-IN')}
-                          </div>
-                          
-                          {/* Breakdown Tooltip */}
-                          <div className="absolute bottom-full right-0 mb-2 w-48 bg-gray-900 text-white rounded-xl p-3 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all z-50 transform translate-y-2 group-hover:translate-y-0">
-                            <div className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 border-b border-gray-700 pb-1">Salary Breakdown</div>
-                            <div className="space-y-1.5">
-                              <div className="flex justify-between text-[11px]">
-                                <span className="text-gray-400">Full Days:</span>
-                                <span className="font-bold">{emp.full_days}</span>
-                              </div>
-                              <div className="flex justify-between text-[11px]">
-                                <span className="text-gray-400">Half Days (0.5):</span>
-                                <span className="font-bold text-orange-400">{emp.half_days} ({emp.half_days * 0.5}d)</span>
-                              </div>
-                              <div className="flex justify-between text-[11px]">
-                                <span className="text-gray-400">Paid Holidays:</span>
-                                <span className="font-bold text-emerald-400">+{emp.paid_holidays}</span>
-                              </div>
-                              <div className="flex justify-between text-[11px]">
-                                <span className="text-gray-400">Late Cut:</span>
-                                <span className="font-bold text-red-400">-{emp.late_penalty_days}d</span>
-                              </div>
-                              <div className="flex justify-between text-[11px]">
-                                <span className="text-gray-400">Unpaid Leaves:</span>
-                                <span className="font-bold text-red-400">-{emp.unpaid_leaves}</span>
-                              </div>
-                              <div className="flex justify-between text-[11px] pt-1 border-t border-gray-700 mt-1">
-                                <span className="font-black">Payable Days:</span>
-                                <span className="font-black text-primary">{emp.payable_days}d</span>
-                              </div>
+            {viewType === 'kanban' ? (
+              /* Kanban View */
+              <>
+                <div className="flex flex-col bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden shadow-inner max-w-2xl mx-auto w-full h-[calc(100vh-420px)]">
+                  <div className="p-4 border-b border-slate-200 bg-white flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                      <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest">Pending Payment</h3>
+                    </div>
+                    <span className="px-2 py-0.5 bg-slate-100 rounded-full text-[10px] font-bold text-slate-400 border border-slate-200">
+                      {employees.filter(emp => !payrollHistory.some(p => p.user_id === emp.id)).length}
+                    </span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                    {employees
+                      .filter(emp => !payrollHistory.some(p => p.user_id === emp.id))
+                      .filter(emp => {
+                        const search = (filters.payrollSearch || '').toLowerCase();
+                        return emp.name.toLowerCase().includes(search) || emp.department.toLowerCase().includes(search);
+                      })
+                      .map(emp => (
+                      <div 
+                        key={emp.id}
+                        className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-primary/50 hover:shadow-md transition-all group"
+                      >
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="font-black text-gray-900">{emp.name}</p>
+                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${emp.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                {emp.role}
+                              </span>
                             </div>
-                            <div className="absolute top-full right-4 w-2 h-2 bg-gray-900 transform rotate-45 -translate-y-1"></div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{emp.department}</p>
                           </div>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          {processed ? (
-                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[9px] font-black uppercase tracking-widest">Paid</span>
-                          ) : (
-                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-[9px] font-black uppercase tracking-widest">Pending</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          {!processed && (
-                            <button 
-                              onClick={() => handleProcessPayroll(emp)}
-                              className="bg-primary/10 hover:bg-primary text-primary hover:text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
-                            >
-                              Process
-                            </button>
-                          )}
-                        </td>
+                          <div className="text-right">
+                            <p className="text-xs font-black text-primary font-mono">₹{(emp.suggested_salary || 0).toLocaleString('en-IN')}</p>
+                            <p className="text-[8px] font-bold text-gray-400 uppercase">Suggested</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 mb-4">
+                          <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
+                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Attendance</p>
+                            <p className="text-xs font-black text-slate-700">{emp.payable_days}d</p>
+                          </div>
+                          <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
+                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Base Sal.</p>
+                            <p className="text-xs font-black text-slate-700">
+                              ₹{parseFloat(emp.hourly_rate) > 0 ? `${emp.hourly_rate}/hr` : parseFloat(emp.base_salary).toLocaleString('en-IN')}
+                            </p>
+                          </div>
+                          <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
+                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Work</p>
+                            <p className="text-xs font-black text-slate-700">{parseFloat(emp.hourly_rate) > 0 ? `${emp.total_hours}h` : `${emp.payable_days}d`}</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => handleProcessPayroll(emp)}
+                          className="w-full py-2 bg-primary/5 hover:bg-primary text-primary hover:text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all group-hover:scale-[1.02]"
+                        >
+                          Process Payment
+                        </button>
+                      </div>
+                    ))}
+                    {employees.filter(emp => !payrollHistory.some(p => p.user_id === emp.id)).length === 0 && (
+                      <div className="h-full flex flex-col items-center justify-center text-slate-300 py-12">
+                        <CheckCircle2 size={40} className="opacity-20 mb-3" />
+                        <p className="text-xs font-bold italic">All salaries processed!</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : (
+                      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50/50 border-b border-gray-100">
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px]">Employee / Role</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Attendance</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Half Days</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Late</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Leaves</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-right">Base / Hourly</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Hours</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-right">Incentives</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-right">Net Payable</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Paid Status</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {employees
+                        .filter(emp => {
+                          const search = (filters.payrollSearch || '').toLowerCase();
+                          return emp.name.toLowerCase().includes(search) || emp.department.toLowerCase().includes(search);
+                        })
+                        .map(emp => {
+                        const processed = payrollHistory.find(p => p.user_id === emp.id);
+                        return (
+                          <tr key={emp.id} className={`hover:bg-gray-50/80 transition-colors group/row ${processed ? 'bg-emerald-50/10' : ''}`}>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <div className="font-bold text-gray-900">{emp.name}</div>
+                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${emp.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                  {emp.role}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-gray-400 font-bold uppercase">{emp.department}</div>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className="font-bold text-gray-800">{emp.full_days || 0}</span>
+                              <span className="text-[10px] text-gray-400 font-bold ml-1">/ {emp.total_days}</span>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`font-bold ${emp.half_days > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                                {emp.half_days || 0}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <div className="flex flex-col items-center">
+                                <span className={`font-bold ${emp.late_count > 0 ? 'text-red-500' : 'text-gray-400'}`}>
+                                  {emp.late_count || 0}
+                                </span>
+                                {emp.late_penalty_days > 0 && (
+                                  <span className="text-[9px] font-black text-red-400">-{emp.late_penalty_days}d</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`font-bold ${emp.unpaid_leaves > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                                {emp.unpaid_leaves || 0}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex flex-col items-end gap-1">
+                                <div className="flex items-center gap-1 font-mono text-xs font-bold text-gray-600">
+                                  <span>₹{parseFloat(emp.base_salary).toLocaleString('en-IN')}</span>
+                                  {!processed && (
+                                    <button 
+                                      onClick={async () => {
+                                        const newSal = prompt('Enter new base salary:', emp.base_salary);
+                                        if (newSal !== null) {
+                                          try {
+                                            await api.put(`/accounting/payroll/employees/${emp.id}`, { base_salary: parseFloat(newSal) });
+                                            toast.success('Salary updated');
+                                            fetchPayrollData();
+                                          } catch (err) {
+                                            toast.error('Update failed');
+                                          }
+                                        }
+                                      }}
+                                      className="text-gray-300 hover:text-primary opacity-0 group-hover/row:opacity-100 transition-opacity"
+                                    >
+                                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1 font-mono text-[10px] font-bold text-primary italic">
+                                  <span>₹{parseFloat(emp.hourly_rate || 0).toLocaleString('en-IN')}/hr</span>
+                                  {!processed && (
+                                    <button 
+                                      onClick={async () => {
+                                        const newRate = prompt('Enter new hourly rate:', emp.hourly_rate);
+                                        if (newRate !== null) {
+                                          try {
+                                            await api.put(`/accounting/payroll/employees/${emp.id}`, { hourly_rate: parseFloat(newRate) });
+                                            toast.success('Hourly rate updated');
+                                            fetchPayrollData();
+                                          } catch (err) {
+                                            toast.error('Update failed');
+                                          }
+                                        }
+                                      }}
+                                      className="text-gray-300 hover:text-primary opacity-0 group-hover/row:opacity-100 transition-opacity"
+                                    >
+                                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`font-bold ${emp.total_hours > 0 ? 'text-primary' : 'text-gray-400'}`}>
+                                {emp.total_hours || 0}h
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              {processed ? (
+                                <span className="font-mono text-xs font-bold text-gray-600">₹{parseFloat(processed.incentives).toLocaleString('en-IN')}</span>
+                              ) : (
+                                <input 
+                                  type="number"
+                                  placeholder="Incentive"
+                                  value={rowIncentives[emp.id] || ''}
+                                  onChange={(e) => setRowIncentives({...rowIncentives, [emp.id]: e.target.value})}
+                                  className="w-20 bg-gray-50 border border-gray-200 rounded px-2 py-1 text-xs text-right outline-none focus:border-primary transition-all font-mono"
+                                />
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-right relative group">
+                              <div className="font-black text-primary font-mono cursor-help">
+                                ₹{Number(processed ? processed.net_paid : (emp.suggested_salary + parseFloat(rowIncentives[emp.id] || 0))).toLocaleString('en-IN')}
+                              </div>
+                              
+                              {/* Breakdown Tooltip */}
+                              <div className="absolute bottom-full right-0 mb-2 w-48 bg-gray-900 text-white rounded-xl p-3 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all z-50 transform translate-y-2 group-hover:translate-y-0">
+                                <div className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 border-b border-gray-700 pb-1">Salary Breakdown</div>
+                                <div className="space-y-1.5">
+                                  {parseFloat(emp.hourly_rate) > 0 ? (
+                                    <>
+                                      <div className="flex justify-between text-[11px]">
+                                        <span className="text-gray-400">Hourly Rate:</span>
+                                        <span className="font-bold">₹{emp.hourly_rate}</span>
+                                      </div>
+                                      <div className="flex justify-between text-[11px]">
+                                        <span className="text-gray-400">Total Hours:</span>
+                                        <span className="font-bold text-primary">{emp.total_hours}h</span>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="flex justify-between text-[11px]">
+                                        <span className="text-gray-400">Full Days:</span>
+                                        <span className="font-bold">{emp.full_days}</span>
+                                      </div>
+                                      <div className="flex justify-between text-[11px]">
+                                        <span className="text-gray-400">Half Days:</span>
+                                        <span className="font-bold text-orange-400">{emp.half_days * 0.5}d</span>
+                                      </div>
+                                      <div className="flex justify-between text-[11px]">
+                                        <span className="text-gray-400">Late Penalty:</span>
+                                        <span className="font-bold text-red-400">-{emp.late_penalty_days}d</span>
+                                      </div>
+                                      <div className="flex justify-between text-[11px] pt-1 border-t border-gray-700 mt-1 font-black">
+                                        <span>Payable Days:</span>
+                                        <span className="text-primary">{emp.payable_days}d</span>
+                                      </div>
+                                    </>
+                                  )}
+                                  <div className="flex justify-between text-[11px] pt-1 border-t border-gray-700 mt-1">
+                                    <span className="text-gray-400 italic text-[9px]">
+                                      {parseFloat(emp.hourly_rate) > 0 ? `Formula: ₹${emp.hourly_rate} * ${emp.total_hours}h` : `Base: ₹${emp.base_salary}`}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <div className="flex items-center justify-center">
+                                {processed ? (
+                                  <div className="flex items-center gap-1.5 text-emerald-600">
+                                    <CheckCircle2 size={16} />
+                                    <span className="text-[10px] font-black uppercase tracking-widest">Paid</span>
+                                  </div>
+                                ) : (
+                                  <label className="relative inline-flex items-center cursor-pointer group/check">
+                                    <input 
+                                      type="checkbox"
+                                      className="sr-only"
+                                      disabled={isProcessing[emp.id]}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          handleProcessPayroll(emp, rowIncentives[emp.id] || '0');
+                                        }
+                                      }}
+                                    />
+                                    <div className={`w-5 h-5 border-2 rounded transition-all flex items-center justify-center ${isProcessing[emp.id] ? 'border-gray-200 bg-gray-50' : 'border-gray-300 group-hover/check:border-primary bg-white'}`}>
+                                      {isProcessing[emp.id] ? (
+                                        <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                                      ) : (
+                                        <div className="w-2.5 h-2.5 bg-primary rounded-sm opacity-0 transform scale-50 transition-all peer-checked:opacity-100 peer-checked:scale-100" />
+                                      )}
+                                    </div>
+                                    <span className="ml-2 text-[10px] font-bold text-gray-400 group-hover/check:text-primary transition-colors">Mark Paid</span>
+                                  </label>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Salary History Section Below */}
+            <div className="mt-12 pt-8 border-t border-gray-100 space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
+                    <Clock size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-gray-900">Recent Disbursements</h3>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Payment history for {new Date(0, selectedMonth - 1).toLocaleString('default', { month: 'long' })} {selectedYear}</p>
+                  </div>
+                </div>
+                <div className="px-3 py-1 bg-emerald-50 rounded-full text-[10px] font-black text-emerald-600 border border-emerald-100">
+                  Total Paid: {payrollHistory.length}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50/50 border-b border-gray-100">
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px]">Employee</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Paid Date</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-right">Base Salary</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-right">Incentive</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-right font-black">Net Paid</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Reference</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {payrollHistory
+                        .filter(record => {
+                          const search = (filters.payrollSearch || '').toLowerCase();
+                          return record.name.toLowerCase().includes(search) || record.department.toLowerCase().includes(search);
+                        })
+                        .map(record => (
+                        <tr key={record.id} className="hover:bg-gray-50/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <p className="font-bold text-gray-900">{record.name}</p>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase">{record.department}</p>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className="text-xs font-bold text-gray-600">{new Date(record.payment_date).toLocaleDateString()}</span>
+                          </td>
+                          <td className="px-6 py-4 text-right font-mono text-xs font-bold text-gray-600">
+                            ₹{parseFloat(record.base_salary).toLocaleString('en-IN')}
+                          </td>
+                          <td className="px-6 py-4 text-right font-mono text-xs font-bold text-purple-600">
+                            +₹{parseFloat(record.incentives).toLocaleString('en-IN')}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <span className="font-black text-emerald-600 font-mono">₹{(record.net_paid || 0).toLocaleString('en-IN')}</span>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[9px] font-black uppercase tracking-widest">Completed</span>
+                          </td>
+                        </tr>
+                      ))}
+                      {payrollHistory.length === 0 && (
+                        <tr>
+                          <td colSpan="6" className="px-6 py-12 text-center text-gray-400 italic text-xs">
+                            No disbursements recorded for this month yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -1025,7 +1349,7 @@ export default function AccountingPage() {
                         ₹{parseFloat(exp.amount).toLocaleString('en-IN')}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {isDeletable(exp.date) ? (
+                        {isDeletable(exp.date) && exp.source !== 'payroll' ? (
                           <div className="flex items-center justify-center gap-2">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Editable" />
                             <button 
@@ -1037,8 +1361,8 @@ export default function AccountingPage() {
                           </div>
                         ) : (
                           <div className="flex items-center justify-center gap-2 text-gray-400">
-                            <Lock size={12} />
-                            <span className="text-[9px] font-bold uppercase">Locked</span>
+                            <Lock size={12} className={exp.source === 'payroll' ? 'text-blue-400' : ''} />
+                            <span className="text-[9px] font-bold uppercase">{exp.source === 'payroll' ? 'Payroll' : 'Locked'}</span>
                           </div>
                         )}
                       </td>

@@ -55,12 +55,14 @@ export default function AttendanceCard({ attendance, onAction }) {
   async function handleCheckOut() {
     setActionLoading(true);
     try {
-      await api.post('/attendance/checkout');
-      toast.success('Checked out! See you tomorrow 👋');
+      const { data } = await api.post('/attendance/checkout');
+      toast.success(data.message || 'Checked out! See you tomorrow 👋');
       
       const updated = await api.get('/attendance/today');
+      // The backend now returns { attendance: [], my_attendance: {} }
       onAction(mapAttendance(updated.data.my_attendance));
     } catch (err) {
+      console.error('Check-out error:', err);
       toast.error(err.response?.data?.error || 'Check-out failed');
     } finally {
       setActionLoading(false);
@@ -81,7 +83,7 @@ export default function AttendanceCard({ attendance, onAction }) {
   const s = statusLabels[status];
 
   return (
-    <div className="card shadow-sm h-full flex flex-col justify-between">
+    <div className="card shadow-sm flex flex-col justify-between">
       <div>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-[#1A1A1A]">Your Attendance</h3>

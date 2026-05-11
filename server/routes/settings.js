@@ -5,6 +5,9 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const pool = require('../db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
+const { executeFactoryReset, getResetPreview } = require('../utils/factoryReset');
+
+const confirmCodes = new Map(); // userId -> { code, expires }
 
 // All settings routes require authentication
 router.use(authenticate);
@@ -13,7 +16,7 @@ router.use(authenticate);
 router.get('/users', requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, username, role, department, phone, base_salary, created_at FROM users ORDER BY name ASC'
+      'SELECT id, name, username, role, department, phone, base_salary, hourly_rate, created_at FROM users ORDER BY name ASC'
     );
     res.json({ users: rows });
   } catch (err) {
@@ -25,7 +28,7 @@ router.get('/users', requireAdmin, async (req, res) => {
 // ─── Admin: Create user ──────────────────────────────────────────────────────
 router.post('/users', requireAdmin, async (req, res) => {
   try {
-    const { name, username, password, role, department, phone, base_salary } = req.body;
+    const { name, username, password, role, department, phone, base_salary, hourly_rate } = req.body;
 
     if (!name?.trim() || !username?.trim() || !password?.trim()) {
       return res.status(400).json({ error: 'Name, username and password are required' });
@@ -35,9 +38,9 @@ router.post('/users', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const validRoles = ['admin', 'employee'];
+    const validRoles = ['admin', 'employee', 'accounts'];
     if (!validRoles.includes(role)) {
-      return res.status(400).json({ error: 'Role must be admin or employee' });
+      return res.status(400).json({ error: 'Role must be admin, employee or accounts' });
     }
 
     // Check duplicate username
@@ -52,10 +55,10 @@ router.post('/users', requireAdmin, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const { rows } = await pool.query(
-      `INSERT INTO users (name, username, password_hash, role, department, phone, base_salary)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, name, username, role, department, phone, base_salary, created_at`,
-      [name.trim(), username.toLowerCase().trim(), passwordHash, role, department?.trim() || null, phone?.trim() || null, parseFloat(base_salary) || 0]
+      `INSERT INTO users (name, username, password_hash, role, department, phone, base_salary, hourly_rate)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, name, username, role, department, phone, base_salary, hourly_rate, created_at`,
+      [name.trim(), username.toLowerCase().trim(), passwordHash, role, department?.trim() || null, phone?.trim() || null, parseFloat(base_salary) || 0, parseFloat(hourly_rate) || 0]
     );
 
     res.status(201).json(rows[0]);
@@ -219,6 +222,55 @@ router.delete('/holidays/:id', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('Settings: delete holiday error:', err);
     res.status(500).json({ error: 'Failed to delete holiday' });
+  }
+});
+
+// ─── Admin: Factory Reset ───────────────────────────────────────────────────
+
+// 1. Get preview + generate confirmation code
+router.get('/factory-reset/preview', requireAdmin, async (req, res) => {
+  try {
+    const counts = await getResetPreview(pool);
+    
+    // Generate a random 6-char alphanumeric code
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    
+    // Store in memory with 10 min TTL
+    confirmCodes.set(req.user.id, {
+      code,
+      expires: Date.now() + 10 * 60 * 1000
+    });
+
+    res.json({ counts, confirmationCode: code });
+  } catch (err) {
+    console.error('Settings: reset preview error:', err);
+    res.status(500).json({ error: 'Failed to get reset preview' });
+  }
+});
+
+// 2. Execute reset
+router.delete('/factory-reset', requireAdmin, async (req, res) => {
+  try {
+    const { confirmationCode } = req.body;
+    const stored = confirmCodes.get(req.user.id);
+
+    if (!stored || Date.now() > stored.expires) {
+      return res.status(400).json({ error: 'Confirmation code expired. Please refresh the preview.' });
+    }
+
+    if (confirmationCode !== stored.code) {
+      return res.status(400).json({ error: 'Invalid confirmation code' });
+    }
+
+    const summary = await executeFactoryReset(pool);
+    
+    // Clear code after successful use
+    confirmCodes.delete(req.user.id);
+
+    res.json({ success: true, summary });
+  } catch (err) {
+    console.error('Settings: factory reset error:', err);
+    res.status(500).json({ error: 'Factory reset failed. Database was rolled back.' });
   }
 });
 

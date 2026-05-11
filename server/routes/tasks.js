@@ -393,9 +393,4 @@ async function cleanupOldTasks() {
   }
 }
 
-// Run daily
-setInterval(cleanupOldTasks, 24 * 60 * 60 * 1000);
-// Also run once on startup
-setTimeout(cleanupOldTasks, 5000);
-
-module.exports = router;
+module.exports = { router, cleanupOldTasks };

@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const pool = require('../db');
-const { authenticate, requireAdmin } = require('../middleware/auth');
+const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
 const multer = require('multer');
 const path = require('path');
@@ -65,8 +65,52 @@ router.get('/transactions', authenticate, async (req, res) => {
 
     query += ` ORDER BY t.date DESC, t.created_at DESC`;
     
-    const { rows } = await pool.query(query, params);
-    res.json({ transactions: rows });
+    const { rows: transactions } = await pool.query(query, params);
+
+    // If type is expense (or not specified), include payroll records as virtual transactions
+    if (!type || type === 'expense') {
+      let payrollQuery = `
+        SELECT 
+          id, 
+          'expense' as type, 
+          'Salaries' as category, 
+          net_paid as amount, 
+          payment_date as date, 
+          'Monthly salary payment' as description, 
+          NULL as project_id, 
+          NULL as vendor_id, 
+          user_id as employee_id, 
+          NULL as reference_id, 
+          NULL as receipt_url, 
+          NULL as created_by, 
+          created_at, 
+          'payroll' as source
+        FROM payroll 
+        WHERE status = 'paid'
+      `;
+      const payrollParams = [];
+      let pyIdx = 1;
+
+      if (start_date) {
+        payrollQuery += ` AND payment_date >= $${pyIdx++}`;
+        payrollParams.push(start_date);
+      }
+      if (end_date) {
+        payrollQuery += ` AND payment_date <= $${pyIdx++}`;
+        payrollParams.push(end_date);
+      }
+
+      const { rows: payrollRows } = await pool.query(payrollQuery, payrollParams);
+      
+      // Merge and sort
+      // Note: Filter out any transactions that were manually added as 'salary' to avoid double counting
+      const filteredTransactions = transactions.filter(t => t.category.toLowerCase() !== 'salary' && t.category.toLowerCase() !== 'salaries');
+      
+      const allTransactions = [...filteredTransactions, ...payrollRows].sort((a, b) => new Date(b.date) - new Date(a.date));
+      return res.json({ transactions: allTransactions });
+    }
+
+    res.json({ transactions });
   } catch (err) {
     console.error('Get transactions error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -156,7 +200,7 @@ router.get('/summary', authenticate, async (req, res) => {
       let expenseQuery = `
         SELECT COALESCE(SUM(amount), 0) as total_expense 
         FROM transactions 
-        WHERE type = 'expense' AND category != 'vendor_payment'
+        WHERE type = 'expense' AND category NOT IN ('vendor_payment', 'salary', 'incentive')
       `;
       const expParams = [];
       let eIdx = 1;
@@ -173,8 +217,30 @@ router.get('/summary', authenticate, async (req, res) => {
         expParams.push(end_date);
       }
       const expRes = await pool.query(expenseQuery, expParams);
-      const totalExpense = parseFloat(expRes.rows[0].total_expense);
+      const transactionExpense = parseFloat(expRes.rows[0].total_expense);
 
+      // 4. Payroll Expenses (Automatically included in global summary)
+      let totalPayroll = 0;
+      let totalIncentives = 0;
+
+      if (!projectId) {
+        let payrollQuery = `SELECT COALESCE(SUM(net_paid), 0) as total_payroll, COALESCE(SUM(incentives), 0) as total_incentives FROM payroll WHERE status = 'paid'`;
+        const payrollParams = [];
+        let pIdx = 1;
+        if (start_date) {
+          payrollQuery += ` AND payment_date >= $${pIdx++}`;
+          payrollParams.push(start_date);
+        }
+        if (end_date) {
+          payrollQuery += ` AND payment_date <= $${pIdx++}`;
+          payrollParams.push(end_date);
+        }
+        const payrollRes = await pool.query(payrollQuery, payrollParams);
+        totalPayroll = parseFloat(payrollRes.rows[0].total_payroll);
+        totalIncentives = parseFloat(payrollRes.rows[0].total_incentives);
+      }
+
+      const totalExpense = transactionExpense + totalPayroll;
       const unbilled = totalValue - billed;
 
       res.json({
@@ -184,6 +250,8 @@ router.get('/summary', authenticate, async (req, res) => {
         pending_income: pending,
         unbilled_income: unbilled > 0 ? unbilled : 0,
         total_expense: totalExpense,
+        total_payroll: totalPayroll,
+        total_incentives: totalIncentives,
         net_profit: totalValue - totalExpense
       });
     } catch (err) {
@@ -197,8 +265,9 @@ router.get('/summary', authenticate, async (req, res) => {
     return checkProjectAccess()(req, res, () => executeSummary(project_id));
   }
   
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required for global summary' });
+  const isAccounting = req.user.role === 'admin' || req.user.role === 'accounts' || req.user.department?.toLowerCase() === 'accounts';
+  if (!isAccounting) {
+    return res.status(403).json({ error: 'Admin or Accounting access required for global summary' });
   }
 
   executeSummary();
@@ -211,46 +280,91 @@ router.get('/charts', authenticate, async (req, res) => {
     return checkProjectAccess()(req, res, () => executeCharts(project_id));
   }
 
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required for global charts' });
+  const isAccounting = req.user.role === 'admin' || req.user.role === 'accounts' || req.user.department?.toLowerCase() === 'accounts';
+  if (!isAccounting) {
+    return res.status(403).json({ error: 'Admin or Accounting access required for global charts' });
   }
 
   executeCharts();
 
   async function executeCharts(projectId) {
     try {
-      // 1. Monthly trend (Last 6 months)
+      const { start_date, end_date } = req.query;
+      
+      // 1. Monthly trend
       let trendQuery = `
+        WITH combined_data AS (
+          SELECT date, type, category, amount, project_id FROM transactions
+          UNION ALL
+          SELECT payment_date as date, 'expense' as type, 'Salaries' as category, net_paid as amount, NULL as project_id FROM payroll WHERE status = 'paid'
+        )
         SELECT 
           TO_CHAR(date, 'Mon YYYY') as month_year,
           SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
-          SUM(CASE WHEN type = 'expense' AND category != 'vendor_payment' THEN amount ELSE 0 END) as expense,
+          SUM(CASE WHEN type = 'expense' AND category NOT IN ('vendor_payment', 'salary', 'incentive') THEN amount ELSE 0 END) as expense,
           MIN(date) as sort_date
-        FROM transactions
-        WHERE date >= CURRENT_DATE - INTERVAL '6 months'
+        FROM combined_data
+        WHERE 1=1
       `;
       const trendParams = [];
+      let tIdx = 1;
+
       if (projectId) {
-        trendQuery += ` AND project_id = $1`;
+        trendQuery += ` AND project_id = $${tIdx++}`;
         trendParams.push(projectId);
       }
+      if (start_date) {
+        trendQuery += ` AND date >= $${tIdx++}`;
+        trendParams.push(start_date);
+      }
+      if (end_date) {
+        trendQuery += ` AND date <= $${tIdx++}`;
+        trendParams.push(end_date);
+      }
+      
+      // If no date filters, default to last 6 months for trend
+      if (!start_date && !end_date) {
+        trendQuery += ` AND date >= CURRENT_DATE - INTERVAL '6 months'`;
+      }
+
       trendQuery += ` GROUP BY month_year ORDER BY sort_date ASC`;
       
       const trendRes = await pool.query(trendQuery, trendParams);
 
-      // 2. Category breakdown (Expenses only, EXCLUDING vendor payments)
+      // 2. Category breakdown (Expenses only)
       let catQuery = `
+        WITH combined_expenses AS (
+          SELECT category, amount, date, project_id FROM transactions WHERE type = 'expense' AND category NOT IN ('vendor_payment', 'salary', 'incentive')
+          UNION ALL
+          SELECT 'Salaries' as category, net_paid as amount, payment_date as date, NULL as project_id FROM payroll WHERE status = 'paid'
+        )
         SELECT 
           category as name,
           SUM(amount) as value
-        FROM transactions
-        WHERE type = 'expense' AND category != 'vendor_payment'
+        FROM combined_expenses
+        WHERE 1=1
       `;
       const catParams = [];
+      let cIdx = 1;
+
       if (projectId) {
-        catQuery += ` AND project_id = $1`;
+        catQuery += ` AND project_id = $${cIdx++}`;
         catParams.push(projectId);
       }
+      if (start_date) {
+        catQuery += ` AND date >= $${cIdx++}`;
+        catParams.push(start_date);
+      }
+      if (end_date) {
+        catQuery += ` AND date <= $${cIdx++}`;
+        catParams.push(end_date);
+      }
+
+      // If no date filters, default to same range as trend (last 6 months)
+      if (!start_date && !end_date) {
+        catQuery += ` AND date >= CURRENT_DATE - INTERVAL '6 months'`;
+      }
+
       catQuery += ` GROUP BY category ORDER BY value DESC`;
       
       const catRes = await pool.query(catQuery, catParams);
@@ -267,7 +381,7 @@ router.get('/charts', authenticate, async (req, res) => {
 });
 
 // DELETE /api/finances/transactions/:id
-router.delete('/transactions/:id', authenticate, requireAdmin, async (req, res) => {
+router.delete('/transactions/:id', authenticate, requireAccounting, async (req, res) => {
   try {
     await pool.query('DELETE FROM transactions WHERE id = $1', [req.params.id]);
     res.json({ message: 'Transaction deleted' });

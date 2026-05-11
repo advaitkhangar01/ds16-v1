@@ -185,14 +185,20 @@ export default function ProjectDetail() {
             <div>
               <h1 className="text-xl font-bold text-[#1A1A1A]">{project.name}</h1>
               <div className="flex items-center gap-2 mb-1">
-                <Link to={`/clients/${project.client_id}`} className="text-[#E05A1E] text-sm font-bold hover:underline inline-block">
-                  {project.client_display_name || project.client_name}
-                </Link>
+                {project.client_id ? (
+                  <Link to={`/clients/${project.client_id}`} className="text-[#E05A1E] text-sm font-bold hover:underline inline-block">
+                    {project.client_display_name || project.client_name}
+                  </Link>
+                ) : (
+                  <span className="text-amber-600 text-[11px] font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-100">
+                    ⚠️ No client profile linked
+                  </span>
+                )}
                 <button 
                   onClick={() => setShowChangeClientModal(true)}
                   className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded hover:bg-[#E05A1E] hover:text-white transition-colors uppercase font-bold"
                 >
-                  Change
+                  {project.client_id ? 'Change' : 'Link Profile'}
                 </button>
               </div>
               <div className="flex items-center gap-3 text-xs text-muted flex-wrap">
@@ -315,7 +321,8 @@ export default function ProjectDetail() {
 
         {activeTab === 'client' && (
           <div className="space-y-8 animate-in fade-in duration-300">
-            <div className="space-y-6">
+            {project.client_id ? (
+              <div className="space-y-6">
               <div className="card">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 rounded-xl bg-orange-50 border border-orange-100 flex items-center justify-center">
@@ -346,6 +353,30 @@ export default function ProjectDetail() {
                 </p>
               </div>
             </div>
+          ) : (
+            <div className="card border-dashed border-2 border-slate-200 bg-slate-50 py-12 flex flex-col items-center text-center">
+              <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="1.5">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+              </div>
+              <h3 className="text-lg font-bold text-slate-700">No Client Profile Linked</h3>
+              <p className="text-sm text-slate-500 max-w-sm mt-2 mb-8">
+                This project was created without a linked client profile. Attach an existing profile or create a new one to manage billing, contacts, and documents.
+              </p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setShowChangeClientModal(true)}
+                  className="btn-primary"
+                >
+                  Link Existing Profile
+                </button>
+                <Link to="/clients" className="btn-secondary">
+                  Create New Profile
+                </Link>
+              </div>
+            </div>
+          )}
 
             {/* Stakeholders Section */}
             <div className="space-y-4">

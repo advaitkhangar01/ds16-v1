@@ -16,6 +16,9 @@ import {
   RefreshCw,
   X,
   MapPin,
+  AlertTriangle,
+  Server,
+  Zap,
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -26,7 +29,7 @@ export default function SettingsPage() {
   const [users, setUsers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUserModal, setShowUserModal] = useState(false);
-  const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: 'employee', department: '', phone: '', base_salary: '' });
+  const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: 'employee', department: '', phone: '', base_salary: '', hourly_rate: '' });
   
   // Password Reset State
   const [resetModal, setResetModal] = useState({ show: false, userId: null, userName: '', newPassword: '' });
@@ -56,9 +59,16 @@ export default function SettingsPage() {
     geofence_max_accuracy:  '50',
   });
 
-  // Holidays State
   const [holidays, setHolidays] = useState([]);
   const [newHoliday, setNewHoliday] = useState({ date: '', name: '', is_paid: true });
+
+  // Factory Reset State
+  const [resetStep, setResetStep] = useState(1); // 1: Warning, 2: Preview/Confirm, 3: Success
+  const [resetPreview, setResetPreview] = useState(null);
+  const [resetConfirmCode, setResetConfirmCode] = useState('');
+  const [userInputCode, setUserInputCode] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetSummary, setResetSummary] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -79,6 +89,13 @@ export default function SettingsPage() {
       } else if (activeTab === 'geofence') {
         const { data } = await api.get('/settings/app');
         setGeoSettings(prev => ({ ...prev, ...data }));
+      } else if (activeTab === 'reset') {
+        // Reset state when entering tab
+        setResetStep(1);
+        setResetPreview(null);
+        setResetConfirmCode('');
+        setUserInputCode('');
+        setResetSummary(null);
       }
     } catch (err) {
       toast.error('Failed to load data');
@@ -103,7 +120,7 @@ export default function SettingsPage() {
       await api.post('/settings/users', newUser);
       toast.success('User created successfully');
       setShowUserModal(false);
-      setNewUser({ name: '', username: '', password: '', role: 'employee', department: '', phone: '', base_salary: '' });
+      setNewUser({ name: '', username: '', password: '', role: 'employee', department: '', phone: '', base_salary: '', hourly_rate: '' });
       fetchData();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to create user');
@@ -160,6 +177,42 @@ export default function SettingsPage() {
       toast.success('Payroll rules updated');
     } catch (err) {
       toast.error('Failed to update settings');
+    }
+  };
+
+  // Factory Reset Handlers
+  const handleLoadResetPreview = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/settings/factory-reset/preview');
+      setResetPreview(data.counts);
+      setResetConfirmCode(data.confirmationCode);
+      setResetStep(2);
+    } catch (err) {
+      toast.error('Failed to load reset preview');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExecuteReset = async () => {
+    if (userInputCode !== resetConfirmCode) {
+      toast.error('Invalid confirmation code');
+      return;
+    }
+
+    setIsResetting(true);
+    try {
+      const { data } = await api.delete('/settings/factory-reset', {
+        data: { confirmationCode: userInputCode }
+      });
+      setResetSummary(data.summary);
+      setResetStep(3);
+      toast.success('System reset successfully');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Factory reset failed');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -222,6 +275,12 @@ export default function SettingsPage() {
           >
             <Users size={14} /> Users
           </button>
+          <button 
+            onClick={() => setActiveTab('reset')}
+            className={`flex items-center gap-2 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'reset' ? 'bg-red-50 shadow-sm text-red-600' : 'text-gray-500 hover:text-red-400'}`}
+          >
+            <AlertTriangle size={14} /> Factory Reset
+          </button>
         </div>
 
         {/* Tab Content */}
@@ -271,7 +330,7 @@ export default function SettingsPage() {
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Role</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Department</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Phone</th>
-                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Salary</th>
+                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Salary / Hourly</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest text-center">Actions</th>
                     </tr>
                   </thead>
@@ -296,7 +355,10 @@ export default function SettingsPage() {
                         </td>
                         <td className="px-6 py-4 text-gray-600 font-medium">{u.department || '—'}</td>
                         <td className="px-6 py-4 text-gray-600 font-medium">{u.phone || '—'}</td>
-                        <td className="px-6 py-4 text-gray-600 font-bold">₹{Number(u.base_salary || 0).toLocaleString()}</td>
+                        <td className="px-6 py-4 text-gray-600">
+                          <div className="font-bold">₹{Number(u.base_salary || 0).toLocaleString()}</div>
+                          <div className="text-[10px] font-bold text-primary italic">₹{Number(u.hourly_rate || 0).toLocaleString()}/hr</div>
+                        </td>
                         <td className="px-6 py-4 text-center">
                           <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button 
@@ -609,7 +671,7 @@ export default function SettingsPage() {
                   </section>
 
                   <div className="pt-8 flex justify-end">
-                    <button type="submit" className="bg-primary hover:bg-[#C94E16] text-white px-10 py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-orange-100 transition-all active:scale-95">
+                    <button type="submit" className="btn-primary px-10 py-4 uppercase tracking-widest text-xs font-black">
                       Save Calculation Rules
                     </button>
                   </div>
@@ -670,6 +732,152 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+
+          {/* Factory Reset */}
+          {activeTab === 'reset' && (
+            <div className="p-10">
+              {resetStep === 1 && (
+                <div className="max-w-2xl mx-auto text-center space-y-8 animate-in fade-in zoom-in-95 duration-500">
+                  <div className="inline-flex p-6 bg-red-50 rounded-full text-red-500 ring-8 ring-red-50/50">
+                    <AlertTriangle size={48} />
+                  </div>
+                  <div className="space-y-3">
+                    <h2 className="text-3xl font-black text-gray-900 uppercase italic tracking-tight">Danger Zone</h2>
+                    <p className="text-gray-500 font-medium">A factory reset will permanently wipe all business records from the system.</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6 text-left">
+                    <div className="bg-red-50/30 p-6 rounded-3xl border border-red-100/50 space-y-4">
+                      <h3 className="text-[10px] font-black text-red-600 uppercase tracking-widest flex items-center gap-2">
+                        <Trash2 size={12} /> Permanent Deletion
+                      </h3>
+                      <ul className="space-y-2 text-xs font-bold text-gray-600">
+                        <li className="flex items-center gap-2"><span>•</span> Clients & Contacts</li>
+                        <li className="flex items-center gap-2"><span>•</span> Projects & Documents</li>
+                        <li className="flex items-center gap-2"><span>•</span> Attendance & Leaves</li>
+                        <li className="flex items-center gap-2"><span>•</span> Invoices & Finance</li>
+                        <li className="flex items-center gap-2"><span>•</span> All Uploaded Files</li>
+                      </ul>
+                    </div>
+                    <div className="bg-emerald-50/30 p-6 rounded-3xl border border-emerald-100/50 space-y-4">
+                      <h3 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-2">
+                        <Shield size={12} /> Safe / Preserved
+                      </h3>
+                      <ul className="space-y-2 text-xs font-bold text-gray-600">
+                        <li className="flex items-center gap-2"><span className="text-emerald-500">✓</span> User Accounts (Logins)</li>
+                        <li className="flex items-center gap-2"><span className="text-emerald-500">✓</span> App & Geo Settings</li>
+                        <li className="flex items-center gap-2"><span className="text-emerald-500">✓</span> Holiday Calendar</li>
+                        <li className="flex items-center gap-2"><span className="text-emerald-500">✓</span> System Infrastructure</li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="pt-4">
+                    <button 
+                      onClick={handleLoadResetPreview}
+                      className="bg-red-600 hover:bg-red-700 text-white px-10 py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-red-100 transition-all active:scale-95"
+                    >
+                      Begin Reset Process
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {resetStep === 2 && resetPreview && (
+                <div className="max-w-xl mx-auto space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+                  <div className="flex items-center gap-4">
+                    <button onClick={() => setResetStep(1)} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400"><X size={20} /></button>
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900">Confirm Deletion</h2>
+                      <p className="text-sm text-gray-500">Review the records that will be purged</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 rounded-3xl border border-gray-100 overflow-hidden">
+                    <div className="p-6 space-y-3">
+                      {Object.entries(resetPreview).map(([key, count]) => (
+                        <div key={key} className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">{key.replace('_', ' ')}</span>
+                          <span className="text-sm font-black text-gray-900">{count.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="bg-red-50 p-4 flex items-center gap-3">
+                      <AlertTriangle className="text-red-500" size={16} />
+                      <p className="text-[10px] font-black text-red-700 uppercase tracking-widest">Action is irreversible</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="text-center space-y-2">
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Type confirmation code to proceed</p>
+                      <div className="text-2xl font-black text-primary tracking-[0.5em] bg-orange-50 py-3 rounded-2xl border-2 border-dashed border-orange-200">
+                        {resetConfirmCode}
+                      </div>
+                    </div>
+                    <input 
+                      type="text"
+                      placeholder="Enter code here..."
+                      value={userInputCode}
+                      onChange={(e) => setUserInputCode(e.target.value.toUpperCase())}
+                      className="w-full bg-white border-2 border-gray-200 rounded-2xl px-6 py-4 text-center text-xl font-black tracking-widest outline-none focus:border-red-500 focus:ring-4 focus:ring-red-50 transition-all uppercase"
+                    />
+                  </div>
+
+                  <button 
+                    onClick={handleExecuteReset}
+                    disabled={userInputCode !== resetConfirmCode || isResetting}
+                    className={`w-full py-5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-xl ${
+                      userInputCode === resetConfirmCode 
+                        ? 'bg-red-600 text-white shadow-red-100 hover:bg-red-700 active:scale-[0.98]' 
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    {isResetting ? (
+                      <div className="flex items-center justify-center gap-2">
+                        <RefreshCw size={16} className="animate-spin" /> PURGING SYSTEM...
+                      </div>
+                    ) : 'EXECUTE FACTORY RESET'}
+                  </button>
+                </div>
+              )}
+
+              {resetStep === 3 && resetSummary && (
+                <div className="max-w-md mx-auto text-center space-y-8 animate-in zoom-in-95 duration-500">
+                  <div className="inline-flex p-6 bg-emerald-50 rounded-full text-emerald-500 ring-8 ring-emerald-50/50">
+                    <Server size={48} />
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="text-2xl font-black text-gray-900 uppercase">System Purged</h2>
+                    <p className="text-sm text-gray-500 font-medium">Factory reset completed successfully.</p>
+                  </div>
+
+                  <div className="bg-gray-50 rounded-3xl p-6 border border-gray-100 text-left space-y-2">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Summary</p>
+                    <div className="flex justify-between text-xs font-bold text-gray-600">
+                      <span>Records Deleted:</span>
+                      <span className="text-gray-900">{Object.values(resetSummary.tablesCleared).reduce((a, b) => a + b, 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-xs font-bold text-gray-600">
+                      <span>Files Removed:</span>
+                      <span className="text-gray-900">{resetSummary.filesDeleted.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-xs font-bold text-gray-600">
+                      <span>Reset Time:</span>
+                      <span className="text-gray-900">{new Date(resetSummary.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={() => window.location.href = '/'}
+                    className="w-full bg-gray-900 text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black transition-all active:scale-95"
+                  >
+                    Return to Dashboard
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* User Modal */}
@@ -722,6 +930,7 @@ export default function SettingsPage() {
                       className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
                     >
                       <option value="employee">Employee</option>
+                      <option value="accounts">Accounts</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>
@@ -745,10 +954,20 @@ export default function SettingsPage() {
                       className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
                     />
                   </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Hourly Rate (₹)</label>
+                    <input 
+                      type="number"
+                      value={newUser.hourly_rate}
+                      onChange={(e) => setNewUser({...newUser, hourly_rate: e.target.value})}
+                      placeholder="e.g. 150"
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
                 </div>
                 <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
                   <button type="button" onClick={() => setShowUserModal(false)} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
-                  <button type="submit" className="px-6 py-2.5 text-sm font-bold text-white bg-primary hover:bg-[#C94E16] rounded-xl shadow-lg shadow-orange-100 transition-all active:scale-95">Create User</button>
+                  <button type="submit" className="btn-primary px-8 py-2.5">Create User</button>
                 </div>
               </form>
             </div>

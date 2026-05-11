@@ -85,7 +85,10 @@ const ICONS = {
 export default function Sidebar({ onClose }) {
   const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
-  const links = isAdmin ? ADMIN_LINKS : EMP_LINKS;
+  
+  // Custom logic: Admins see all. Employees in 'Accounts' see accounting too.
+  const isAccounts = user?.role === 'accounts' || user?.department?.toLowerCase() === 'accounts';
+  const links = isAdmin ? ADMIN_LINKS : (isAccounts ? [...EMP_LINKS, { to: '/admin/accounting', label: 'Accounting', icon: 'calculator' }] : EMP_LINKS);
 
   function handleLogout() {
     logout();

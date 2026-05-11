@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const pool = require('../db');
-const { authenticate, requireAdmin } = require('../middleware/auth');
+const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
 
 // GET /api/invoices - List all invoices
@@ -60,7 +60,7 @@ router.get('/', authenticate, async (req, res) => {
 });
 
 // GET /api/invoices/latest/number
-router.get('/latest/number', authenticate, requireAdmin, async (req, res) => {
+router.get('/latest/number', authenticate, requireAccounting, async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT invoice_no 
@@ -118,7 +118,7 @@ router.get('/:id', authenticate, checkProjectAccess({ idIsResource: 'invoice' })
 
 // POST /api/invoices - Strictly CREATE a new invoice (no silent overwrites)
 // Returns 409 Conflict if the invoice_no already exists
-router.post('/', authenticate, requireAdmin, async (req, res) => {
+router.post('/', authenticate, requireAccounting, async (req, res) => {
   try {
     const { 
       invoice_no, 
@@ -192,7 +192,7 @@ router.post('/', authenticate, requireAdmin, async (req, res) => {
 });
 
 // PATCH /api/invoices/:id/status - Update invoice status and/or signature only
-router.patch('/:id/status', authenticate, requireAdmin, async (req, res) => {
+router.patch('/:id/status', authenticate, requireAccounting, async (req, res) => {
   try {
     const { status, signature_data } = req.body;
     const { id } = req.params;
@@ -237,7 +237,7 @@ router.patch('/:id/status', authenticate, requireAdmin, async (req, res) => {
 
 // POST /api/invoices/:id/mark-paid — Atomic: records finance transaction + marks invoice paid
 // Wrapped in a single DB transaction. If either step fails, both are rolled back.
-router.post('/:id/mark-paid', authenticate, requireAdmin, async (req, res) => {
+router.post('/:id/mark-paid', authenticate, requireAccounting, async (req, res) => {
   const client = await pool.connect();
   try {
     const { id } = req.params;

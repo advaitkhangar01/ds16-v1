@@ -49,10 +49,20 @@ const requireAdmin = (req, res, next) => {
 };
 
 /**
+ * Require admin or accounts department
+ */
+const requireAccounting = (req, res, next) => {
+  if (req.user?.role === 'admin' || req.user?.role === 'accounts' || req.user?.department?.toLowerCase() === 'accounts') {
+    return next();
+  }
+  return res.status(403).json({ error: 'Accounting or Admin access required' });
+};
+
+/**
  * Generate signed JWT
  */
 const signToken = (userId) => {
   return jwt.sign({ userId }, ACTUAL_SECRET, { expiresIn: '7d' });
 };
 
-module.exports = { authenticate, requireAdmin, signToken };
+module.exports = { authenticate, requireAdmin, requireAccounting, signToken };

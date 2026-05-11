@@ -56,6 +56,18 @@ export function todayIST() {
   });
 }
 
+/**
+ * Returns today's date in YYYY-MM-DD format for IST timezone
+ */
+export function getISODateIST() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
 export function timeAgo(dateString) {
   if (!dateString) return '';
   const diff = Date.now() - new Date(dateString).getTime();

@@ -24,9 +24,9 @@ echo "==> Running database migrations..."
 if [ -f server/.env ]; then
   export $(grep -v '^#' server/.env | xargs)
   # Try running with psql, fallback to sudo if needed
-  psql -d ds16 -f scripts/fix_schema.sql || sudo -u postgres psql -d ds16 -f scripts/fix_schema.sql
+  psql -d ds16 -f server/db/schema.sql || sudo -u postgres psql -d ds16 -f server/db/schema.sql
 else
-  sudo -u postgres psql -d ds16 -f scripts/fix_schema.sql
+  sudo -u postgres psql -d ds16 -f server/db/schema.sql
 fi
 
 # 4. Install backend dependencies

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
-const { authenticate, requireAdmin } = require('../middleware/auth');
+const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -20,9 +20,9 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// All accounting routes require authentication and admin privileges
+// All accounting routes require authentication and admin or accounts privileges
 router.use(authenticate);
-router.use(requireAdmin);
+router.use(requireAccounting);
 
 /**
  * @section Expenses Management
@@ -31,7 +31,15 @@ router.use(requireAdmin);
 // Get all office expenses
 router.get('/expenses', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM office_expenses ORDER BY date DESC, id DESC');
+    const query = `
+      SELECT id, category, amount, date, description, receipt_url, 'office' as source FROM office_expenses
+      UNION ALL
+      SELECT id, 'Salaries' as category, (net_paid - incentives) as amount, payment_date as date, 'Monthly salary payment' as description, NULL as receipt_url, 'payroll' as source FROM payroll WHERE status = 'paid'
+      UNION ALL
+      SELECT id, 'Incentives' as category, incentives as amount, payment_date as date, 'Performance incentive' as description, NULL as receipt_url, 'payroll' as source FROM payroll WHERE status = 'paid' AND incentives > 0
+      ORDER BY date DESC, id DESC
+    `;
+    const { rows } = await pool.query(query);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -113,8 +121,8 @@ router.post('/expenses/audits', async (req, res) => {
 router.get('/payroll/employees', async (req, res) => {
   const { month, year } = req.query;
   try {
-    // 1. Fetch all employees
-    const empRes = await pool.query('SELECT id, name, department, base_salary FROM users WHERE role = \'employee\' ORDER BY name');
+    // 1. Fetch all employees and admins for payroll
+    const empRes = await pool.query("SELECT id, name, department, role, base_salary, hourly_rate FROM users WHERE role IN ('employee', 'admin', 'accounts') ORDER BY name");
     const employees = empRes.rows;
 
     if (!month || !year) {
@@ -149,7 +157,7 @@ router.get('/payroll/employees', async (req, res) => {
 
     // 5. Fetch detailed attendance for the month
     const attendanceRes = await pool.query(`
-      SELECT user_id, check_in, check_out, date, status, is_late
+      SELECT user_id, check_in, check_out, date, status, is_late, hours_worked
       FROM attendance
       WHERE EXTRACT(MONTH FROM date) = $1 AND EXTRACT(YEAR FROM date) = $2
     `, [month, year]);
@@ -168,17 +176,28 @@ router.get('/payroll/employees', async (req, res) => {
       const lateCount = myRecords.filter(r => r.is_late).length;
       const unpaidLeaves = parseFloat(leaveSummaries[emp.id]) || 0;
 
-      const baseSalary = parseFloat(emp.base_salary) || 0;
-      const perDaySalary = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
-
-      // Rule: Every X late = Y day deduction
-      const latePenaltyDays = Math.floor(lateCount / latePenaltyRuleCount) * latePenaltyRuleDays;
-
-      // Effective Days = full_days + (half_days * 0.5) + paid_holidays - unpaid_leaves
-      const effectiveDays = fullDays + (halfDays * 0.5) + paidHolidayCount - unpaidLeaves;
-      const finalPayableDays = Math.max(0, effectiveDays - latePenaltyDays);
+      const hourlyRate = parseFloat(emp.hourly_rate) || 0;
+      const totalHours = myRecords.reduce((sum, r) => sum + parseFloat(r.hours_worked || 0), 0);
       
-      const suggestedSalary = Math.round(perDaySalary * finalPayableDays) || 0;
+      let suggestedSalary = 0;
+      let calcMethod = 'daily';
+      let effectiveDays = 0;
+      let finalPayableDays = 0;
+      let latePenaltyDays = 0;
+
+      if (hourlyRate > 0) {
+        suggestedSalary = Math.round(hourlyRate * totalHours);
+        calcMethod = 'hourly';
+        effectiveDays = totalHours; // For hourly, effective units are hours
+        finalPayableDays = totalHours;
+      } else {
+        const baseSalary = parseFloat(emp.base_salary) || 0;
+        const perDaySalary = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
+        latePenaltyDays = Math.floor(lateCount / latePenaltyRuleCount) * latePenaltyRuleDays;
+        effectiveDays = emp.role === 'admin' ? daysInMonth : (fullDays + (halfDays * 0.5) + paidHolidayCount - unpaidLeaves);
+        finalPayableDays = emp.role === 'admin' ? daysInMonth : Math.max(0, effectiveDays - latePenaltyDays);
+        suggestedSalary = Math.round(perDaySalary * finalPayableDays);
+      }
 
       return {
         ...emp,
@@ -191,6 +210,8 @@ router.get('/payroll/employees', async (req, res) => {
         late_penalty_days: latePenaltyDays,
         payable_days: finalPayableDays,
         total_days: daysInMonth,
+        total_hours: totalHours,
+        calculation_method: calcMethod,
         suggested_salary: suggestedSalary < 0 ? 0 : suggestedSalary
       };
     });
@@ -202,13 +223,13 @@ router.get('/payroll/employees', async (req, res) => {
   }
 });
 
-// Update employee base salary
+// Update employee base salary or hourly rate
 router.put('/payroll/employees/:id', async (req, res) => {
-  const { base_salary } = req.body;
+  const { base_salary, hourly_rate } = req.body;
   try {
     const { rows } = await pool.query(
-      'UPDATE users SET base_salary = $1 WHERE id = $2 AND role = \'employee\' RETURNING id, name, base_salary',
-      [base_salary, req.params.id]
+      "UPDATE users SET base_salary = COALESCE($1, base_salary), hourly_rate = COALESCE($2, hourly_rate) WHERE id = $3 AND role IN ('employee', 'admin', 'accounts') RETURNING id, name, base_salary, hourly_rate",
+      [base_salary, hourly_rate, req.params.id]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -239,21 +260,22 @@ router.get('/payroll/history', async (req, res) => {
 
 // Process payroll (add/update)
 router.post('/payroll', async (req, res) => {
-  const { user_id, base_salary, bonus, deductions, net_paid, month, year, payment_date, status } = req.body;
+  const { user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status } = req.body;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO payroll (user_id, base_salary, bonus, deductions, net_paid, month, year, payment_date, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO payroll (user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (user_id, month, year) 
        DO UPDATE SET 
          base_salary = EXCLUDED.base_salary,
          bonus = EXCLUDED.bonus,
+         incentives = EXCLUDED.incentives,
          deductions = EXCLUDED.deductions,
          net_paid = EXCLUDED.net_paid,
          payment_date = EXCLUDED.payment_date,
          status = EXCLUDED.status
        RETURNING *`,
-      [user_id, base_salary, bonus, deductions, net_paid, month, year, payment_date || new Date(), status || 'paid']
+      [user_id, base_salary, bonus || 0, incentives || 0, deductions || 0, net_paid, month, year, payment_date || new Date(), status || 'paid']
     );
     res.json(rows[0]);
   } catch (err) {
@@ -279,13 +301,15 @@ router.get('/summary', async (req, res) => {
     const payrollRes = await pool.query('SELECT COALESCE(SUM(net_paid), 0) as total_payroll FROM payroll');
     const totalPayroll = parseFloat(payrollRes.rows[0].total_payroll);
 
-    // 4. Monthly breakdown (Last 6 months)
-    // This is a bit more complex, let's just return totals for now and expand if needed.
-    
+    // 4. Total Incentives
+    const incentivesRes = await pool.query('SELECT COALESCE(SUM(incentives), 0) as total_incentives FROM payroll');
+    const totalIncentives = parseFloat(incentivesRes.rows[0].total_incentives);
+
     res.json({
       totalIncome,
       totalOfficeExpenses,
       totalPayroll,
+      totalIncentives,
       netProfit: totalIncome - (totalOfficeExpenses + totalPayroll)
     });
   } catch (err) {

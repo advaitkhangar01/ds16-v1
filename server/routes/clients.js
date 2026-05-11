@@ -67,7 +67,8 @@ router.post('/', authenticate, async (req, res) => {
   } = req.body;
 
   if (!name) return res.status(400).json({ error: 'Client name is required' });
-  if (contacts.length === 0) return res.status(400).json({ error: 'At least one contact is required' });
+  const primaryPhone = contacts[0]?.phone;
+  if (!primaryPhone) return res.status(400).json({ error: 'Phone number is required' });
 
   const client_db = await pool.connect();
   try {
@@ -75,10 +76,10 @@ router.post('/', authenticate, async (req, res) => {
 
     // 1. Insert Client
     const { rows: clientRows } = await client_db.query(
-      `INSERT INTO clients (name, company_name, gst_number, pan_number, notes)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO clients (name, company_name, gst_number, pan_number, notes, phone)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id`,
-      [name, company_name, gst_number, pan_number, notes]
+      [name, company_name, gst_number, pan_number, notes, primaryPhone]
     );
     const clientId = clientRows[0].id;
 
@@ -133,15 +134,17 @@ router.patch('/:id', authenticate, async (req, res) => {
     await client_db.query('BEGIN');
 
     // 1. Update Basic Info
+    const primaryPhone = contacts?.[0]?.phone;
     await client_db.query(
       `UPDATE clients 
        SET name = COALESCE($1, name),
            company_name = COALESCE($2, company_name),
            gst_number = COALESCE($3, gst_number),
            pan_number = COALESCE($4, pan_number),
-           notes = COALESCE($5, notes)
-       WHERE id = $6`,
-      [name, company_name, gst_number, pan_number, notes, id]
+           notes = COALESCE($5, notes),
+           phone = COALESCE($6, phone)
+       WHERE id = $7`,
+      [name, company_name, gst_number, pan_number, notes, primaryPhone, id]
     );
 
     // 2. Update Contacts (Simple strategy: Delete and Re-insert)

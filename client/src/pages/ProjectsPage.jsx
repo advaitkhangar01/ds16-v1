@@ -325,12 +325,20 @@ function ProjectCard({ project, isAdmin, onDelete }) {
             {project.name}
           </h3>
           <div className="flex flex-col">
-            <p className="text-xs font-medium text-[#1A1A1A] truncate">{project.client_name}</p>
-            {project.client_company && (
-              <p className="text-[10px] text-[#E05A1E] font-semibold truncate uppercase tracking-tight">{project.client_company}</p>
-            )}
-            {project.primary_contact_name && (
-              <p className="text-[10px] text-muted truncate mt-0.5 italic">POC: {project.primary_contact_name}</p>
+            {project.client_id ? (
+              <>
+                <p className="text-xs font-medium text-[#1A1A1A] truncate">{project.client_name}</p>
+                {project.client_company && (
+                  <p className="text-[10px] text-[#E05A1E] font-semibold truncate uppercase tracking-tight">{project.client_company}</p>
+                )}
+                {project.primary_contact_name && (
+                  <p className="text-[10px] text-muted truncate mt-0.5 italic">POC: {project.primary_contact_name}</p>
+                )}
+              </>
+            ) : (
+              <p className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-1 rounded border border-amber-100 leading-tight">
+                ⚠️ No client owner. Attach, link, or add a client profile.
+              </p>
             )}
           </div>
         </div>

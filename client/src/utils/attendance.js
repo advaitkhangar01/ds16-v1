@@ -21,6 +21,7 @@ export function mapAttendance(data) {
     checkoutZone:         data.checkout_zone       ?? data.checkoutZone       ?? null,
     checkoutDistance:     data.checkout_distance   ?? data.checkoutDistance   ?? null,
     checkoutOutsideZone:  data.checkout_outside_zone ?? data.checkoutOutsideZone ?? false,
+    hours_worked:         data.hours_worked ?? 0,
   };
 
   // Ensure status is calculated if missing (helpful for dashboard consistency)

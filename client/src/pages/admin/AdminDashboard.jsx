@@ -166,6 +166,52 @@ function FinancialStats({ finances }) {
 }
 
 
+function MyAdminSalaryStats({ salary }) {
+  if (!salary) return null;
+  
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all">
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">My Earnings (Month)</p>
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-xl font-black text-slate-900 font-mono tracking-tight">₹{salary.earned_this_month ?? 0}</span>
+          {salary.today_earned > 0 && <span className="text-[10px] font-bold text-emerald-500 font-mono">+{salary.today_earned}</span>}
+        </div>
+      </div>
+
+      <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all group relative">
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+          My Adjustments
+          <span className="w-3 h-3 rounded-full border border-slate-300 text-slate-300 text-[8px] font-black flex items-center justify-center cursor-help leading-none">?</span>
+        </p>
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-xl font-black text-amber-600 font-mono tracking-tight">₹{salary.deductions_this_month ?? 0}</span>
+          {salary.today_deductions > 0 && <span className="text-[10px] font-bold text-amber-400 font-mono">+{salary.today_deductions}</span>}
+        </div>
+        
+        <div className="absolute bottom-full left-0 mb-2 w-52 bg-slate-900 text-white text-[10px] rounded-xl p-3 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
+          <p className="font-black uppercase tracking-widest text-slate-400 mb-2 border-b border-slate-800 pb-1">Deduction Rules</p>
+          <div className="space-y-1.5 mt-2">
+            <div className="flex justify-between">
+              <span className="text-slate-400">Late Arrival</span>
+              <span className="text-slate-200">Per instance</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Half Day</span>
+              <span className="text-slate-200">50% Daily Wage</span>
+            </div>
+            <div className="flex justify-between border-t border-slate-800 pt-1 mt-1">
+              <span className="text-slate-400">Late Count</span>
+              <span className="font-bold text-white">{salary.late_count ?? 0}</span>
+            </div>
+          </div>
+          <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-900" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Today's tasks panel
 function TodaysTasks({ tasks }) {
   return (
@@ -409,26 +455,32 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-1">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          <div className="lg:col-span-1 space-y-6">
             <AttendanceCard attendance={data?.my_attendance} onAction={handleAttendanceAction} />
+            <MyAdminSalaryStats salary={data?.salary_stats} />
           </div>
+          
           <div className="lg:col-span-2">
             {loading ? (
-              <div className="grid grid-cols-2 gap-4 h-full">
+              <div className="grid grid-cols-2 gap-4">
                 {[...Array(4)].map((_, i) => <StatSkeleton key={i} />)}
               </div>
             ) : (
-              <div className="flex flex-col gap-4 h-full">
+              <div className="flex flex-col gap-6">
                 <AttendanceStats data={data?.attendance} />
                 <ProjectTypeStats counts={data?.type_counts} />
               </div>
             )}
           </div>
-        </div>
 
-        {/* Financial Summary Section */}
-        {!loading && <FinancialStats finances={data?.finances} />}
+          {/* Financial Summary Section - Now part of the same grid to ensure proper flow */}
+          {!loading && (
+            <div className="lg:col-span-3 mt-2">
+              <FinancialStats finances={data?.finances} />
+            </div>
+          )}
+        </div>
 
         {/* Main content grid */}
         <div className="space-y-6">
