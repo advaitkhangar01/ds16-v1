@@ -113,15 +113,21 @@ check_endpoint() {
   local method="$2"
   local path="$3"
   local expected_status="$4"
-  local extra_args="${5:-}"
+  local body_file="${5:-}"
 
-  RESPONSE=$(curl -s -o /tmp/ds16_check_body -w "%{http_code}" \
-    -X "$method" \
-    -H "Content-Type: application/json" \
-    $extra_args \
-    --max-time 5 \
-    "${BASE_URL}${path}" 2>/dev/null)
+  local curl_args=(
+    -s -o /tmp/ds16_check_body -w "%{http_code}"
+    -X "$method"
+    -H "Content-Type: application/json"
+    --max-time 5
+  )
 
+  # Attach body from temp file if provided
+  if [ -n "$body_file" ] && [ -f "$body_file" ]; then
+    curl_args+=(-d "@$body_file")
+  fi
+
+  RESPONSE=$(curl "${curl_args[@]}" "${BASE_URL}${path}" 2>/dev/null)
   BODY=$(cat /tmp/ds16_check_body 2>/dev/null | head -c 200)
 
   if [ "$RESPONSE" = "$expected_status" ]; then
@@ -133,27 +139,30 @@ check_endpoint() {
   fi
 }
 
+# Write test payloads to temp files (avoids shell quoting issues with curl -d)
+printf '{"username":"__invalid__","password":"__invalid__"}' > /tmp/ds16_bad_creds.json
+printf '{}' > /tmp/ds16_empty.json
+
 # Health check
-check_endpoint "GET /api/health" "GET" "/api/health" "200"
+check_endpoint "GET /api/health"                             "GET"  "/api/health"             "200"
 
 # Auth — wrong credentials should give 401
-check_endpoint "POST /api/auth/login (bad creds → 401)" "POST" "/api/auth/login" "401" \
-  "-d '{\"username\":\"__invalid__\",\"password\":\"__invalid__\"}'"
+check_endpoint "POST /api/auth/login (bad creds → 401)"      "POST" "/api/auth/login"         "401" "/tmp/ds16_bad_creds.json"
 
 # Attendance today — no token should give 401
-check_endpoint "GET /api/attendance/today (no auth → 401)" "GET" "/api/attendance/today" "401"
+check_endpoint "GET /api/attendance/today (no auth → 401)"   "GET"  "/api/attendance/today"   "401"
 
 # Check-in — no token should give 401
-check_endpoint "POST /api/attendance/checkin (no auth → 401)" "POST" "/api/attendance/checkin" "401"
+check_endpoint "POST /api/attendance/checkin (no auth → 401)" "POST" "/api/attendance/checkin" "401" "/tmp/ds16_empty.json"
 
 # Check-out — no token should give 401
-check_endpoint "POST /api/attendance/checkout (no auth → 401)" "POST" "/api/attendance/checkout" "401"
+check_endpoint "POST /api/attendance/checkout (no auth → 401)" "POST" "/api/attendance/checkout" "401" "/tmp/ds16_empty.json"
 
 # Unknown route — should give 404
-check_endpoint "GET /api/__nonexistent__ (→ 404)" "GET" "/api/__nonexistent__" "404"
+check_endpoint "GET /api/__nonexistent__ (→ 404)"             "GET"  "/api/__nonexistent__"    "404"
 
 # Frontend SPA — should serve index.html (200)
-check_endpoint "GET / (frontend SPA → 200)" "GET" "/" "200"
+check_endpoint "GET / (frontend SPA → 200)"                  "GET"  "/"                       "200"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. DATABASE CONNECTIVITY
@@ -170,12 +179,15 @@ else
 fi
 
 if [ -n "$DB_URL" ]; then
-  # Extract credentials
-  DB_HOST=$(echo "$DB_URL" | grep -oP '(?<=@)[^:/]+')
-  DB_PORT=$(echo "$DB_URL" | grep -oP '(?<=@[^:]+:)\d+' || echo "5432")
-  DB_NAME=$(echo "$DB_URL" | grep -oP '[^/]+$')
-  DB_USER=$(echo "$DB_URL" | grep -oP '(?<=://)[^:]+')
-  DB_PASS=$(echo "$DB_URL" | grep -oP '(?<=:)[^@]+(?=@)')
+  # Extract credentials using sed/awk (avoids grep PCRE lookbehind compat issues)
+  # Format: postgresql://user:pass@host:port/dbname
+  DB_USER=$(echo "$DB_URL" | sed 's|.*://\([^:]*\):.*|\1|')
+  DB_PASS=$(echo "$DB_URL" | sed 's|.*://[^:]*:\([^@]*\)@.*|\1|')
+  DB_HOST=$(echo "$DB_URL" | sed 's|.*@\([^:/]*\).*|\1|')
+  DB_PORT=$(echo "$DB_URL" | sed 's|.*:\([0-9][0-9]*\)/.*|\1|')
+  DB_NAME=$(echo "$DB_URL" | sed 's|.*/\([^?]*\).*|\1|')
+  # Default port if extraction failed
+  [[ "$DB_PORT" =~ ^[0-9]+$ ]] || DB_PORT="5432"
 
   if command -v psql &>/dev/null; then
     # Test connection
