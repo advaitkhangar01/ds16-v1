@@ -191,6 +191,16 @@ pool.query('SELECT NOW()', (err) => {
           END $$;
         `);
 
+        // 12. Allow 'passed' status in tasks check constraint
+        await pool.query(`
+          DO $$
+          BEGIN
+            ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
+            ALTER TABLE tasks ADD CONSTRAINT tasks_status_check 
+              CHECK (status IN ('pending', 'in_progress', 'review', 'done', 'passed'));
+          END $$;
+        `);
+
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
         console.error('❌ Migration failed:', mErr.message);

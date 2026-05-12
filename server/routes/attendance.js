@@ -62,7 +62,9 @@ router.post('/checkin', authenticate, async (req, res) => {
     const halfDayCutoff    = settings.half_day_cutoff_time || '13:00';
     const geofenceEnabled  = settings.geofence_enabled === 'true';
 
-    console.log(`[CheckIn] User ${userId} checking in for ${today} | geofence: ${geofenceEnabled}`);
+    // Log IST date to help diagnose timezone issues
+    const pgNow = await pool.query("SELECT NOW() AT TIME ZONE 'Asia/Kolkata' AS ist_now, CURRENT_DATE AS pg_date");
+    console.log(`[CheckIn] User ${userId} | IST date used: ${today} | PG CURRENT_DATE: ${pgNow.rows[0]?.pg_date} | geofence: ${geofenceEnabled}`);
 
     // ── Duplicate check ──────────────────────────────────────────────────────
     const { rows: existing } = await pool.query(
@@ -71,6 +73,7 @@ router.post('/checkin', authenticate, async (req, res) => {
     );
 
     if (existing.length > 0 && existing[0].check_in) {
+      console.warn(`[CheckIn] BLOCKED: User ${userId} already has check_in=${existing[0].check_in} for date=${today}`);
       return res.status(400).json({ error: 'Already checked in today' });
     }
 
@@ -173,19 +176,30 @@ router.post('/checkin', authenticate, async (req, res) => {
       geoResult.checkinVerified,     // checkin_verified
     ];
 
+    // ── Atomic upsert — avoids race condition between check and insert ────────
+    // Uses INSERT ... ON CONFLICT to safely handle the case where a row exists
+    // without a check_in (e.g. from a leave record or absent placeholder).
+    // If a check_in already exists, the DO NOTHING path returns 0 rows and we
+    // fall back to the duplicate-check error above, so this is safe.
     if (existing.length > 0) {
+      // Row exists (no check_in confirmed above) — update it
       const { rows } = await pool.query(
         `UPDATE attendance SET
            check_in = $1, lat = $2, lng = $3,
            checkin_accuracy = $4, checkin_distance = $5, checkin_zone = $6,
            is_boundary_checkin = $7, checkin_verified = $8,
            status = $9, is_late = $10, late_minutes = $11
-         WHERE user_id = $12 AND date = $13::date
+         WHERE user_id = $12 AND date = $13::date AND check_in IS NULL
          RETURNING *`,
         [nowIso, ...geoParams, status, isLate, lateMins, userId, today]
       );
+      if (!rows[0]) {
+        // Another process snuck in a check_in between our SELECT and UPDATE
+        return res.status(400).json({ error: 'Already checked in today' });
+      }
       row = rows[0];
     } else {
+      // No row yet — insert fresh
       const { rows } = await pool.query(
         `INSERT INTO attendance
            (user_id, check_in, lat, lng,
@@ -193,6 +207,7 @@ router.post('/checkin', authenticate, async (req, res) => {
             is_boundary_checkin, checkin_verified,
             date, status, is_late, late_minutes)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         ON CONFLICT (user_id, date) DO NOTHING
          RETURNING *`,
         [userId, nowIso, lat || null, lng || null,
          parseFloat(accuracy) || null,
@@ -202,6 +217,10 @@ router.post('/checkin', authenticate, async (req, res) => {
          geoResult.checkinVerified,
          today, status, isLate, lateMins]
       );
+      if (!rows[0]) {
+        // ON CONFLICT DO NOTHING fired — a row was inserted between our SELECT and INSERT
+        return res.status(400).json({ error: 'Already checked in today' });
+      }
       row = rows[0];
     }
 
@@ -218,10 +237,12 @@ router.post('/checkin', authenticate, async (req, res) => {
 
   } catch (err) {
     if (err.code === '23505') {
+      // Unique constraint violation — concurrent check-in attempt
+      console.warn(`[CheckIn] Unique constraint hit for user ${req.user?.id}`);
       return res.status(400).json({ error: 'Already checked in today' });
     }
     console.error('Check-in error:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error', details: process.env.NODE_ENV !== 'production' ? err.message : undefined });
   }
 });
 
