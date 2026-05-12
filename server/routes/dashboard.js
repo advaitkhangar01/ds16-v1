@@ -254,6 +254,70 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+// GET /api/dashboard/admin/finances/breakdown
+router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { type } = req.query;
+    let items = [];
+
+    if (type === 'total') {
+      const { rows } = await pool.query(`
+        SELECT p.id, p.name, SUM(pda.amount) as amount
+        FROM projects p
+        JOIN project_document_amounts pda ON p.id = pda.project_id
+        GROUP BY p.id, p.name
+        ORDER BY amount DESC
+      `);
+      items = rows;
+    } else if (type === 'billed') {
+      const { rows } = await pool.query(`
+        SELECT p.id, p.name, SUM(pps.amount) as amount
+        FROM projects p
+        JOIN project_payment_stages pps ON p.id = pps.project_id
+        WHERE pps.status IN ('paid', 'bill generated', 'bill delivered') AND pps.status != 'cancelled'
+        GROUP BY p.id, p.name
+        ORDER BY amount DESC
+      `);
+      items = rows;
+    } else if (type === 'received') {
+      const { rows } = await pool.query(`
+        SELECT p.id, p.name, SUM(pps.amount) as amount
+        FROM projects p
+        JOIN project_payment_stages pps ON p.id = pps.project_id
+        WHERE pps.status = 'paid' AND pps.status != 'cancelled'
+        GROUP BY p.id, p.name
+        ORDER BY amount DESC
+      `);
+      items = rows;
+    } else if (type === 'pending') {
+      const { rows } = await pool.query(`
+        SELECT p.id, p.name, SUM(pps.amount) as amount
+        FROM projects p
+        JOIN project_payment_stages pps ON p.id = pps.project_id
+        WHERE pps.status IN ('bill generated', 'bill delivered') AND pps.status != 'cancelled'
+        GROUP BY p.id, p.name
+        ORDER BY amount DESC
+      `);
+      items = rows;
+    } else if (type === 'expenses') {
+      const { rows } = await pool.query(`
+        SELECT t.id, t.description, t.category, t.amount, t.date, p.name as project_name
+        FROM transactions t
+        LEFT JOIN projects p ON p.id = t.project_id
+        WHERE t.type = 'expense' AND t.category != 'vendor_payment'
+        ORDER BY t.date DESC
+      `);
+      items = rows;
+    }
+
+    res.json({ items: items.map(i => ({ ...i, amount: parseFloat(i.amount || 0) })) });
+  } catch (err) {
+    console.error('Financial breakdown error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
 // GET /api/dashboard/employee
 router.get('/employee', authenticate, async (req, res) => {
   try {
