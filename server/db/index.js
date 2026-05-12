@@ -15,6 +15,17 @@ pool.on('error', (err) => {
   console.error('Unexpected PostgreSQL error on idle client:', err);
 });
 
+// Set IST timezone for every new connection in the pool.
+// This ensures CURRENT_DATE, NOW(), and timestamps are always
+// interpreted in Asia/Kolkata (IST = UTC+5:30), preventing the
+// UTC vs IST date mismatch that causes attendance bugs between
+// 00:00–05:30 IST (when UTC is still the previous day).
+pool.on('connect', (client) => {
+  client.query("SET timezone = 'Asia/Kolkata'", (err) => {
+    if (err) console.error('[DB] Failed to set timezone to IST:', err.message);
+  });
+});
+
 // Test connection on startup
 pool.query('SELECT NOW()', (err) => {
   if (err) {
