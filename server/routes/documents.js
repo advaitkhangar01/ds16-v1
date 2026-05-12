@@ -126,7 +126,7 @@ const upload = multer({
 // Accepts multiple files (up to 20) in field "files"
 // ---------------------------------------------------------------------------
 router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
-  upload.array('files', 20)(req, res, (err) => {
+  upload.fields([{ name: 'files', maxCount: 20 }, { name: 'file', maxCount: 20 }])(req, res, (err) => {
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(413).json({
@@ -149,7 +149,7 @@ router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
   try {
     const project_id = req.query.project_id || req.body.project_id;
     const { remark, category = 'document', document_type } = req.body;
-    const files = req.files;
+    const files = req.files ? [...(req.files.files || []), ...(req.files.file || [])] : [];
 
     // Validate project_id
     if (!project_id) {
