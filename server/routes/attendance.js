@@ -228,7 +228,7 @@ router.post('/checkin', authenticate, async (req, res) => {
 // ─── POST /api/attendance/checkout ────────────────────────────────────────────
 router.post('/checkout', authenticate, async (req, res) => {
   try {
-    const { lat, lng, accuracy } = req.body;
+    const { lat, lng, accuracy } = req.body || {};
     const userId = req.user.id;
     const today  = getISTDate();
 
@@ -258,12 +258,16 @@ router.post('/checkout', authenticate, async (req, res) => {
     const now        = new Date();
     const nowIso     = now.toISOString();
     const checkIn    = new Date(existing[0].check_in);
-    const hoursWorked = (now - checkIn) / (1000 * 60 * 60);
+    let hoursWorked = (now - checkIn) / (1000 * 60 * 60);
+    
+    if (isNaN(hoursWorked)) hoursWorked = 0;
 
-    let newStatus = existing[0].status;
+    let newStatus = existing[0].status || ATTENDANCE_STATUS.WORKING;
+    const currentStatusLower = newStatus.toLowerCase();
+
     if (hoursWorked < minWorkingHours) {
       newStatus = ATTENDANCE_STATUS.HALF_DAY;
-    } else if (newStatus === ATTENDANCE_STATUS.WORKING || newStatus === 'present') {
+    } else if (currentStatusLower === ATTENDANCE_STATUS.WORKING || currentStatusLower === 'present') {
       newStatus = ATTENDANCE_STATUS.COMPLETED;
     }
 
@@ -278,13 +282,15 @@ router.post('/checkout', authenticate, async (req, res) => {
           parseFloat(lat), parseFloat(lng),
           parseFloat(settings.office_lat), parseFloat(settings.office_lng)
         );
-        checkoutDistance = Math.round(dist);
-        const acc  = parseFloat(accuracy) || 999;
-        const eff  = Math.max(0, dist - acc);
-        const strictR = parseFloat(settings.geofence_strict_radius) || 25;
-        const bufferR = parseFloat(settings.geofence_buffer_radius) || 50;
-        checkoutZone         = eff <= strictR ? 'strict' : eff <= bufferR ? 'buffer' : 'outside';
-        checkoutOutsideZone  = checkoutZone === 'outside';
+        if (!isNaN(dist)) {
+          checkoutDistance = Math.round(dist);
+          const acc  = parseFloat(accuracy) || 999;
+          const eff  = Math.max(0, dist - acc);
+          const strictR = parseFloat(settings.geofence_strict_radius) || 25;
+          const bufferR = parseFloat(settings.geofence_buffer_radius) || 50;
+          checkoutZone         = eff <= strictR ? 'strict' : eff <= bufferR ? 'buffer' : 'outside';
+          checkoutOutsideZone  = checkoutZone === 'outside';
+        }
       } catch (_) { /* ignore */ }
     }
 
@@ -298,7 +304,7 @@ router.post('/checkout', authenticate, async (req, res) => {
        RETURNING *`,
       [
         nowIso, newStatus,
-        lat || null, lng || null, parseFloat(accuracy) || null,
+        lat || null, lng || null, (parseFloat(accuracy) || null),
         checkoutDistance, checkoutZone, checkoutOutsideZone,
         hoursWorked, userId, today,
       ]
@@ -320,7 +326,7 @@ router.post('/checkout', authenticate, async (req, res) => {
 
   } catch (err) {
     console.error('Check-out error:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error', details: err.message });
   }
 });
 

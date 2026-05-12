@@ -125,18 +125,23 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'image/bmp',
   'image/tiff', 'image/svg+xml', 'image/heic', 'image/heif',
   // PDF
-  'application/pdf',
+  'application/pdf', 'application/x-pdf', 'application/acrobat', 'applications/vnd.pdf', 'text/pdf',
   // Office — Word
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
   // Office — Excel
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+  'application/vnd.ms-excel.sheet.macroEnabled.12',
   // Office — PowerPoint
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+  'application/vnd.openxmlformats-officedocument.presentationml.template',
   // Text / CSV / RTF
-  'text/plain', 'text/csv', 'application/rtf', 'text/rtf',
+  'text/plain', 'text/csv', 'application/rtf', 'text/rtf', 'text/comma-separated-values',
   // Archives
   'application/zip', 'application/x-zip-compressed', 'application/x-zip',
   'application/x-rar-compressed', 'application/vnd.rar', 'application/x-rar',
