@@ -93,6 +93,17 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
     }
   }
 
+  async function handleDeleteTask() {
+    if (!window.confirm(`Are you sure you want to delete this task?`)) return;
+    try {
+      await api.delete(`/tasks/${taskId}`);
+      toast.success('Task deleted successfully');
+      onClose();
+    } catch (err) {
+      toast.error('Failed to delete task');
+    }
+  }
+
   // Removed handleStageChange as stage is being deprecated from tasks UI
 
   if (!isOpen) return null;
@@ -123,12 +134,25 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
                   </p>
                 </div>
               </div>
-              <button 
-                onClick={onClose}
-                className="w-8 h-8 rounded-full bg-white border border-slate-100 text-slate-400 hover:text-slate-600 hover:shadow-md transition-all flex items-center justify-center text-sm"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2">
+                {(user?.role === 'admin' || task?.created_by === user?.id) && (
+                  <button 
+                    onClick={handleDeleteTask}
+                    className="w-8 h-8 rounded-full bg-red-50 border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-100 hover:shadow-md transition-all flex items-center justify-center text-xs"
+                    title="Delete Task"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>
+                    </svg>
+                  </button>
+                )}
+                <button 
+                  onClick={onClose}
+                  className="w-8 h-8 rounded-full bg-white border border-slate-100 text-slate-400 hover:text-slate-600 hover:shadow-md transition-all flex items-center justify-center text-sm"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             
             <div className="flex items-center gap-3 flex-wrap mt-2">

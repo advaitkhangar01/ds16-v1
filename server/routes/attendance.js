@@ -262,7 +262,7 @@ router.post('/checkout', authenticate, async (req, res) => {
     const minWorkingHours = parseFloat(settings.min_working_hours || '4');
 
     const { rows: existing } = await pool.query(
-      'SELECT id, check_in, check_out, status FROM attendance WHERE user_id = $1 AND date = $2::date',
+      'SELECT id, check_in, check_out, LOWER(status) AS status FROM attendance WHERE user_id = $1 AND date = $2::date',
       [userId, today]
     );
 
@@ -283,8 +283,8 @@ router.post('/checkout', authenticate, async (req, res) => {
     
     if (isNaN(hoursWorked)) hoursWorked = 0;
 
-    let newStatus = existing[0].status || ATTENDANCE_STATUS.WORKING;
-    const currentStatusLower = newStatus.toLowerCase();
+    let newStatus = (existing[0].status || ATTENDANCE_STATUS.WORKING).toLowerCase();
+    const currentStatusLower = newStatus;
 
     if (hoursWorked < minWorkingHours) {
       newStatus = ATTENDANCE_STATUS.HALF_DAY;
@@ -364,13 +364,13 @@ router.get('/today', authenticate, async (req, res) => {
          a.is_boundary_checkin, a.checkin_verified,
          a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
          CASE
-           WHEN lr.id IS NOT NULL THEN $2
+           WHEN lr.id IS NOT NULL THEN LOWER($2)
            ELSE LOWER(COALESCE(a.status, $3))
          END AS status
        FROM users u
        LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date
        LEFT JOIN leave_requests lr ON lr.user_id = u.id
-         AND lr.status = $4
+         AND LOWER(lr.status) = LOWER($4)
          AND $1::date BETWEEN lr.start_date AND lr.end_date
        ORDER BY a.check_in ASC NULLS LAST, u.name ASC`,
       [today, ATTENDANCE_STATUS.LEAVE, ATTENDANCE_STATUS.ABSENT, LEAVE_STATUS.APPROVED]
@@ -419,16 +419,16 @@ router.get('/all', authenticate, async (req, res) => {
          a.is_boundary_checkin, a.checkin_verified,
          a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
          CASE
-           WHEN lr.id IS NOT NULL THEN $${leaveStatusIdx}
+           WHEN lr.id IS NOT NULL THEN LOWER($${leaveStatusIdx})
            ELSE LOWER(COALESCE(a.status, $${absentStatusIdx}))
          END AS status
        FROM users u
-       LEFT JOIN attendance a ON a.user_id = u.id
+       JOIN attendance a ON a.user_id = u.id
        LEFT JOIN leave_requests lr ON lr.user_id = u.id
-         AND lr.status = $${approvedStatusIdx}
-         AND (a.date BETWEEN lr.start_date AND lr.end_date OR (a.date IS NULL AND CURRENT_DATE BETWEEN lr.start_date AND lr.end_date))
+         AND LOWER(lr.status) = LOWER($${approvedStatusIdx})
+         AND a.date BETWEEN lr.start_date AND lr.end_date
        WHERE 1=1 ${dateFilter}
-       ORDER BY a.date DESC NULLS LAST, a.check_in ASC NULLS LAST, u.name
+       ORDER BY a.date DESC, a.check_in ASC NULLS LAST, u.name
        LIMIT $1 OFFSET $2`,
       [...params, ATTENDANCE_STATUS.LEAVE, ATTENDANCE_STATUS.ABSENT, LEAVE_STATUS.APPROVED]
     );
@@ -457,6 +457,8 @@ router.post('/manual', authenticate, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    const statusLower = status.toLowerCase();
+
     const { rows: existing } = await pool.query(
       'SELECT id FROM attendance WHERE user_id = $1 AND date = $2::date',
       [user_id, date]
@@ -475,7 +477,7 @@ router.post('/manual', authenticate, requireAdmin, async (req, res) => {
            is_late = $4, late_minutes = $5, hours_worked = $6
          WHERE id = $7
          RETURNING *`,
-        [check_in, check_out, status, is_late, late_minutes, hours_worked, existing[0].id]
+        [check_in, check_out, statusLower, is_late, late_minutes, hours_worked, existing[0].id]
       );
       row = rows[0];
     } else {
@@ -483,7 +485,7 @@ router.post('/manual', authenticate, requireAdmin, async (req, res) => {
         `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *`,
-        [user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked]
+        [user_id, date, check_in, check_out, statusLower, is_late, late_minutes, hours_worked]
       );
       row = rows[0];
     }

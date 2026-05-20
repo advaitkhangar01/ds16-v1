@@ -160,6 +160,69 @@ export default function InvoicePage() {
     }
   }, [formData.project_id]);
 
+  // Deep-link: detect ?invoice_id=XYZ in URL and auto-load that invoice
+  // We depend on [clients, projects] so that dropdowns are ready before we auto-populate
+  useEffect(() => {
+    if (!clients.length && !projects.length) return; // wait for data to load
+    const searchParams = new URLSearchParams(window.location.search);
+    const invoiceId = searchParams.get('invoice_id');
+    if (invoiceId) {
+      loadInvoiceById(invoiceId);
+      // Clean URL without reloading — prevents re-loading on future renders
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clients, projects]);
+
+  const loadInvoiceById = async (id) => {
+    try {
+      const { data } = await api.get(`/invoices/${id}`);
+      const inv = data.invoice;
+      if (!inv) {
+        toast.error('Invoice not found');
+        return;
+      }
+      setFormData({
+        ...INITIAL_FORM,
+        project_id: inv.project_id || null,
+        invoiceNo: inv.invoice_no || '',
+        date: inv.date ? String(inv.date).split('T')[0] : INITIAL_FORM.date,
+        dueDate: inv.due_date ? String(inv.due_date).split('T')[0] : '',
+        refNo: inv.ref_no || '',
+        billToName: inv.client_name || '',
+        billToAddress: inv.bill_to_address || '',
+        billToGst: inv.bill_to_gst || '',
+        billToPhone: inv.bill_to_phone || '',
+        billToEmail: inv.bill_to_email || '',
+        accountNo: inv.account_no || '',
+        ifsc: inv.ifsc || '',
+        bankName: inv.bank_name || '',
+        items: Array.isArray(inv.items) && inv.items.length > 0
+          ? inv.items.map(item => ({ ...item, id: item.id || Date.now(), hsn: item.hsn || '' }))
+          : INITIAL_FORM.items,
+        cgstPercent: inv.tax_details?.cgstPercent ?? 9,
+        sgstPercent: inv.tax_details?.sgstPercent ?? 9,
+        igstPercent: inv.tax_details?.igstPercent ?? 18,
+      });
+      setIsGstEnabled(inv.tax_details?.isGstEnabled ?? true);
+      setIsIgst(inv.tax_details?.isIgst ?? false);
+      // Restore the archived signature onto the canvas
+      if (inv.signature_data) {
+        setTimeout(() => restoreSignatureToCanvas(inv.signature_data), 100);
+      } else {
+        const canvas = canvasRef.current;
+        if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+        setSignatureData(null);
+      }
+      // Track this as the active saved invoice ref (enables Mark Paid button)
+      setSavedInvoiceRef(inv);
+      toast.success(`Loaded invoice ${inv.invoice_no}`);
+    } catch (err) {
+      console.error('Failed to load deep-linked invoice', err);
+      toast.error('Failed to load requested invoice');
+    }
+  };
+
   const fetchProjectStats = async (pid) => {
     try {
       const { data } = await api.get(`/projects/${pid}/financial-summary`);

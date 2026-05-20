@@ -157,7 +157,7 @@ router.get('/payroll/employees', async (req, res) => {
 
     // 5. Fetch detailed attendance for the month
     const attendanceRes = await pool.query(`
-      SELECT user_id, check_in, check_out, date, status, is_late, hours_worked
+      SELECT user_id, check_in, check_out, date, LOWER(status) AS status, is_late, hours_worked
       FROM attendance
       WHERE EXTRACT(MONTH FROM date) = $1 AND EXTRACT(YEAR FROM date) = $2
     `, [month, year]);

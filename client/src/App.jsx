@@ -21,11 +21,21 @@ const TasksPage = lazy(() => import('./pages/TasksPage'));
 const AccountingPage = lazy(() => import('./pages/admin/AccountingPage'));
 const SettingsPage = lazy(() => import('./pages/admin/SettingsPage'));
 
-function ProtectedRoute({ children, adminOnly = false }) {
+function ProtectedRoute({ children, adminOnly = false, allowAccounts = false }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  if (adminOnly && user.role !== 'admin') return <Navigate to="/employee/dashboard" replace />;
+  
+  const isAccounts = user.role === 'accounts' || user.department?.toLowerCase() === 'accounts';
+  
+  if (adminOnly && user.role !== 'admin') {
+    return <Navigate to="/employee/dashboard" replace />;
+  }
+  
+  if (!adminOnly && allowAccounts && user.role !== 'admin' && !isAccounts) {
+    return <Navigate to="/employee/dashboard" replace />;
+  }
+  
   return children;
 }
 
@@ -61,10 +71,10 @@ function AppRoutes() {
           <ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>
         } />
         <Route path="/admin/invoice" element={
-          <ProtectedRoute adminOnly><InvoicePage /></ProtectedRoute>
+          <ProtectedRoute allowAccounts><InvoicePage /></ProtectedRoute>
         } />
         <Route path="/admin/accounting" element={
-          <ProtectedRoute adminOnly><AccountingPage /></ProtectedRoute>
+          <ProtectedRoute allowAccounts><AccountingPage /></ProtectedRoute>
         } />
         <Route path="/admin/settings" element={
           <ProtectedRoute adminOnly><SettingsPage /></ProtectedRoute>

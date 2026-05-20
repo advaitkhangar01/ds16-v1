@@ -46,11 +46,83 @@ router.get('/transactions', authenticate, async (req, res) => {
     }
     if (project_id) {
       return checkProjectAccess()(req, res, async () => {
-        query += ` AND t.project_id = $${idx++}`;
-        params.push(project_id);
-        query += ` ORDER BY t.date DESC, t.created_at DESC`;
-        const { rows } = await pool.query(query, params);
-        res.json({ transactions: rows });
+        let projectQuery = `
+          SELECT t.*, p.name as project_name, v.name as vendor_name, u.name as employee_name, creator.name as creator_name
+          FROM transactions t
+          LEFT JOIN projects p ON p.id = t.project_id
+          LEFT JOIN vendors v ON v.id = t.vendor_id
+          LEFT JOIN users u ON u.id = t.employee_id
+          LEFT JOIN users creator ON creator.id = t.created_by
+          WHERE t.project_id = $1
+        `;
+        const projectParams = [project_id];
+        let pIdx = 2;
+
+        if (category) {
+          projectQuery += ` AND t.category = $${pIdx++}`;
+          projectParams.push(category);
+        }
+        if (type) {
+          projectQuery += ` AND t.type = $${pIdx++}`;
+          projectParams.push(type);
+        }
+        if (start_date) {
+          projectQuery += ` AND t.date >= $${pIdx++}`;
+          projectParams.push(start_date);
+        }
+        if (end_date) {
+          projectQuery += ` AND t.date <= $${pIdx++}`;
+          projectParams.push(end_date);
+        }
+
+        const { rows: dbTransactions } = await pool.query(projectQuery, projectParams);
+
+        // Fetch virtual income transactions from paid payment stages
+        let virtualTransactions = [];
+        if (!type || type === 'income') {
+          let stageQuery = `
+            SELECT 
+              pps.id, 
+              'income' as type, 
+              COALESCE(pps.document_type, 'Milestone') as category, 
+              pps.amount, 
+              COALESCE(pps.updated_at, pps.created_at) as date, 
+              COALESCE(pps.name, 'Paid Milestone: ' || COALESCE(pps.document_type, 'General')) as description, 
+              pps.project_id, 
+              NULL as vendor_id, 
+              NULL as employee_id, 
+              NULL as reference_id, 
+              NULL as receipt_url, 
+              pps.initiated_by as created_by, 
+              pps.created_at, 
+              'payment_stage' as source,
+              p.name as project_name,
+              NULL as vendor_name,
+              NULL as employee_name,
+              u.name as creator_name
+            FROM project_payment_stages pps
+            JOIN projects p ON p.id = pps.project_id
+            LEFT JOIN users u ON u.id = pps.initiated_by
+            WHERE pps.project_id = $1 AND pps.status = 'paid'
+          `;
+          const stageParams = [project_id];
+          let sIdx = 2;
+
+          if (start_date) {
+            stageQuery += ` AND COALESCE(pps.updated_at, pps.created_at) >= $${sIdx++}`;
+            stageParams.push(start_date);
+          }
+          if (end_date) {
+            stageQuery += ` AND COALESCE(pps.updated_at, pps.created_at) <= $${sIdx++}`;
+            stageParams.push(end_date);
+          }
+
+          const { rows: stageRows } = await pool.query(stageQuery, stageParams);
+          virtualTransactions = stageRows;
+        }
+
+        const allTransactions = [...dbTransactions, ...virtualTransactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+        res.json({ transactions: allTransactions });
       });
     }
 

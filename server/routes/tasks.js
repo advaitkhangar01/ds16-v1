@@ -377,6 +377,29 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
   }
 });
 
+// 5.5 Delete Task
+// DELETE /api/tasks/:task_id
+router.delete('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task' }), async (req, res) => {
+  try {
+    const { task_id } = req.params;
+    const { rows } = await pool.query('SELECT created_by FROM tasks WHERE id = $1', [task_id]);
+    if (!rows.length) return res.status(404).json({ error: 'Task not found' });
+
+    const isCreator = rows[0].created_by === req.user.id;
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isCreator && !isAdmin) {
+      return res.status(403).json({ error: 'Only task creator or Admin can delete this task' });
+    }
+
+    await pool.query('DELETE FROM tasks WHERE id = $1', [task_id]);
+    res.json({ message: 'Task deleted successfully' });
+  } catch (err) {
+    console.error('Delete task error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // 6. Cleanup old passed tasks (90 days)
 async function cleanupOldTasks() {
   try {
