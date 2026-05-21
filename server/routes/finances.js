@@ -175,10 +175,9 @@ router.get('/transactions', authenticate, async (req, res) => {
       const { rows: payrollRows } = await pool.query(payrollQuery, payrollParams);
       
       // Merge and sort
-      // Note: Filter out any transactions that were manually added as 'salary' to avoid double counting
-      const filteredTransactions = transactions.filter(t => t.category.toLowerCase() !== 'salary' && t.category.toLowerCase() !== 'salaries');
-      
-      const allTransactions = [...filteredTransactions, ...payrollRows].sort((a, b) => new Date(b.date) - new Date(a.date));
+      // Note: Include all transactions (including manually-added salary entries) plus payroll records.
+      // Payroll records from the payroll table are merged alongside any manually-entered salary transactions.
+      const allTransactions = [...transactions, ...payrollRows].sort((a, b) => new Date(b.date) - new Date(a.date));
       return res.json({ transactions: allTransactions });
     }
 
