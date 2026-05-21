@@ -19,9 +19,13 @@ export default function AttendanceCard({ attendance, onAction }) {
         return;
       }
       navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        (pos) => resolve({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,   // required for geo-fence effective-distance calc
+        }),
         (err) => reject(new Error('Location access denied. Please allow location.')),
-        { timeout: 10000, maximumAge: 0 }
+        { timeout: 10000, maximumAge: 0, enableHighAccuracy: true }
       );
     });
   }

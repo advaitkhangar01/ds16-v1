@@ -117,6 +117,58 @@ router.patch('/users/:id/reset-password', requireAdmin, async (req, res) => {
   }
 });
 
+// ─── Admin: Update user profile ──────────────────────────────────────────────
+router.patch('/users/:id', requireAdmin, async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id);
+    const { name, username, role, department, phone, base_salary, hourly_rate } = req.body;
+
+    if (!name?.trim() || !username?.trim()) {
+      return res.status(400).json({ error: 'Name and username are required' });
+    }
+
+    const validRoles = ['admin', 'employee', 'accounts'];
+    if (role && !validRoles.includes(role)) {
+      return res.status(400).json({ error: 'Role must be admin, employee or accounts' });
+    }
+
+    // Check duplicate username (excluding current user)
+    const existing = await pool.query(
+      'SELECT id FROM users WHERE username = $1 AND id != $2',
+      [username.toLowerCase().trim(), userId]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'Username already exists' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE users 
+       SET name = $1, username = $2, role = $3, department = $4, phone = $5, base_salary = $6, hourly_rate = $7
+       WHERE id = $8
+       RETURNING id, name, username, role, department, phone, base_salary, hourly_rate, created_at`,
+      [
+        name.trim(), 
+        username.toLowerCase().trim(), 
+        role, 
+        department?.trim() || null, 
+        phone?.trim() || null, 
+        parseFloat(base_salary) || 0, 
+        parseFloat(hourly_rate) || 0,
+        userId
+      ]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Settings: update user error:', err);
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
 // ─── Self: Change own password ───────────────────────────────────────────────
 router.patch('/change-password', async (req, res) => {
   try {

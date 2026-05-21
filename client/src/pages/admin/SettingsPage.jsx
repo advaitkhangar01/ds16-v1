@@ -19,6 +19,7 @@ import {
   AlertTriangle,
   Server,
   Zap,
+  Pencil,
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -30,6 +31,8 @@ export default function SettingsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showUserModal, setShowUserModal] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: 'employee', department: '', phone: '', base_salary: '', hourly_rate: '' });
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingUser, setEditingUser] = useState({ id: null, name: '', username: '', role: 'employee', department: '', phone: '', base_salary: '', hourly_rate: '' });
   
   // Password Reset State
   const [resetModal, setResetModal] = useState({ show: false, userId: null, userName: '', newPassword: '' });
@@ -124,6 +127,18 @@ export default function SettingsPage() {
       fetchData();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to create user');
+    }
+  };
+
+  const handleUpdateUser = async (e) => {
+    e.preventDefault();
+    try {
+      await api.patch(`/settings/users/${editingUser.id}`, editingUser);
+      toast.success('User updated successfully');
+      setShowEditModal(false);
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update user');
     }
   };
 
@@ -361,6 +376,25 @@ export default function SettingsPage() {
                         </td>
                         <td className="px-6 py-4 text-center">
                           <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                              onClick={() => {
+                                setEditingUser({
+                                  id: u.id,
+                                  name: u.name,
+                                  username: u.username,
+                                  role: u.role,
+                                  department: u.department || '',
+                                  phone: u.phone || '',
+                                  base_salary: u.base_salary || 0,
+                                  hourly_rate: u.hourly_rate || 0,
+                                });
+                                setShowEditModal(true);
+                              }}
+                              className="p-1.5 text-gray-400 hover:text-primary hover:bg-orange-50 rounded-lg transition-all" 
+                              title="Edit User"
+                            >
+                              <Pencil size={16} />
+                            </button>
                             <button 
                               onClick={() => setResetModal({ show: true, userId: u.id, userName: u.name, newPassword: '' })}
                               className="p-1.5 text-gray-400 hover:text-primary hover:bg-orange-50 rounded-lg transition-all" 
@@ -984,7 +1018,7 @@ export default function SettingsPage() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Department</label>
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Department / Designation</label>
                     <input 
                       type="text"
                       value={newUser.department}
@@ -993,6 +1027,18 @@ export default function SettingsPage() {
                       className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
                     />
                   </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Phone Number</label>
+                  <input 
+                    type="text"
+                    value={newUser.phone}
+                    onChange={(e) => setNewUser({...newUser, phone: e.target.value})}
+                    placeholder="e.g. 9876543210"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Base Salary (₹)</label>
                     <input 
@@ -1017,6 +1063,100 @@ export default function SettingsPage() {
                 <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
                   <button type="button" onClick={() => setShowUserModal(false)} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
                   <button type="submit" className="btn-primary px-8 py-2.5">Create User</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Edit User Modal */}
+        {showEditModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                <h3 className="text-xl font-bold text-gray-900">Edit User Details</h3>
+                <button onClick={() => setShowEditModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+              </div>
+              <form onSubmit={handleUpdateUser} className="p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Full Name</label>
+                    <input 
+                      type="text" required
+                      value={editingUser.name}
+                      onChange={(e) => setEditingUser({...editingUser, name: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Username</label>
+                    <input 
+                      type="text" required
+                      value={editingUser.username}
+                      onChange={(e) => setEditingUser({...editingUser, username: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Role</label>
+                    <select 
+                      value={editingUser.role}
+                      onChange={(e) => setEditingUser({...editingUser, role: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    >
+                      <option value="employee">Employee</option>
+                      <option value="accounts">Accounts</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Department / Designation</label>
+                    <input 
+                      type="text"
+                      value={editingUser.department}
+                      onChange={(e) => setEditingUser({...editingUser, department: e.target.value})}
+                      placeholder="e.g. Design"
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Phone Number</label>
+                  <input 
+                    type="text"
+                    value={editingUser.phone}
+                    onChange={(e) => setEditingUser({...editingUser, phone: e.target.value})}
+                    placeholder="e.g. 9876543210"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Base Salary (₹)</label>
+                    <input 
+                      type="number"
+                      value={editingUser.base_salary}
+                      onChange={(e) => setEditingUser({...editingUser, base_salary: e.target.value})}
+                      placeholder="e.g. 25000"
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Hourly Rate (₹)</label>
+                    <input 
+                      type="number"
+                      value={editingUser.hourly_rate}
+                      onChange={(e) => setEditingUser({...editingUser, hourly_rate: e.target.value})}
+                      placeholder="e.g. 150"
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+                <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
+                  <button type="button" onClick={() => setShowEditModal(false)} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
+                  <button type="submit" className="btn-primary px-8 py-2.5">Save Changes</button>
                 </div>
               </form>
             </div>

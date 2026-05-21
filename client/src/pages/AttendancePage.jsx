@@ -84,18 +84,10 @@ export default function AttendancePage() {
       .catch(err => console.error('Failed to load settings', err));
   }, []);
 
-  // Fetch full team member list on mount
+  // Fetch complete user list from dedicated endpoint (all users, not just today's attendees)
   useEffect(() => {
-    api.get('/attendance/today')
-      .then(({ data }) => {
-        const userList = (data.attendance || []).map(r => ({
-          id: r.user_id,
-          name: r.name,
-          role: r.role,
-          department: r.department
-        }));
-        setUsers(userList);
-      })
+    api.get('/attendance/users')
+      .then(({ data }) => setUsers(data.users || []))
       .catch(err => console.error('Failed to load users', err));
   }, []);
 
@@ -553,40 +545,28 @@ export default function AttendancePage() {
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {!isFuture && (selectedUser ? users.filter(u => u.id === parseInt(selectedUser)) : users).map(u => {
                         const record = dayRecords.find(r => r.user_id === u.id);
-                        const isPresent = record && (record.status === ATTENDANCE_STATUS.WORKING || record.status === ATTENDANCE_STATUS.COMPLETED || record.status === 'present');
-                        
+                        const isPresent = record && (
+                          record.status === ATTENDANCE_STATUS.WORKING ||
+                          record.status === ATTENDANCE_STATUS.COMPLETED ||
+                          record.status === 'present'
+                        );
+
                         let statusText = 'Absent';
                         let styleClass = 'bg-red-50 text-red-700 border-red-500 hover:bg-red-100 hover:scale-105';
-                        let cellIsLate = false;
-                        let cellIsHalfDay = false;
-                        
-                        if (isPresent) {
-                          const checkInTime = new Date(record.checkIn);
-                          const officeStartTimeStr = settings?.office_start_time || '09:30';
-                          const lateThresholdMins = parseInt(settings?.late_threshold_mins || 15);
-                          const halfDayThresholdHours = parseFloat(settings?.half_day_threshold_hours || 4);
 
-                          const [startH, startM] = officeStartTimeStr.split(':').map(Number);
-                          const officeStart = new Date(checkInTime);
-                          officeStart.setHours(startH, startM, 0, 0);
-                          const diffMins = (checkInTime - officeStart) / (1000 * 60);
-                          cellIsLate = diffMins > lateThresholdMins;
+                        // Use server-stored flags — avoids re-deriving with different settings keys
+                        const cellIsHalfDay = record?.status === ATTENDANCE_STATUS.HALF_DAY;
+                        const cellIsLate    = !!record?.is_late && !cellIsHalfDay;
 
-                          const cellHoursWorked = record.checkIn && record.checkOut 
-                            ? (new Date(record.checkOut) - new Date(record.checkIn)) / (1000 * 60 * 60) 
-                            : 0;
-                          cellIsHalfDay = record.checkIn && record.checkOut && cellHoursWorked > 0 && cellHoursWorked < halfDayThresholdHours;
-
-                          if (cellIsHalfDay) {
-                            statusText = 'Half Day';
-                            styleClass = 'bg-sky-50 text-sky-700 border-sky-500 hover:bg-sky-100 hover:scale-105';
-                          } else if (cellIsLate) {
-                            statusText = 'Present (Late)';
-                            styleClass = 'bg-amber-50 text-amber-700 border-amber-500 hover:bg-amber-100 hover:scale-105';
-                          } else {
-                            statusText = 'Present';
-                            styleClass = 'bg-emerald-50 text-emerald-700 border-emerald-500 hover:bg-emerald-100 hover:scale-105';
-                          }
+                        if (cellIsHalfDay) {
+                          statusText = 'Half Day';
+                          styleClass = 'bg-sky-50 text-sky-700 border-sky-500 hover:bg-sky-100 hover:scale-105';
+                        } else if (isPresent && cellIsLate) {
+                          statusText = 'Present (Late)';
+                          styleClass = 'bg-amber-50 text-amber-700 border-amber-500 hover:bg-amber-100 hover:scale-105';
+                        } else if (isPresent) {
+                          statusText = 'Present';
+                          styleClass = 'bg-emerald-50 text-emerald-700 border-emerald-500 hover:bg-emerald-100 hover:scale-105';
                         } else if (record?.status === ATTENDANCE_STATUS.LEAVE) {
                           statusText = 'Leave';
                           styleClass = 'bg-violet-50 text-violet-700 border-violet-500 hover:bg-violet-100 hover:scale-105';
@@ -595,12 +575,12 @@ export default function AttendancePage() {
                         // Filter dots based on statusFilter
                         if (statusFilter !== 'all') {
                           let matches = false;
-                          if (statusFilter === ATTENDANCE_STATUS.PRESENT) matches = isPresent;
+                          if (statusFilter === ATTENDANCE_STATUS.PRESENT) matches = isPresent && !cellIsLate && !cellIsHalfDay;
                           else if (statusFilter === 'late') matches = cellIsLate;
                           else if (statusFilter === ATTENDANCE_STATUS.HALF_DAY) matches = cellIsHalfDay;
                           else if (statusFilter === ATTENDANCE_STATUS.ABSENT) matches = statusText === 'Absent';
                           else if (statusFilter === ATTENDANCE_STATUS.LEAVE) matches = statusText === 'Leave';
-                          
+
                           if (!matches) return null;
                         }
                         
@@ -629,7 +609,7 @@ export default function AttendancePage() {
                 <thead>
                   <tr className="bg-[#FAFAFA] border-b border-[#E0E0E0]">
                     <th className="px-5 py-4 text-[11px] font-black text-muted uppercase tracking-widest">Team Member</th>
-                    {view === 'all' && <th className="px-5 py-4 text-[11px] font-black text-muted uppercase tracking-widest">Date</th>}
+                    {view === VIEW_MODES.HISTORY && <th className="px-5 py-4 text-[11px] font-black text-muted uppercase tracking-widest">Date</th>}
                     <th className="px-5 py-4 text-[11px] font-black text-muted uppercase tracking-widest">In / Out</th>
                     <th className="px-5 py-4 text-[11px] font-black text-muted uppercase tracking-widest">Hours</th>
                     <th className="px-5 py-4 text-[11px] font-black text-muted uppercase tracking-widest">Status</th>
@@ -859,7 +839,7 @@ export default function AttendancePage() {
             <div className="card w-full max-w-md animate-in zoom-in-95 duration-200 shadow-2xl">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-black text-[#1A1A1A]">Apply for Leave</h3>
-                <button onClick={() => setShowLeaveForm(false)} className="text-muted hover:text-red-500 transition-colors">
+                <button onClick={() => { setShowLeaveForm(false); setLeaveForm({ start_date: '', end_date: '', type: 'casual', reason: '' }); }} className="text-muted hover:text-red-500 transition-colors">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
                 </button>
               </div>

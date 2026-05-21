@@ -516,4 +516,20 @@ router.get('/attempts', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+// ─── GET /api/attendance/users — List all users for dropdowns ─────────────────
+// Accessible to any authenticated user so the employee filter / manual-marker
+// dropdown is always populated (unlike /settings/users which is admin-only).
+router.get('/users', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, name, role, department FROM users ORDER BY name ASC'
+    );
+    res.json({ users: rows });
+  } catch (err) {
+    console.error('Users list error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;
+
