@@ -120,4 +120,12 @@ if (cleanupOldTasks && isPrimaryInstance) {
   setTimeout(cleanupOldTasks, 5000);
 }
 
+const autoCheckout = attendanceRoutes.autoCheckoutPendingRecords;
+if (autoCheckout && isPrimaryInstance) {
+  // Run auto-checkout cleanup every hour
+  setInterval(autoCheckout, 1 * 60 * 60 * 1000);
+  // Also run 5 seconds after startup for immediate cleanup of past days
+  setTimeout(autoCheckout, 5000);
+}
+
 module.exports = app;

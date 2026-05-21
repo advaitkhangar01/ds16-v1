@@ -43,9 +43,62 @@ async function logAttempt(userId, { lat, lng, accuracy, distance, zone, reason }
   }
 }
 
+// Helper: Automatically check out any pending records from previous days
+async function autoCheckoutPendingRecords() {
+  try {
+    const today = getISTDate();
+    
+    // Find all attendance records from previous days that have a check_in but no check_out
+    const { rows } = await pool.query(
+      `SELECT a.id, a.user_id, a.check_in, a.date, a.status,
+              s_min.value as min_hours
+       FROM attendance a
+       LEFT JOIN app_settings s_min ON s_min.key = 'min_working_hours'
+       WHERE a.check_in IS NOT NULL 
+         AND a.check_out IS NULL 
+         AND a.date < $1::date`,
+      [today]
+    );
+
+    if (rows.length === 0) return;
+
+    console.log(`[Auto-Checkout] Found ${rows.length} pending records from previous days to automatically check out.`);
+
+    for (const r of rows) {
+      const minHours = parseFloat(r.min_hours || '4');
+      const shiftHours = 9.0; // Standard 9-hour work shift
+      
+      const checkInTime = new Date(r.check_in);
+      const checkOutTime = new Date(checkInTime.getTime() + shiftHours * 60 * 60 * 1000);
+      
+      let newStatus = r.status ? r.status.toLowerCase() : 'completed';
+      if (shiftHours < minHours) {
+        newStatus = 'half_day';
+      } else if (newStatus === 'working' || newStatus === 'present') {
+        newStatus = 'completed';
+      }
+
+      await pool.query(
+        `UPDATE attendance SET
+           check_out = $1,
+           status = $2,
+           hours_worked = $3
+         WHERE id = $4`,
+        [checkOutTime.toISOString(), newStatus, shiftHours, r.id]
+      );
+      console.log(`[Auto-Checkout] User ${r.user_id} automatically checked out for date ${getISTDate(r.date)} at ${checkOutTime.toISOString()}`);
+    }
+  } catch (err) {
+    console.error('[Auto-Checkout] Error running auto-checkout cleanup:', err);
+  }
+}
+
 // ─── POST /api/attendance/checkin ─────────────────────────────────────────────
 router.post('/checkin', authenticate, async (req, res) => {
   try {
+    // Automatically check out any pending records from previous days first
+    await autoCheckoutPendingRecords();
+
     const { lat, lng, accuracy } = req.body;
     const userId = req.user.id;
     const today  = getISTDate();
@@ -249,6 +302,9 @@ router.post('/checkin', authenticate, async (req, res) => {
 // ─── POST /api/attendance/checkout ────────────────────────────────────────────
 router.post('/checkout', authenticate, async (req, res) => {
   try {
+    // Automatically check out any pending records from previous days first
+    await autoCheckoutPendingRecords();
+
     const { lat, lng, accuracy } = req.body || {};
     const userId = req.user.id;
     const today  = getISTDate();
@@ -354,6 +410,9 @@ router.post('/checkout', authenticate, async (req, res) => {
 // ─── GET /api/attendance/today ────────────────────────────────────────────────
 router.get('/today', authenticate, async (req, res) => {
   try {
+    // Automatically check out any pending records from previous days first
+    await autoCheckoutPendingRecords();
+
     const today = getISTDate();
 
     const { rows } = await pool.query(
@@ -397,6 +456,9 @@ router.get('/today', authenticate, async (req, res) => {
 // ─── GET /api/attendance/all ──────────────────────────────────────────────────
 router.get('/all', authenticate, async (req, res) => {
   try {
+    // Automatically check out any pending records from previous days first
+    await autoCheckoutPendingRecords();
+
     const { page = 1, limit = 50, from, to } = req.query;
     const offset = (page - 1) * limit;
 
@@ -531,5 +593,6 @@ router.get('/users', authenticate, async (req, res) => {
   }
 });
 
+router.autoCheckoutPendingRecords = autoCheckoutPendingRecords;
 module.exports = router;
 

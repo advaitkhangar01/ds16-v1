@@ -3,6 +3,7 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { getISTDate, getISTTime } = require('../utils/date');
+const { autoCheckoutPendingRecords } = require('./attendance');
 
 async function calculateSalaryStats(userId, month, year, todayStr, settings) {
   const { rows: userRows } = await pool.query('SELECT base_salary, hourly_rate FROM users WHERE id = $1', [userId]);
@@ -93,6 +94,7 @@ async function calculateSalaryStats(userId, month, year, todayStr, settings) {
 // GET /api/dashboard/admin
 router.get('/admin', authenticate, requireAdmin, async (req, res) => {
   try {
+    await autoCheckoutPendingRecords();
     const today = getISTDate();
 
     // 1. Attendance summary (include everyone)
@@ -321,6 +323,7 @@ router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, 
 // GET /api/dashboard/employee
 router.get('/employee', authenticate, async (req, res) => {
   try {
+    await autoCheckoutPendingRecords();
     const todayStr = getISTDate();
     const today = new Date(todayStr);
     const userId = req.user.id;
