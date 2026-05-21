@@ -87,7 +87,7 @@ router.get('/transactions', authenticate, async (req, res) => {
               COALESCE(pps.document_type, 'Milestone') as category, 
               pps.amount, 
               COALESCE(pps.updated_at, pps.created_at) as date, 
-              COALESCE(pps.name, 'Paid Milestone: ' || COALESCE(pps.document_type, 'General')) as description, 
+              ('Paid Milestone: ' || COALESCE(pps.document_type, 'General')) as description, 
               pps.project_id, 
               NULL as vendor_id, 
               NULL as employee_id, 
