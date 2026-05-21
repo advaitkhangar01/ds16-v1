@@ -266,33 +266,20 @@ router.get('/summary', authenticate, async (req, res) => {
       const stagesRes = await pool.query(stagesQuery, stagesParams);
       const stageReceived = parseFloat(stagesRes.rows[0].received);
       const pending = parseFloat(stagesRes.rows[0].pending);
+      const billed = stageReceived + pending;
 
-      // 2b. Manual income transactions (not from payment stages) - must be counted in received
-      let manualIncomeQuery = `
-        SELECT COALESCE(SUM(amount), 0) as manual_income
-        FROM transactions
-        WHERE type = 'income'
-      `;
-      const miParams = [];
-      let miIdx = 1;
+      // 2b. Manual income transactions — add to received so summary matches transaction timeline
+      let manualIncome = 0;
       if (projectId) {
-        manualIncomeQuery += ` AND project_id = $${miIdx++}`;
-        miParams.push(projectId);
+        const manualParams = [projectId];
+        let mIdx = 2;
+        let manualQ = `SELECT COALESCE(SUM(amount), 0) as mi FROM transactions WHERE type = 'income' AND project_id = $1`;
+        if (start_date) { manualQ += ` AND date >= $${mIdx++}`; manualParams.push(start_date); }
+        if (end_date)   { manualQ += ` AND date <= $${mIdx++}`; manualParams.push(end_date); }
+        const manualRes = await pool.query(manualQ, manualParams);
+        manualIncome = parseFloat(manualRes.rows[0].mi) || 0;
       }
-      if (start_date) {
-        manualIncomeQuery += ` AND date >= $${miIdx++}`;
-        miParams.push(start_date);
-      }
-      if (end_date) {
-        manualIncomeQuery += ` AND date <= $${miIdx++}`;
-        miParams.push(end_date);
-      }
-      const miRes = await pool.query(manualIncomeQuery, miParams);
-      const manualIncome = parseFloat(miRes.rows[0].manual_income);
-
-      // received = paid payment stages + manual income transactions
       const received = stageReceived + manualIncome;
-      const billed = stageReceived + pending; // billed is still stage-based
 
       // 3. Expenses from transactions (excluding vendor payments)
       let expenseQuery = `
