@@ -54,6 +54,21 @@ export default function ProjectFinancesTab({ projectId }) {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      {/* Alert if no project value / documents set */}
+      {Number(summary.total_income) === 0 && (
+        <div className="p-4 bg-orange-50/60 border border-orange-100 rounded-xl flex gap-3 text-orange-800 text-xs">
+          <div className="p-1 bg-orange-100/60 rounded-lg text-[#E05A1E] self-start">
+            <TrendingUp size={16} />
+          </div>
+          <div>
+            <p className="font-bold text-orange-950">No Document Amounts Set</p>
+            <p className="mt-1 text-orange-900/80 leading-relaxed">
+              The <strong>Total Project Value</strong> and <strong>Unbilled Amount</strong> are calculated based on values entered in the <strong>Documents</strong> tab. Please add amounts to your project documents to populate these metrics.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Box 1: Total Project Value */}
@@ -178,7 +193,7 @@ export default function ProjectFinancesTab({ projectId }) {
                       <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
                         t.type === 'income' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'
                       }`}>
-                        {t.category.replace('_', ' ')}
+                        {(t.category || t.type || 'transaction').replace('_', ' ')}
                       </span>
                     </td>
                     <td className="px-4 py-3">

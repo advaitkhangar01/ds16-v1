@@ -24,26 +24,7 @@ const upload = multer({ storage });
 router.get('/transactions', authenticate, async (req, res) => {
   try {
     const { type, project_id, start_date, end_date, category } = req.query;
-    let query = `
-      SELECT t.*, p.name as project_name, v.name as vendor_name, u.name as employee_name, creator.name as creator_name
-      FROM transactions t
-      LEFT JOIN projects p ON p.id = t.project_id
-      LEFT JOIN vendors v ON v.id = t.vendor_id
-      LEFT JOIN users u ON u.id = t.employee_id
-      LEFT JOIN users creator ON creator.id = t.created_by
-      WHERE 1=1
-    `;
-    const params = [];
-    let idx = 1;
-
-    if (category) {
-      query += ` AND t.category = $${idx++}`;
-      params.push(category);
-    }
-    if (type) {
-      query += ` AND t.type = $${idx++}`;
-      params.push(type);
-    }
+    
     if (project_id) {
       return checkProjectAccess()(req, res, async () => {
         let projectQuery = `
@@ -126,13 +107,44 @@ router.get('/transactions', authenticate, async (req, res) => {
       });
     }
 
+    let query = `
+      SELECT t.*, p.name as project_name, v.name as vendor_name, u.name as employee_name, creator.name as creator_name
+      FROM transactions t
+      LEFT JOIN projects p ON p.id = t.project_id
+      LEFT JOIN vendors v ON v.id = t.vendor_id
+      LEFT JOIN users u ON u.id = t.employee_id
+      LEFT JOIN users creator ON creator.id = t.created_by
+    `;
+    const params = [];
+    let idx = 1;
+
     if (req.user.role !== 'admin') {
       // Employees only see transactions for projects they are assigned to
-      query += `
-        JOIN project_assignments pa ON pa.project_id = t.project_id
-        WHERE pa.user_id = $${idx++}
-      `;
+      query += ` JOIN project_assignments pa ON pa.project_id = t.project_id `;
+    }
+
+    query += ` WHERE 1=1 `;
+
+    if (req.user.role !== 'admin') {
+      query += ` AND pa.user_id = $${idx++} `;
       params.push(req.user.id);
+    }
+
+    if (category) {
+      query += ` AND t.category = $${idx++}`;
+      params.push(category);
+    }
+    if (type) {
+      query += ` AND t.type = $${idx++}`;
+      params.push(type);
+    }
+    if (start_date) {
+      query += ` AND t.date >= $${idx++}`;
+      params.push(start_date);
+    }
+    if (end_date) {
+      query += ` AND t.date <= $${idx++}`;
+      params.push(end_date);
     }
 
     query += ` ORDER BY t.date DESC, t.created_at DESC`;

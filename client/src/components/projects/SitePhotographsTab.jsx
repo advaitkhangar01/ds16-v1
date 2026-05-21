@@ -4,6 +4,49 @@ import api from '../../api/client';
 import { timeAgo, formatIST } from '../../utils/time';
 import toast from 'react-hot-toast';
 
+// ---------------------------------------------------------------------------
+// PhotoViewModal — defined OUTSIDE the parent so React does NOT recreate the
+// component type on every render, which was preventing the modal from showing.
+// ---------------------------------------------------------------------------
+function PhotoViewModal({ photo, onClose, getMediaUrl }) {
+  if (!photo) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        className="absolute top-6 right-6 p-2 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors z-[101]"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+
+      <div
+        className="relative max-w-5xl w-full max-h-[90vh] flex flex-col items-center justify-center animate-in zoom-in-95 duration-300"
+        onClick={e => e.stopPropagation()}
+      >
+        <img
+          src={getMediaUrl(photo.file_path)}
+          alt={photo.file_name}
+          className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl border border-white/10"
+        />
+        <div className="mt-4 text-center bg-black/40 backdrop-blur-md p-4 rounded-xl border border-white/10 w-full max-w-2xl">
+          <h4 className="text-white font-semibold">{photo.file_name}</h4>
+          <p className="text-white/60 text-xs mt-1">Uploaded by {photo.uploaded_by_name} • {timeAgo(photo.created_at)}</p>
+          {photo.remark && (
+            <p className="text-white/80 text-sm mt-3 italic border-t border-white/10 pt-3">
+              "{photo.remark}"
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SitePhotographsTab({ projectId, currentUser }) {
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -126,44 +169,6 @@ export default function SitePhotographsTab({ projectId, currentUser }) {
     return cleanBase ? `${cleanBase}/${cleanPath}` : `/${cleanPath}`;
   };
 
-  const PhotoViewModal = ({ photo, onClose }) => {
-    if (!photo) return null;
-    return (
-      <div 
-        className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-200"
-        onClick={onClose}
-      >
-        <button 
-          onClick={onClose}
-          className="absolute top-6 right-6 p-2 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors z-[101]"
-        >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </button>
-        
-        <div 
-          className="relative max-w-5xl w-full max-h-[90vh] flex flex-col items-center justify-center animate-in zoom-in-95 duration-300"
-          onClick={e => e.stopPropagation()}
-        >
-          <img 
-            src={getMediaUrl(photo.file_path)} 
-            alt={photo.file_name}
-            className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl border border-white/10"
-          />
-          <div className="mt-4 text-center bg-black/40 backdrop-blur-md p-4 rounded-xl border border-white/10 w-full max-w-2xl">
-            <h4 className="text-white font-semibold">{photo.file_name}</h4>
-            <p className="text-white/60 text-xs mt-1">Uploaded by {photo.uploaded_by_name} • {timeAgo(photo.created_at)}</p>
-            {photo.remark && (
-              <p className="text-white/80 text-sm mt-3 italic border-t border-white/10 pt-3">
-                "{photo.remark}"
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -207,7 +212,7 @@ export default function SitePhotographsTab({ projectId, currentUser }) {
                         </svg>
                       </div>
                       <p className="text-sm font-medium text-[#1A1A1A]">Click to select / Drag & drop</p>
-                      <p className="text-xs text-muted mt-1">PNG, JPG or GIF up to 5MB</p>
+                      <p className="text-xs text-muted mt-1">PNG, JPG or GIF up to 10MB</p>
                     </div>
                   )}
                 </label>
@@ -337,9 +342,10 @@ export default function SitePhotographsTab({ projectId, currentUser }) {
       </div>
 
       {/* Photo Modal */}
-      <PhotoViewModal 
-        photo={selectedPhoto} 
-        onClose={() => setSelectedPhoto(null)} 
+      <PhotoViewModal
+        photo={selectedPhoto}
+        onClose={() => setSelectedPhoto(null)}
+        getMediaUrl={getMediaUrl}
       />
     </div>
   );
