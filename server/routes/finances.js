@@ -264,9 +264,35 @@ router.get('/summary', authenticate, async (req, res) => {
         stagesParams.push(end_date);
       }
       const stagesRes = await pool.query(stagesQuery, stagesParams);
-      const received = parseFloat(stagesRes.rows[0].received);
+      const stageReceived = parseFloat(stagesRes.rows[0].received);
       const pending = parseFloat(stagesRes.rows[0].pending);
-      const billed = received + pending;
+
+      // 2b. Manual income transactions (not from payment stages) - must be counted in received
+      let manualIncomeQuery = `
+        SELECT COALESCE(SUM(amount), 0) as manual_income
+        FROM transactions
+        WHERE type = 'income'
+      `;
+      const miParams = [];
+      let miIdx = 1;
+      if (projectId) {
+        manualIncomeQuery += ` AND project_id = $${miIdx++}`;
+        miParams.push(projectId);
+      }
+      if (start_date) {
+        manualIncomeQuery += ` AND date >= $${miIdx++}`;
+        miParams.push(start_date);
+      }
+      if (end_date) {
+        manualIncomeQuery += ` AND date <= $${miIdx++}`;
+        miParams.push(end_date);
+      }
+      const miRes = await pool.query(manualIncomeQuery, miParams);
+      const manualIncome = parseFloat(miRes.rows[0].manual_income);
+
+      // received = paid payment stages + manual income transactions
+      const received = stageReceived + manualIncome;
+      const billed = stageReceived + pending; // billed is still stage-based
 
       // 3. Expenses from transactions (excluding vendor payments)
       let expenseQuery = `

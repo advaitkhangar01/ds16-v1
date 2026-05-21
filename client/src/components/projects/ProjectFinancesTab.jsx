@@ -4,15 +4,21 @@ import api from '../../api/client';
 import toast from 'react-hot-toast';
 import { 
   Briefcase, FileText, TrendingUp, ArrowDownRight, 
-  CheckCircle2, Activity 
+  CheckCircle2, Activity, RefreshCw
 } from 'lucide-react';
 
 export default function ProjectFinancesTab({ projectId }) {
   const [transactions, setTransactions] = useState([]);
-  const [summary, setSummary] = useState({ total_income: 0, total_expense: 0 });
+  const [summary, setSummary] = useState({
+    total_income: 0, total_expense: 0, billed_income: 0,
+    received_income: 0, pending_income: 0, unbilled_income: 0
+  });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  const fetchFinances = useCallback(async () => {
+  const fetchFinances = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
     try {
       const [transRes, sumRes] = await Promise.all([
         api.get(`/finances/transactions?project_id=${projectId}`),
@@ -20,10 +26,12 @@ export default function ProjectFinancesTab({ projectId }) {
       ]);
       setTransactions(transRes.data.transactions);
       setSummary(sumRes.data);
+      setLastUpdated(new Date());
     } catch (err) {
       toast.error('Failed to load project accounts');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [projectId]);
 
@@ -124,12 +132,30 @@ export default function ProjectFinancesTab({ projectId }) {
 
       {/* Transaction History */}
       <div className="card overflow-hidden">
-        <h3 className="text-sm font-semibold text-[#1A1A1A] mb-4 flex items-center gap-2">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M6 3h12M6 8h12M6 13l8.5 8M6 13h3a5 5 0 0 1 5-5" />
-          </svg>
-          Accounts Timeline
-        </h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-[#1A1A1A] flex items-center gap-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M6 3h12M6 8h12M6 13l8.5 8M6 13h3a5 5 0 0 1 5-5" />
+            </svg>
+            Accounts Timeline
+          </h3>
+          <div className="flex items-center gap-3">
+            {lastUpdated && (
+              <span className="text-[10px] text-muted italic hidden sm:block">
+                Updated {lastUpdated.toLocaleTimeString()}
+              </span>
+            )}
+            <button
+              onClick={() => fetchFinances(true)}
+              disabled={refreshing}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-[#E05A1E] border border-[#E05A1E]/30 rounded-lg hover:bg-[#E05A1E] hover:text-white transition-all disabled:opacity-50"
+              title="Refresh accounts data"
+            >
+              <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
+              {refreshing ? 'Syncing…' : 'Refresh'}
+            </button>
+          </div>
+        </div>
         
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
