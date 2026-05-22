@@ -28,7 +28,11 @@ function ProtectedRoute({ children, adminOnly = false, allowAccounts = false }) 
   
   const isAccounts = user.role === 'accounts' || user.department?.toLowerCase() === 'accounts';
   
-  if (adminOnly && user.role !== 'admin') {
+  if (adminOnly && !allowAccounts && user.role !== 'admin') {
+    return <Navigate to="/employee/dashboard" replace />;
+  }
+  
+  if (adminOnly && allowAccounts && user.role !== 'admin' && !isAccounts) {
     return <Navigate to="/employee/dashboard" replace />;
   }
   
@@ -43,7 +47,10 @@ function RoleRouter() {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  return user.role === 'admin'
+  
+  const isAccounts = user.role === 'accounts' || user.department?.toLowerCase() === 'accounts';
+  
+  return (user.role === 'admin' || isAccounts)
     ? <Navigate to="/admin/dashboard" replace />
     : <Navigate to="/employee/dashboard" replace />;
 }
@@ -68,7 +75,7 @@ function AppRoutes() {
 
         {/* Admin */}
         <Route path="/admin/dashboard" element={
-          <ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>
+          <ProtectedRoute adminOnly allowAccounts><AdminDashboard /></ProtectedRoute>
         } />
         <Route path="/admin/invoice" element={
           <ProtectedRoute allowAccounts><InvoicePage /></ProtectedRoute>

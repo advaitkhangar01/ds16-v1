@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
 
-export default function VendorsTab({ projectId, isAdmin }) {
+export default function VendorsTab({ projectId, isAdmin, isAccounts, isDesignHead }) {
   const [projectVendors, setProjectVendors] = useState([]);
   const [allVendors, setAllVendors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,8 +40,10 @@ export default function VendorsTab({ projectId, isAdmin }) {
 
   useEffect(() => {
     fetchVendors();
-    fetchPayments();
-  }, [fetchVendors, fetchPayments]);
+    if (!isDesignHead) {
+      fetchPayments();
+    }
+  }, [fetchVendors, fetchPayments, isDesignHead]);
 
   const handleAddVendor = async (e) => {
     e.preventDefault();
@@ -141,7 +143,7 @@ export default function VendorsTab({ projectId, isAdmin }) {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {projectVendors.map(v => (
             <div key={v.id} className="card relative group hover:shadow-md transition-all">
-              {isAdmin && (
+              {(isAdmin || isDesignHead || isAccounts) && (
                 <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                   <button 
                     onClick={() => { setSelectedVendorForPayment(v); setShowPaymentModal(true); }}
@@ -153,13 +155,15 @@ export default function VendorsTab({ projectId, isAdmin }) {
                       <line x1="2" y1="10" x2="22" y2="10" />
                     </svg>
                   </button>
-                  <button 
-                    onClick={() => handleRemoveVendor(v.id)}
-                    className="p-1.5 text-muted hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Remove from project"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                  </button>
+                  {isAdmin && (
+                    <button 
+                      onClick={() => handleRemoveVendor(v.id)}
+                      className="p-1.5 text-muted hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Remove from project"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                  )}
                 </div>
               )}
               
@@ -319,81 +323,83 @@ export default function VendorsTab({ projectId, isAdmin }) {
       )}
 
       {/* Payment History Section */}
-      <div className="card overflow-hidden mt-8 border-[#EBEBEB]">
-        <div className="p-4 border-b border-[#EBEBEB] bg-gray-50/50 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-[#1A1A1A] flex items-center gap-2">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M6 3h12M6 8h12M6 13l8.5 8M6 13h3a5 5 0 0 1 5-5" />
-            </svg>
-            Vendor Payment History
-          </h3>
-          <span className="text-[10px] font-bold text-muted uppercase bg-white px-2 py-1 rounded-full border border-[#EBEBEB]">
-            {payments.length} Payments
-          </span>
-        </div>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-white border-b border-[#EBEBEB]">
-                <th className="px-6 py-4 text-[10px] font-bold text-muted uppercase tracking-widest">Date</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-muted uppercase tracking-widest">Vendor</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-muted uppercase tracking-widest">Description</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-muted uppercase tracking-widest text-right">Amount</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#F0F0F0]">
-              {paymentsLoading ? (
-                [1, 2, 3].map(i => (
-                  <tr key={i}>
-                    <td className="px-6 py-4"><div className="skeleton h-3 w-20 rounded" /></td>
-                    <td className="px-6 py-4"><div className="skeleton h-3 w-32 rounded" /></td>
-                    <td className="px-6 py-4"><div className="skeleton h-3 w-48 rounded" /></td>
-                    <td className="px-6 py-4"><div className="skeleton h-3 w-16 ml-auto rounded" /></td>
-                  </tr>
-                ))
-              ) : payments.length === 0 ? (
-                <tr>
-                  <td colSpan="4" className="px-6 py-12 text-center text-muted italic">
-                    No vendor payments recorded for this project yet.
-                  </td>
+      {!isDesignHead && (
+        <div className="card overflow-hidden mt-8 border-[#EBEBEB]">
+          <div className="p-4 border-b border-[#EBEBEB] bg-gray-50/50 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-[#1A1A1A] flex items-center gap-2">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M6 3h12M6 8h12M6 13l8.5 8M6 13h3a5 5 0 0 1 5-5" />
+              </svg>
+              Vendor Payment History
+            </h3>
+            <span className="text-[10px] font-bold text-muted uppercase bg-white px-2 py-1 rounded-full border border-[#EBEBEB]">
+              {payments.length} Payments
+            </span>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-white border-b border-[#EBEBEB]">
+                  <th className="px-6 py-4 text-[10px] font-bold text-muted uppercase tracking-widest">Date</th>
+                  <th className="px-6 py-4 text-[10px] font-bold text-muted uppercase tracking-widest">Vendor</th>
+                  <th className="px-6 py-4 text-[10px] font-bold text-muted uppercase tracking-widest">Description</th>
+                  <th className="px-6 py-4 text-[10px] font-bold text-muted uppercase tracking-widest text-right">Amount</th>
                 </tr>
-              ) : (
-                payments.map(p => (
-                  <tr key={p.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 text-muted whitespace-nowrap">
-                      {new Date(p.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+              </thead>
+              <tbody className="divide-y divide-[#F0F0F0]">
+                {paymentsLoading ? (
+                  [1, 2, 3].map(i => (
+                    <tr key={i}>
+                      <td className="px-6 py-4"><div className="skeleton h-3 w-20 rounded" /></td>
+                      <td className="px-6 py-4"><div className="skeleton h-3 w-32 rounded" /></td>
+                      <td className="px-6 py-4"><div className="skeleton h-3 w-48 rounded" /></td>
+                      <td className="px-6 py-4"><div className="skeleton h-3 w-16 ml-auto rounded" /></td>
+                    </tr>
+                  ))
+                ) : payments.length === 0 ? (
+                  <tr>
+                    <td colSpan="4" className="px-6 py-12 text-center text-muted italic">
+                      No vendor payments recorded for this project yet.
                     </td>
-                    <td className="px-6 py-4">
-                      <span className="font-bold text-[#1A1A1A]">{p.vendor_name}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-muted line-clamp-1" title={p.description}>{p.description}</span>
-                    </td>
+                  </tr>
+                ) : (
+                  payments.map(p => (
+                    <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 text-muted whitespace-nowrap">
+                        {new Date(p.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="font-bold text-[#1A1A1A]">{p.vendor_name}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-muted line-clamp-1" title={p.description}>{p.description}</span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="font-mono font-bold text-emerald-600">
+                          ₹{parseFloat(p.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+              {payments.length > 0 && (
+                <tfoot className="bg-gray-50/80 border-t border-[#EBEBEB] font-bold">
+                  <tr>
+                    <td colSpan="3" className="px-6 py-4 text-right text-[10px] uppercase tracking-widest text-muted">Project Total Vendor Payments</td>
                     <td className="px-6 py-4 text-right">
-                      <span className="font-mono font-bold text-emerald-600">
-                        ₹{parseFloat(p.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      <span className="text-sm text-[#1A1A1A]">
+                        ₹{payments.reduce((sum, p) => sum + parseFloat(p.amount), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </span>
                     </td>
                   </tr>
-                ))
+                </tfoot>
               )}
-            </tbody>
-            {payments.length > 0 && (
-              <tfoot className="bg-gray-50/80 border-t border-[#EBEBEB] font-bold">
-                <tr>
-                  <td colSpan="3" className="px-6 py-4 text-right text-[10px] uppercase tracking-widest text-muted">Project Total Vendor Payments</td>
-                  <td className="px-6 py-4 text-right">
-                    <span className="text-sm text-[#1A1A1A]">
-                      ₹{payments.reduce((sum, p) => sum + parseFloat(p.amount), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                  </td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

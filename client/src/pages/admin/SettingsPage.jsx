@@ -364,8 +364,13 @@ export default function SettingsPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                            {u.role}
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                            u.role === 'admin' ? 'bg-purple-100 text-purple-700' :
+                            u.role === 'accounts' ? 'bg-emerald-100 text-emerald-700' :
+                            u.role === 'design_head' ? 'bg-amber-100 text-amber-700' :
+                            'bg-blue-100 text-blue-700'
+                          }`}>
+                            {u.role === 'design_head' ? 'Design Head' : u.role === 'accounts' ? 'Accounts' : u.role === 'admin' ? 'Admin' : u.role === 'employee' ? 'Employee' : u.role}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-gray-600 font-medium">{u.department || '—'}</td>
@@ -1014,6 +1019,7 @@ export default function SettingsPage() {
                     >
                       <option value="employee">Employee</option>
                       <option value="accounts">Accounts</option>
+                      <option value="design_head">Design Head</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>
@@ -1108,6 +1114,7 @@ export default function SettingsPage() {
                     >
                       <option value="employee">Employee</option>
                       <option value="accounts">Accounts</option>
+                      <option value="design_head">Design Head</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>

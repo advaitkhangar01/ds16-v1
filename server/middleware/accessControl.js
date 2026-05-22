@@ -15,8 +15,8 @@ const checkProjectAccess = (options = {}) => async (req, res, next) => {
     const user = req.user;
     if (!user) return res.status(401).json({ error: 'Authentication required' });
 
-    // Admins skip checks
-    if (user.role === 'admin') return next();
+    // Admins and accounts skip checks
+    if (user.role === 'admin' || user.role === 'accounts') return next();
 
     let projectId = req.params.projectId || req.query?.project_id || req.body?.project_id;
     

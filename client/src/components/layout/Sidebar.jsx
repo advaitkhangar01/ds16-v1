@@ -83,12 +83,14 @@ const ICONS = {
 };
 
 export default function Sidebar({ onClose }) {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, isAccounts } = useAuth();
   const navigate = useNavigate();
   
-  // Custom logic: Admins see all. Employees in 'Accounts' see accounting too.
-  const isAccounts = user?.role === 'accounts' || user?.department?.toLowerCase() === 'accounts';
-  const links = isAdmin ? ADMIN_LINKS : (isAccounts ? [...EMP_LINKS, { to: '/admin/accounting', label: 'Accounting', icon: 'calculator' }] : EMP_LINKS);
+  const links = isAdmin 
+    ? ADMIN_LINKS 
+    : (isAccounts 
+        ? ADMIN_LINKS.filter(link => link.to !== '/admin/settings') 
+        : EMP_LINKS);
 
   function handleLogout() {
     logout();
@@ -106,7 +108,9 @@ export default function Sidebar({ onClose }) {
           </div>
           <div className="min-w-0">
             <div className="text-sm font-black text-[#1A1A1A] leading-tight truncate uppercase tracking-tight">Design Studio 16</div>
-            <div className="text-[10px] font-bold text-[#E05A1E] uppercase tracking-widest">{user?.role}</div>
+            <div className="text-[10px] font-bold text-[#E05A1E] uppercase tracking-widest">
+              {user?.role === 'design_head' ? 'Design Head' : user?.role}
+            </div>
           </div>
         </div>
       </div>

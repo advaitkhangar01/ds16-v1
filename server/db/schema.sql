@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
-  role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'employee', 'accounts')),
+  role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'employee', 'accounts', 'design_head')),
   department VARCHAR(100),
   phone VARCHAR(20),
   username VARCHAR(50) UNIQUE NOT NULL,

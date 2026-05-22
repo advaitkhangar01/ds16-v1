@@ -5,6 +5,9 @@ const { checkProjectAccess } = require('../middleware/accessControl');
 
 // GET /api/invoices - List all invoices
 router.get('/', authenticate, async (req, res) => {
+  if (req.user?.role === 'design_head') {
+    return res.status(403).json({ error: 'Design Head is not permitted to view invoices' });
+  }
   try {
     const { project_id, client_id, start_date, end_date, page = 1, limit = 50 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -95,6 +98,9 @@ router.get('/latest/number', authenticate, requireAccounting, async (req, res) =
 
 // GET /api/invoices/:id - Get specific invoice details
 router.get('/:id', authenticate, checkProjectAccess({ idIsResource: 'invoice' }), async (req, res) => {
+  if (req.user?.role === 'design_head') {
+    return res.status(403).json({ error: 'Design Head is not permitted to view invoices' });
+  }
   try {
     const { rows } = await pool.query(
       `SELECT i.*, p.name as project_name, c.name as client_name_full

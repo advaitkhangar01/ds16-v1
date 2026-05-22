@@ -47,7 +47,7 @@ const PROJECT_TYPES = [
 
 export default function ProjectDetail() {
   const { id } = useParams();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isAccounts, isDesignHead } = useAuth();
   const [project, setProject] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [users, setUsers] = useState([]);
@@ -251,9 +251,9 @@ export default function ProjectDetail() {
             { id: 'client', label: 'Client & Contacts', count: stakeholders.length },
             { id: 'tasks', label: 'Tasks', count: tasks.length },
             { id: 'documents', label: 'Documents' },
-            isAdmin && { id: 'payments', label: 'Payment Stages' },
-            isAdmin && { id: 'finances', label: 'Accounts' },
-            isAdmin && { id: 'invoices', label: 'Invoices' },
+            (isAdmin || isAccounts) && { id: 'payments', label: 'Payment Stages' },
+            (isAdmin || isAccounts) && { id: 'finances', label: 'Accounts' },
+            (isAdmin || isAccounts) && { id: 'invoices', label: 'Invoices' },
             { id: 'site-photos', label: 'Site Photos' },
             { id: 'vendors', label: 'Vendors' },
           ].filter(Boolean).map(tab => (
@@ -534,7 +534,7 @@ export default function ProjectDetail() {
         {activeTab === 'finances' && <ProjectFinancesTab projectId={id} />}
         {activeTab === 'invoices' && <InvoiceHistoryTab projectId={id} project={project} />}
         {activeTab === 'site-photos' && <SitePhotographsTab projectId={id} currentUser={user} />}
-        {activeTab === 'vendors' && <VendorsTab projectId={id} isAdmin={isAdmin} />}
+        {activeTab === 'vendors' && <VendorsTab projectId={id} isAdmin={isAdmin} isAccounts={isAccounts} isDesignHead={isDesignHead} />}
       </div>
 
       {showChangeClientModal && (

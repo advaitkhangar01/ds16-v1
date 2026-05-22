@@ -122,7 +122,7 @@ router.get('/payroll/employees', async (req, res) => {
   const { month, year } = req.query;
   try {
     // 1. Fetch all employees and admins for payroll
-    const empRes = await pool.query("SELECT id, name, department, role, base_salary, hourly_rate FROM users WHERE role IN ('employee', 'admin', 'accounts') ORDER BY name");
+    const empRes = await pool.query("SELECT id, name, department, role, base_salary, hourly_rate FROM users WHERE role IN ('employee', 'admin', 'accounts', 'design_head') ORDER BY name");
     const employees = empRes.rows;
 
     if (!month || !year) {
@@ -228,7 +228,7 @@ router.put('/payroll/employees/:id', async (req, res) => {
   const { base_salary, hourly_rate } = req.body;
   try {
     const { rows } = await pool.query(
-      "UPDATE users SET base_salary = COALESCE($1, base_salary), hourly_rate = COALESCE($2, hourly_rate) WHERE id = $3 AND role IN ('employee', 'admin', 'accounts') RETURNING id, name, base_salary, hourly_rate",
+      "UPDATE users SET base_salary = COALESCE($1, base_salary), hourly_rate = COALESCE($2, hourly_rate) WHERE id = $3 AND role IN ('employee', 'admin', 'accounts', 'design_head') RETURNING id, name, base_salary, hourly_rate",
       [base_salary, hourly_rate, req.params.id]
     );
     res.json(rows[0]);
