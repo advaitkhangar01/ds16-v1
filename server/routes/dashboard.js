@@ -128,8 +128,8 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
        JOIN users u ON u.id = t.assigned_to
        JOIN users au ON au.id = t.created_by
        WHERE t.assigned_to IS NOT NULL
-         AND (t.due_date = $1::date OR (t.due_date IS NULL AND DATE(t.created_at AT TIME ZONE 'Asia/Kolkata') = $1::date))
-         AND t.status NOT IN ('passed', 'done')
+         AND DATE(t.created_at AT TIME ZONE 'Asia/Kolkata') = $1::date
+         AND t.status != 'passed'
        ORDER BY p.name, t.created_at DESC`,
       [today]
     );
