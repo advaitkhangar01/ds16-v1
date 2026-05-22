@@ -154,23 +154,46 @@ router.get('/transactions', authenticate, async (req, res) => {
     // If type is expense (or not specified), include payroll records as virtual transactions
     if (!type || type === 'expense') {
       let payrollQuery = `
-        SELECT 
-          id, 
-          'expense' as type, 
-          'Salaries' as category, 
-          net_paid as amount, 
-          payment_date as date, 
-          'Monthly salary payment' as description, 
-          NULL as project_id, 
-          NULL as vendor_id, 
-          user_id as employee_id, 
-          NULL as reference_id, 
-          NULL as receipt_url, 
-          NULL as created_by, 
-          created_at, 
-          'payroll' as source
-        FROM payroll 
-        WHERE status = 'paid'
+        SELECT * FROM (
+          SELECT 
+            id, 
+            'expense' as type, 
+            'Salaries' as category, 
+            (net_paid - incentives) as amount, 
+            payment_date as date, 
+            'Monthly salary payment' as description, 
+            NULL as project_id, 
+            NULL as vendor_id, 
+            user_id as employee_id, 
+            NULL as reference_id, 
+            NULL as receipt_url, 
+            NULL as created_by, 
+            created_at, 
+            'payroll' as source
+          FROM payroll 
+          WHERE status = 'paid'
+          
+          UNION ALL
+          
+          SELECT 
+            id, 
+            'expense' as type, 
+            'Incentives' as category, 
+            incentives as amount, 
+            payment_date as date, 
+            'Performance incentive' as description, 
+            NULL as project_id, 
+            NULL as vendor_id, 
+            user_id as employee_id, 
+            NULL as reference_id, 
+            NULL as receipt_url, 
+            NULL as created_by, 
+            created_at, 
+            'payroll' as source
+          FROM payroll 
+          WHERE status = 'paid' AND incentives > 0
+        ) p_virtual
+        WHERE 1=1
       `;
       const payrollParams = [];
       let pyIdx = 1;
@@ -296,7 +319,7 @@ router.get('/summary', authenticate, async (req, res) => {
       let expenseQuery = `
         SELECT COALESCE(SUM(amount), 0) as total_expense 
         FROM transactions 
-        WHERE type = 'expense' AND category NOT IN ('vendor_payment', 'salary', 'incentive')
+        WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
       `;
       const expParams = [];
       let eIdx = 1;
@@ -391,13 +414,16 @@ router.get('/charts', authenticate, async (req, res) => {
       let trendQuery = `
         WITH combined_data AS (
           SELECT date, type, category, amount, project_id FROM transactions
+          WHERE LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
           UNION ALL
-          SELECT payment_date as date, 'expense' as type, 'Salaries' as category, net_paid as amount, NULL as project_id FROM payroll WHERE status = 'paid'
+          SELECT payment_date as date, 'expense' as type, 'Salaries' as category, (net_paid - incentives) as amount, NULL as project_id FROM payroll WHERE status = 'paid'
+          UNION ALL
+          SELECT payment_date as date, 'expense' as type, 'Incentives' as category, incentives as amount, NULL as project_id FROM payroll WHERE status = 'paid' AND incentives > 0
         )
         SELECT 
           TO_CHAR(date, 'Mon YYYY') as month_year,
           SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
-          SUM(CASE WHEN type = 'expense' AND category NOT IN ('vendor_payment', 'salary', 'incentive') THEN amount ELSE 0 END) as expense,
+          SUM(CASE WHEN type = 'expense' AND category != 'vendor_payment' THEN amount ELSE 0 END) as expense,
           MIN(date) as sort_date
         FROM combined_data
         WHERE 1=1
@@ -430,9 +456,11 @@ router.get('/charts', authenticate, async (req, res) => {
       // 2. Category breakdown (Expenses only)
       let catQuery = `
         WITH combined_expenses AS (
-          SELECT category, amount, date, project_id FROM transactions WHERE type = 'expense' AND category NOT IN ('vendor_payment', 'salary', 'incentive')
+          SELECT category, amount, date, project_id FROM transactions WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
           UNION ALL
-          SELECT 'Salaries' as category, net_paid as amount, payment_date as date, NULL as project_id FROM payroll WHERE status = 'paid'
+          SELECT 'Salaries' as category, (net_paid - incentives) as amount, payment_date as date, NULL as project_id FROM payroll WHERE status = 'paid'
+          UNION ALL
+          SELECT 'Incentives' as category, incentives as amount, payment_date as date, NULL as project_id FROM payroll WHERE status = 'paid' AND incentives > 0
         )
         SELECT 
           category as name,

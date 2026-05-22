@@ -539,9 +539,10 @@ export default function ProjectDetail() {
 
       {showChangeClientModal && (
         <ChangeClientModal 
+          projectId={id}
           currentClientId={project.client_id}
           onClose={() => setShowChangeClientModal(false)}
-          onUpdated={(updatedProj) => setProject(updatedProj)}
+          onUpdated={() => fetchProject()}
         />
       )}
 

@@ -214,13 +214,22 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
     const pending = parseFloat(stagesRows[0].pending);
     const billed = received + pending;
 
-    // 5c. Expenses from transactions (excluding vendor payments)
+    // 5c. Expenses from transactions and payroll (Unified logic with finances.js)
     const { rows: expRows } = await pool.query(
       `SELECT COALESCE(SUM(amount), 0) as total_expense 
-        FROM transactions 
-        WHERE type = 'expense' AND category != 'vendor_payment'`
+       FROM transactions 
+       WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')`
     );
-    const totalExpense = parseFloat(expRows[0].total_expense);
+    const transactionExpense = parseFloat(expRows[0].total_expense);
+
+    const { rows: payrollRows } = await pool.query(
+      `SELECT COALESCE(SUM(net_paid), 0) as total_payroll 
+       FROM payroll 
+       WHERE status = 'paid'`
+    );
+    const totalPayroll = parseFloat(payrollRows[0].total_payroll);
+
+    const totalExpense = transactionExpense + totalPayroll;
 
     // 6. Admin's own salary stats
     const settingsRes = await pool.query('SELECT key, value FROM app_settings');
@@ -303,11 +312,37 @@ router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, 
       items = rows;
     } else if (type === 'expenses') {
       const { rows } = await pool.query(`
-        SELECT t.id, t.description, t.category, t.amount, t.date, p.name as project_name
-        FROM transactions t
-        LEFT JOIN projects p ON p.id = t.project_id
-        WHERE t.type = 'expense' AND t.category != 'vendor_payment'
-        ORDER BY t.date DESC
+        SELECT * FROM (
+          SELECT t.id, t.description, t.category, t.amount, t.date, p.name as project_name
+          FROM transactions t
+          LEFT JOIN projects p ON p.id = t.project_id
+          WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+          
+          UNION ALL
+          
+          SELECT 
+            id, 
+            'Monthly salary payment' as description, 
+            'Salaries' as category, 
+            (net_paid - incentives) as amount, 
+            payment_date as date, 
+            NULL as project_name
+          FROM payroll 
+          WHERE status = 'paid'
+          
+          UNION ALL
+          
+          SELECT 
+            id, 
+            'Performance incentive' as description, 
+            'Incentives' as category, 
+            incentives as amount, 
+            payment_date as date, 
+            NULL as project_name
+          FROM payroll 
+          WHERE status = 'paid' AND incentives > 0
+        ) combined_expenses
+        ORDER BY date DESC
       `);
       items = rows;
     }

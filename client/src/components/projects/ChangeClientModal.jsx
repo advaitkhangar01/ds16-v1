@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
 
-export default function ChangeClientModal({ currentClientId, onClose, onUpdated }) {
+export default function ChangeClientModal({ projectId, currentClientId, onClose, onUpdated }) {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -36,9 +36,9 @@ export default function ChangeClientModal({ currentClientId, onClose, onUpdated 
     
     setUpdating(true);
     try {
-      const { data } = await api.patch(window.location.pathname.replace('/projects/', '/projects/'), { client_id: clientId });
+      await api.patch(`/projects/${projectId}`, { client_id: clientId });
       toast.success('Project client updated');
-      onUpdated(data.project);
+      onUpdated();
       onClose();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to update client');

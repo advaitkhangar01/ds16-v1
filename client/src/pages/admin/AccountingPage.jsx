@@ -13,6 +13,7 @@ import {
   Activity, Receipt, Trash2, FileText, CheckCircle2, Plus, X, Lock,
   LayoutList, LayoutDashboard, CreditCard, Clock, Search
 } from 'lucide-react';
+import FinancialBreakdownModal from '../../components/dashboard/FinancialBreakdownModal';
 
 const EXPENSE_CATEGORIES = [
   "Mobile Bill",
@@ -105,6 +106,7 @@ export default function AccountingPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [viewType, setViewType] = useState('table'); // table or kanban
   const [modalData, setModalData] = useState({ category: '', amount: '', date: new Date().toISOString().split('T')[0], description: '', receipt: null, projectId: '' });
+  const [financialModal, setFinancialModal] = useState({ isOpen: false, type: '', label: '' });
 
   // Payroll Data
   const [employees, setEmployees] = useState([]);
@@ -118,12 +120,37 @@ export default function AccountingPage() {
     EXPENSE_CATEGORIES.forEach(cat => groups[cat] = []);
     
     expenses.forEach(exp => {
-      const cat = exp.category || 'Miscellaneous';
+      // 1. Filter by selected month and year
+      const expDate = new Date(exp.date);
+      const expMonth = expDate.getMonth() + 1;
+      const expYear = expDate.getFullYear();
+      if (expMonth !== selectedMonth || expYear !== selectedYear) {
+        return;
+      }
+
+      // 2. Normalize category name casing/plurality
+      let cat = exp.category || 'Miscellaneous';
+      const trimmedLower = cat.trim().toLowerCase();
+      if (trimmedLower === 'salary' || trimmedLower === 'salaries') {
+        cat = 'Salaries';
+      } else if (trimmedLower === 'incentive' || trimmedLower === 'incentives') {
+        cat = 'Incentives';
+      } else {
+        // Find match in EXPENSE_CATEGORIES case-insensitively
+        const match = EXPENSE_CATEGORIES.find(c => c.toLowerCase() === trimmedLower);
+        if (match) {
+          cat = match;
+        }
+      }
+
       if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(exp);
+      groups[cat].push({
+        ...exp,
+        category: cat // Use normalized category
+      });
     });
     return groups;
-  }, [expenses]);
+  }, [expenses, selectedMonth, selectedYear]);
 
   const categoryTotals = useMemo(() => {
     const totals = {};
@@ -542,19 +569,25 @@ export default function AccountingPage() {
             {/* KPI Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Box 1: Total Project Value */}
-              <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
+              <div 
+                className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group cursor-pointer hover:shadow-md hover:border-gray-200 transition-all active:scale-[0.98]"
+                onClick={() => setFinancialModal({ isOpen: true, type: 'total', label: 'Total Project Value' })}
+              >
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Project Value</p>
                 <h3 className="text-2xl font-black text-gray-900 mt-2">₹{(Number(summary.totalIncome) || 0).toLocaleString('en-IN')}</h3>
-                <div className="absolute top-0 right-0 p-3 opacity-5">
+                <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
                   <Briefcase size={40} />
                 </div>
               </div>
 
               {/* Box 2: Billed Amount */}
-              <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
+              <div 
+                className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group cursor-pointer hover:shadow-md hover:border-blue-200 transition-all active:scale-[0.98]"
+                onClick={() => setFinancialModal({ isOpen: true, type: 'billed', label: 'Billed Amount' })}
+              >
                 <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Billed Amount</p>
                 <h3 className="text-2xl font-black text-blue-600 mt-2">₹{(Number(summary.billedIncome) || 0).toLocaleString('en-IN')}</h3>
-                <div className="absolute top-0 right-0 p-3 opacity-5 text-blue-600">
+                <div className="absolute top-0 right-0 p-3 opacity-5 text-blue-600 group-hover:opacity-10 transition-opacity">
                   <FileText size={40} />
                 </div>
               </div>
@@ -569,7 +602,10 @@ export default function AccountingPage() {
               </div>
 
               {/* Box 4: Total Expenses */}
-              <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
+              <div 
+                className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group cursor-pointer hover:shadow-md hover:border-red-200 transition-all active:scale-[0.98]"
+                onClick={() => setFinancialModal({ isOpen: true, type: 'expenses', label: 'Total Expenses' })}
+              >
                 <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Total Expenses</p>
                 <h3 className="text-2xl font-black text-red-500 mt-2">₹{(summary.totalExpense || 0).toLocaleString('en-IN')}</h3>
                 <p className="text-[10px] text-muted mt-1 italic">Excl. vendor payments</p>
@@ -579,19 +615,25 @@ export default function AccountingPage() {
               </div>
 
               {/* Box 5: Received Amount */}
-              <div className="bg-white p-5 rounded-xl border border-emerald-100 shadow-sm relative overflow-hidden group">
+              <div 
+                className="bg-white p-5 rounded-xl border border-emerald-100 shadow-sm relative overflow-hidden group cursor-pointer hover:shadow-md hover:border-emerald-200 transition-all active:scale-[0.98]"
+                onClick={() => setFinancialModal({ isOpen: true, type: 'received', label: 'Received Amount' })}
+              >
                 <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Received Amount</p>
                 <h3 className="text-2xl font-black text-emerald-600 mt-2">₹{(Number(summary.receivedIncome) || 0).toLocaleString('en-IN')}</h3>
-                <div className="absolute top-0 right-0 p-3 opacity-10 text-emerald-600">
+                <div className="absolute top-0 right-0 p-3 opacity-10 text-emerald-600 group-hover:opacity-20 transition-opacity">
                   <CheckCircle2 size={40} />
                 </div>
               </div>
 
               {/* Box 6: Pending Amount */}
-              <div className="bg-white p-5 rounded-xl border border-orange-100 shadow-sm relative overflow-hidden group">
+              <div 
+                className="bg-white p-5 rounded-xl border border-orange-100 shadow-sm relative overflow-hidden group cursor-pointer hover:shadow-md hover:border-orange-200 transition-all active:scale-[0.98]"
+                onClick={() => setFinancialModal({ isOpen: true, type: 'pending', label: 'Pending Amount' })}
+              >
                 <p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Pending Amount</p>
                 <h3 className="text-2xl font-black text-orange-600 mt-2">₹{(Number(summary.pendingIncome) || 0).toLocaleString('en-IN')}</h3>
-                <div className="absolute top-0 right-0 p-3 opacity-10 text-orange-500">
+                <div className="absolute top-0 right-0 p-3 opacity-10 text-orange-500 group-hover:opacity-20 transition-opacity">
                   <Activity size={40} />
                 </div>
               </div>
@@ -830,7 +872,9 @@ export default function AccountingPage() {
                       {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                   </div>
-                  <span className="badge badge-in-progress">{expenses.length} Total Records</span>
+                  <span className="badge badge-in-progress">
+                    {Object.values(groupedExpenses).reduce((sum, list) => sum + list.length, 0)} Records this Month
+                  </span>
                 </div>
               </div>
 
@@ -1611,6 +1655,14 @@ export default function AccountingPage() {
           </div>
         )}
       </div>
+
+      {/* Breakdown Modal */}
+      <FinancialBreakdownModal 
+        isOpen={financialModal.isOpen}
+        onClose={() => setFinancialModal({ ...financialModal, isOpen: false })}
+        type={financialModal.type}
+        label={financialModal.label}
+      />
 
     </AppLayout>
   );
