@@ -78,7 +78,7 @@ router.get('/', authenticate, async (req, res) => {
       // Group by assigned_to
       // We fetch all employees
       const { rows: employees } = await pool.query(`
-        SELECT id, name, username, role FROM users 
+        SELECT id, name, username, role, department FROM users 
         WHERE role = 'employee' OR id IN (SELECT DISTINCT assigned_to FROM tasks WHERE assigned_to IS NOT NULL)
         ORDER BY name ASC
       `);
@@ -123,6 +123,7 @@ router.get('/', authenticate, async (req, res) => {
           user_id: emp.id,
           name: emp.name,
           username: emp.username,
+          department: emp.department,
           tasks: []
         };
       });
@@ -132,6 +133,7 @@ router.get('/', authenticate, async (req, res) => {
         user_id: null,
         name: 'Unassigned',
         username: 'unassigned',
+        department: null,
         tasks: []
       };
 

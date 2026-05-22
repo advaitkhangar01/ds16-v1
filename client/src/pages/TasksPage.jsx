@@ -185,9 +185,14 @@ export default function TasksPage() {
             <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin">
               {kanbanData.map((col) => (
                 <div key={col.username || col.name} className="flex flex-col min-w-[280px] bg-slate-50 border border-slate-100 rounded-xl p-3 min-h-[400px]">
-                  <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-200/60">
-                    <span className="text-xs font-black text-slate-700 uppercase tracking-wider">{col.name}</span>
-                    <span className="px-1.5 py-0.5 rounded bg-white text-[10px] font-bold text-slate-400 border border-slate-200">
+                  <div className="flex items-start justify-between mb-4 pb-2 border-b border-slate-200/60">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-black text-slate-700 uppercase tracking-wider">{col.name}</span>
+                      {col.department && (
+                        <span className="text-[10px] font-bold text-slate-400 mt-0.5 uppercase tracking-wide">{col.department}</span>
+                      )}
+                    </div>
+                    <span className="px-1.5 py-0.5 rounded bg-white text-[10px] font-bold text-slate-400 border border-slate-200 h-fit mt-0.5">
                       {col.tasks?.length || 0}
                     </span>
                   </div>
