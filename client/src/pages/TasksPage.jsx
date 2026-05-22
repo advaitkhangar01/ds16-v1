@@ -132,9 +132,11 @@ export default function TasksPage() {
                 onChange={(e) => setAssignedTo(e.target.value)}
               >
                 <option value="">Unassigned</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-                ))}
+                {users
+                  .filter((u) => u.role !== 'design_head' && u.role !== 'accounts')
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                  ))}
               </select>
             </div>
 
