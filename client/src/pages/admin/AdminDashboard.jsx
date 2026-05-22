@@ -281,12 +281,14 @@ function TeamAttendanceTable({ records }) {
             <tr className="border-b border-[#F0F0F0]">
               <th className="text-[10px] font-bold text-muted uppercase py-2">Member</th>
               <th className="text-[10px] font-bold text-muted uppercase py-2">Check-In</th>
+              <th className="text-[10px] font-bold text-muted uppercase py-2">Check-Out</th>
               <th className="text-[10px] font-bold text-muted uppercase py-2 text-right">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#F5F5F5]">
             {records.map((r, i) => {
-              const isLate = r.checkIn && new Date(r.checkIn).getHours() >= 10 && new Date(r.checkIn).getMinutes() > 0;
+              // Use server-computed is_late (IST-aware) instead of browser local time
+              const isLate = r.is_late === true;
               return (
                 <tr key={i} className="group hover:bg-[#FAFAFA] transition-colors">
                   <td className="py-2.5">
@@ -298,13 +300,23 @@ function TeamAttendanceTable({ records }) {
                       {r.checkIn ? formatTimeIST(r.checkIn) : '—'}
                     </p>
                   </td>
+                  <td className="py-2.5">
+                    <p className={`text-xs font-bold ${r.checkOut ? 'text-blue-600' : 'text-muted opacity-40'}`}>
+                      {r.checkOut ? formatTimeIST(r.checkOut) : '—'}
+                    </p>
+                  </td>
                   <td className="py-2.5 text-right">
                     <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter shadow-sm border ${
-                      r.status === 'working' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                      r.status === 'working'   ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
                       r.status === 'completed' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                      r.status === 'half_day'  ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                      r.status === 'leave'     ? 'bg-purple-50 text-purple-600 border-purple-100' :
                       'bg-red-50 text-red-500 border-red-100'
                     }`}>
-                      {r.status === 'working' ? 'Present' : r.status === 'completed' ? 'Done' : 'Absent'}
+                      {r.status === 'working'   ? 'Present'  :
+                       r.status === 'completed' ? 'Done'     :
+                       r.status === 'half_day'  ? 'Half Day' :
+                       r.status === 'leave'     ? 'On Leave' : 'Absent'}
                     </span>
                   </td>
                 </tr>

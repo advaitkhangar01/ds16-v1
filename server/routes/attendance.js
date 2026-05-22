@@ -56,7 +56,8 @@ async function autoCheckoutPendingRecords() {
        LEFT JOIN app_settings s_min ON s_min.key = 'min_working_hours'
        WHERE a.check_in IS NOT NULL 
          AND a.check_out IS NULL 
-         AND a.date < $1::date`,
+         AND a.date < $1::date
+         AND a.date >= $1::date - INTERVAL '3 days'`,
       [today]
     );
 

@@ -64,8 +64,12 @@ function QuickStats({ salary, attendance }) {
       </div>
 
       <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-2xl shadow-sm">
-        <p className="text-[10px] font-black text-emerald-700/60 uppercase tracking-widest mb-1">Team Present</p>
+        <p className="text-[10px] font-black text-emerald-700/60 uppercase tracking-widest mb-1">Working Now</p>
         <span className="text-xl font-black text-emerald-600 font-mono tracking-tight">{attendance?.present ?? 0}</span>
+      </div>
+      <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-2xl shadow-sm">
+        <p className="text-[10px] font-black text-blue-700/60 uppercase tracking-widest mb-1">Done Today</p>
+        <span className="text-xl font-black text-blue-600 font-mono tracking-tight">{attendance?.checked_out ?? 0}</span>
       </div>
       <div className="bg-red-50/50 border border-red-100 p-4 rounded-2xl shadow-sm">
         <p className="text-[10px] font-black text-red-700/60 uppercase tracking-widest mb-1">Team Absent</p>
@@ -309,9 +313,28 @@ function TeamAttendanceCompact({ records }) {
               </div>
             </div>
             <div className="text-right">
-              <p className="text-[10px] font-mono font-black text-slate-600">{r.checkIn ? formatTimeIST(r.checkIn) : '--:--'}</p>
-              <span className={`text-[8px] font-bold uppercase ${r.status === 'working' ? 'text-emerald-500' : 'text-slate-300'}`}>
-                {r.status === 'working' ? 'Present' : 'Away'}
+              <div className="flex items-center gap-1.5 justify-end">
+                <div className="text-right">
+                  <p className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-0.5">In</p>
+                  <p className="text-[10px] font-mono font-black text-emerald-600">{r.checkIn ? formatTimeIST(r.checkIn) : '--:--'}</p>
+                </div>
+                <span className="text-slate-200 text-[10px]">·</span>
+                <div className="text-right">
+                  <p className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-0.5">Out</p>
+                  <p className={`text-[10px] font-mono font-black ${r.checkOut ? 'text-blue-600' : 'text-slate-300'}`}>{r.checkOut ? formatTimeIST(r.checkOut) : '--:--'}</p>
+                </div>
+              </div>
+              <span className={`text-[8px] font-bold uppercase ${
+                r.status === 'working'   ? 'text-emerald-500' :
+                r.status === 'completed' ? 'text-blue-500'    :
+                r.status === 'half_day'  ? 'text-amber-500'   :
+                r.status === 'leave'     ? 'text-purple-500'  :
+                'text-slate-300'
+              }`}>
+                {r.status === 'working'   ? 'Present'  :
+                 r.status === 'completed' ? 'Done'     :
+                 r.status === 'half_day'  ? 'Half Day' :
+                 r.status === 'leave'     ? 'On Leave' : 'Away'}
               </span>
             </div>
           </div>
@@ -553,7 +576,7 @@ export default function EmployeeDashboard() {
           <div className="xl:col-span-3 space-y-6">
             <QuickStats 
               salary={data?.salary_stats} 
-              attendance={data?.attendance_stats} 
+              attendance={data?.team_stats} 
             />
             <MyTasksTable tasks={data?.tasks} />
           </div>

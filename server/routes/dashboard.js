@@ -39,6 +39,8 @@ async function calculateSalaryStats(userId, month, year, todayStr, settings) {
     const isToday = getISTDate(record.date) === todayStr;
     let dayEarned = 0;
     let dayDeductions = 0;
+    const statusLower = (record.status || '').toLowerCase();
+    const isHalfDayRecord = statusLower === 'half_day';
 
     if (hourlyRate > 0) {
       const hours = parseFloat(record.hours_worked || 0);
@@ -49,18 +51,18 @@ async function calculateSalaryStats(userId, month, year, todayStr, settings) {
         const checkInTimeStr = getISTTime(record.check_in);
         const [ciH, ciM] = checkInTimeStr.split(':').map(Number);
         const [startH, startM] = officeStartTimeStr.split(':').map(Number);
-        
+
         const diffMins = (ciH * 60 + ciM) - (startH * 60 + startM);
-        if (diffMins > lateThresholdMins) {
+        // Skip late penalty if already penalised as half_day (avoid double-counting)
+        if (!isHalfDayRecord && diffMins > lateThresholdMins) {
           dayDeductions += latePenaltyAmount;
           lateCount++;
         }
 
         if (record.check_out) {
-          const checkIn = new Date(record.check_in);
-          const checkOut = new Date(record.check_out);
-          const hoursWorked = (checkOut - checkIn) / (1000 * 60 * 60);
-          if (hoursWorked < halfDayThresholdHours) {
+          // Use stored hours_worked — set by server at checkout, avoids timestamp re-derivation
+          const hoursWorked = parseFloat(record.hours_worked || 0);
+          if (isHalfDayRecord || hoursWorked < halfDayThresholdHours) {
             dayDeductions += (dailyWage * halfDayPenaltyPercent / 100);
             halfDayCount++;
           }
@@ -103,7 +105,7 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
          COUNT(*) AS total_users,
          COUNT(*) FILTER (WHERE a.check_in IS NOT NULL AND a.check_out IS NULL AND a.date = $1::date) AS checked_in,
          COUNT(*) FILTER (WHERE a.check_out IS NOT NULL AND a.date = $1::date) AS checked_out,
-         COUNT(*) FILTER (WHERE a.id IS NULL OR a.date != $1::date) AS absent
+         COUNT(*) FILTER (WHERE a.check_in IS NULL) AS absent
        FROM users u
        LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date`,
       [today]
@@ -126,8 +128,8 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
        JOIN users u ON u.id = t.assigned_to
        JOIN users au ON au.id = t.created_by
        WHERE t.assigned_to IS NOT NULL
-         AND DATE(t.created_at AT TIME ZONE 'Asia/Kolkata') = $1::date
-         AND t.status != 'passed'
+         AND (t.due_date = $1::date OR (t.due_date IS NULL AND DATE(t.created_at AT TIME ZONE 'Asia/Kolkata') = $1::date))
+         AND t.status NOT IN ('passed', 'done')
        ORDER BY p.name, t.created_at DESC`,
       [today]
     );
@@ -360,10 +362,9 @@ router.get('/employee', authenticate, async (req, res) => {
   try {
     await autoCheckoutPendingRecords();
     const todayStr = getISTDate();
-    const today = new Date(todayStr);
+    // Extract month/year directly from IST date string to avoid UTC midnight parse issue
+    const [year, month] = todayStr.split('-').map(Number);
     const userId = req.user.id;
-    const month = today.getMonth() + 1;
-    const year = today.getFullYear();
 
     // 1. Today's attendance (self)
     const { rows: attRows } = await pool.query(
@@ -374,8 +375,9 @@ router.get('/employee', authenticate, async (req, res) => {
     // 1b. Team attendance summary (for stats)
     const { rows: teamStatsRows } = await pool.query(
       `SELECT
-         COUNT(*) FILTER (WHERE a.check_in IS NOT NULL AND a.date = $1::date) AS present,
-         COUNT(*) FILTER (WHERE a.id IS NULL OR a.date != $1::date) AS absent
+         COUNT(*) FILTER (WHERE a.check_in IS NOT NULL AND a.check_out IS NULL AND a.date = $1::date) AS present,
+         COUNT(*) FILTER (WHERE a.check_out IS NOT NULL AND a.date = $1::date) AS checked_out,
+         COUNT(*) FILTER (WHERE a.check_in IS NULL) AS absent
        FROM users u
        LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date`,
       [todayStr]
@@ -445,8 +447,9 @@ router.get('/employee', authenticate, async (req, res) => {
     res.json({
       attendance: attRows[0] || {},
       team_stats: {
-        present: parseInt(teamStats.present),
-        absent: parseInt(teamStats.absent)
+        present:     parseInt(teamStats.present),
+        checked_out: parseInt(teamStats.checked_out),
+        absent:      parseInt(teamStats.absent)
       },
       tasks: taskRows,
       projects: projRows,
