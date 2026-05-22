@@ -416,6 +416,15 @@ export default function InvoicePage() {
 
   const { subtotal, cgst, sgst, igst, grandTotal } = calculateTotals();
 
+  const getProjectName = () => {
+    if (formData.project_id) {
+      const p = projects.find(proj => proj.id === formData.project_id);
+      if (p) return p.name;
+    }
+    if (savedInvoiceRef?.project_name) return savedInvoiceRef.project_name;
+    return '';
+  };
+
   const handleGeneratePDF = async () => {
     if (!formData.billToName.trim()) {
       toast.error('Client Name is required');
@@ -438,20 +447,25 @@ export default function InvoicePage() {
 
       const element = previewRef.current;
       const canvas = await html2canvas(element, { scale: 2, useCORS: true });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgData = canvas.toDataURL('image/jpeg', 0.8);
+      const pdf = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
       const imgWidth = 210;
       const pageHeight = 295;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
       let heightLeft = imgHeight;
       let position = 0;
 
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
       heightLeft -= pageHeight;
       while (heightLeft >= 0) {
         position = heightLeft - imgHeight;
         pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
         heightLeft -= pageHeight;
       }
       pdf.save(`Invoice_${formData.invoiceNo}.pdf`);
@@ -942,15 +956,25 @@ export default function InvoicePage() {
                 </div>
               </div>
               <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
-                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 border-b border-gray-200 pb-2">Project Statistics</h3>
-                {projectStats && typeof projectStats === 'object' ? (
+                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 border-b border-gray-200 pb-2">Project Details</h3>
+                <div className="space-y-3 text-[11px] font-bold">
                   <div>
-                    <p className="text-[9px] font-bold text-gray-400 uppercase mb-1">Total Value</p>
-                    <p className="text-sm font-black text-gray-900">₹{(projectStats.total_project_value ?? projectStats.total_income ?? 0).toLocaleString('en-IN')}</p>
+                    <span className="text-gray-400 uppercase tracking-tighter block mb-0.5">Project Name:</span>
+                    <span className="text-gray-900">{getProjectName() || 'N/A'}</span>
                   </div>
-                ) : (
-                  <p className="text-[10px] text-gray-400 italic">No linked project data available</p>
-                )}
+                  <div>
+                    <span className="text-gray-400 uppercase tracking-tighter block mb-0.5">Client Name:</span>
+                    <span className="text-gray-900">{formData.billToName || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 uppercase tracking-tighter block mb-0.5">Contact Number:</span>
+                    <span className="text-gray-900">{formData.billToPhone || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 uppercase tracking-tighter block mb-0.5">Billing Address:</span>
+                    <span className="text-gray-900 leading-relaxed block whitespace-pre-wrap">{formData.billToAddress || 'N/A'}</span>
+                  </div>
+                </div>
               </div>
             </div>
 
