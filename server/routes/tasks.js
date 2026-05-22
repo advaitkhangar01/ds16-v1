@@ -29,14 +29,6 @@ router.post('/', authenticate, checkProjectAccess(), async (req, res) => {
       return res.status(400).json({ error: 'project_id and title are required' });
     }
 
-    if (assigned_to) {
-      const { rows: userRows } = await client.query('SELECT role FROM users WHERE id = $1', [assigned_to]);
-      if (userRows.length && (userRows[0].role === 'design_head' || userRows[0].role === 'accounts')) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'Tasks cannot be assigned to Design Head or Accounts users' });
-      }
-    }
-
     const { rows: [task] } = await client.query(`
       INSERT INTO tasks (project_id, stage, title, description, assigned_to, created_by, status, created_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), NOW())
@@ -87,7 +79,7 @@ router.get('/', authenticate, async (req, res) => {
       // We fetch all employees
       const { rows: employees } = await pool.query(`
         SELECT id, name, username, role, department FROM users 
-        WHERE role = 'employee' OR id IN (SELECT DISTINCT assigned_to FROM tasks WHERE assigned_to IS NOT NULL)
+        WHERE role IN ('employee', 'admin', 'accounts', 'design_head')
         ORDER BY name ASC
       `);
 
@@ -359,12 +351,6 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
     }
 
     if (assigned_to !== undefined) {
-      if (assigned_to) {
-        const { rows: userRows } = await pool.query('SELECT role FROM users WHERE id = $1', [assigned_to]);
-        if (userRows.length && (userRows[0].role === 'design_head' || userRows[0].role === 'accounts')) {
-          return res.status(400).json({ error: 'Tasks cannot be assigned to Design Head or Accounts users' });
-        }
-      }
       updates.push(`assigned_to = $${count++}`);
       params.push(assigned_to || null);
     }
