@@ -68,28 +68,52 @@ router.get('/latest/number', authenticate, requireAccounting, async (req, res) =
     const { rows } = await pool.query(`
       SELECT invoice_no 
       FROM invoices 
-      WHERE invoice_no LIKE 'DS16-%' 
+      WHERE invoice_no LIKE 'DS16\\\\%' OR invoice_no LIKE 'DS16-%'
       ORDER BY created_at DESC 
       LIMIT 1
     `);
     
-    const year = new Date().getFullYear();
+    const today = new Date();
+    const month = today.getMonth() + 1; // 1-12
+    const fullYear = today.getFullYear();
+    let startYear, endYear;
+    if (month >= 4) {
+      startYear = fullYear;
+      endYear = fullYear + 1;
+    } else {
+      startYear = fullYear - 1;
+      endYear = fullYear;
+    }
+    const fyStr = `${String(startYear).slice(-2)}-${String(endYear).slice(-2)}`; // e.g. "25-26"
+    
     let nextNum = 1;
     
     if (rows.length > 0) {
       const lastNo = rows[0].invoice_no;
-      const parts = lastNo.split('-');
-      if (parts.length === 3) {
-        const lastYear = parseInt(parts[1]);
-        const lastCount = parseInt(parts[2]);
-        if (lastYear === year) {
-          nextNum = lastCount + 1;
+      let lastFY = '';
+      let lastCount = 0;
+      
+      if (lastNo.includes('\\')) {
+        const parts = lastNo.split('\\');
+        if (parts.length === 3) {
+          lastFY = parts[1];
+          lastCount = parseInt(parts[2]);
         }
+      } else if (lastNo.includes('-')) {
+        const parts = lastNo.split('-');
+        if (parts.length === 3) {
+          lastFY = parts[1];
+          lastCount = parseInt(parts[2]);
+        }
+      }
+      
+      if (lastCount > 0 && (lastFY === fyStr || lastFY === String(fullYear))) {
+        nextNum = lastCount + 1;
       }
     }
     
-    const paddedCount = String(nextNum).padStart(3, '0');
-    res.json({ nextNo: `DS16-${year}-${paddedCount}` });
+    const paddedCount = String(nextNum).padStart(2, '0');
+    res.json({ nextNo: `DS16\\${fyStr}\\${paddedCount}` });
   } catch (err) {
     console.error('Get latest invoice number error:', err);
     res.status(500).json({ error: 'Server error' });

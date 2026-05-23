@@ -1122,7 +1122,7 @@ export default function InvoicePage() {
             {/* Total Amount in Words Banner */}
             <div className="w-full bg-gray-500 text-white px-3 py-1 text-[8px] font-black uppercase tracking-wider border border-black border-t-0 flex items-center justify-between">
               <span>Total Amount (in words):</span>
-              <span className="font-extrabold">{convertNumberToWords(grandTotal).toUpperCase()} HUNDRED ONLY</span>
+              <span className="font-extrabold">{convertNumberToWords(grandTotal).toUpperCase()} ONLY</span>
             </div>
 
             {/* Accounts Details & Legal Declaration */}
