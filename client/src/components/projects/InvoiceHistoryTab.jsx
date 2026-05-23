@@ -148,6 +148,19 @@ export default function InvoiceHistoryTab({ projectId, project }) {
               ))
             )}
           </tbody>
+          {invoices.length > 0 && (
+            <tfoot className="bg-gray-50 font-bold border-t border-[#F0F0F0]">
+              <tr>
+                <td className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase" colSpan={2}>
+                  Total of {invoices.length} {invoices.length === 1 ? 'Invoice' : 'Invoices'}
+                </td>
+                <td className="px-4 py-3 text-[#E05A1E] font-black">
+                  ₹{invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </td>
+                <td colSpan={2}></td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
       

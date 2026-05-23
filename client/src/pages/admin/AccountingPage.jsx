@@ -1650,6 +1650,25 @@ export default function AccountingPage() {
                     </tr>
                   )}
                 </tbody>
+                {invoices.length > 0 && (
+                  <tfoot className="bg-gray-50/80 font-bold border-t border-gray-200">
+                    <tr>
+                      <td className="px-6 py-4 text-xs font-bold text-gray-500 uppercase" colSpan={4}>
+                        <div className="flex items-center gap-4">
+                          <span>Total of {invoices.length} {invoices.length === 1 ? 'Invoice' : 'Invoices'}</span>
+                          <span className="text-[10px] text-gray-400 font-normal normal-case">
+                            (Paid: ₹{invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} | 
+                            Pending: ₹{invoices.filter(i => i.status !== 'paid' && i.status !== 'cancelled').reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })})
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-right font-mono text-sm font-black text-[#E05A1E]">
+                        ₹{invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </div>
