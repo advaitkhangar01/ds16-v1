@@ -14,34 +14,36 @@ const INITIAL_FORM = {
   project_id: null,
   invoiceNo: '',
   date: new Date().toISOString().split('T')[0],
-  refNo: '',
-  buyerOrderNo: '',
+  refNo: '', // Reference No. & Date
+  otherReferences: '',
+  buyerOrderNo: '', // Buyer's Order No.
+  termsOfDelivery: '',
   billToName: '',
   billToAddress: '',
   billToGst: '',
   billToPhone: '',
   billToEmail: '',
-  items: [{ id: Date.now(), description: '', hsn: '', quantity: 1, rate: 0 }],
+  items: [{ id: Date.now(), description: '', hsn: '', quantity: 1, rate: 0, per: '' }],
   cgstPercent: 9,
   sgstPercent: 9,
   igstPercent: 18,
-  accountName: COMPANY_CONFIG.name,
-  accountNo: '',
-  ifsc: '',
-  bankName: '',
+  accountName: 'Design Studio Sixteen',
+  accountNo: '0058107040000460',
+  ifsc: 'MSCI0082056',
+  bankName: 'RANAPRATAP NAGAR',
   branch: '',
   upiId: '',
   dueDate: ''
 };
 
 const ITEM_CATALOG = [
-  { description: 'Interior Design & Space Planning', rate: 15000 },
-  { description: '3D Realistic Rendering (Per View)', rate: 5000 },
-  { description: 'Full Turnkey Execution (Per Sqft)', rate: 1800 },
-  { description: 'Modular Kitchen Fabrication', rate: 120000 },
-  { description: 'False Ceiling Layout & Work', rate: 35000 },
-  { description: 'Custom Wardrobes & Woodwork', rate: 65000 },
-  { description: 'Site Visit Consultation', rate: 3000 }
+  { description: 'Interior Design & Space Planning', rate: 15000, per: 'Flat' },
+  { description: '3D Realistic Rendering (Per View)', rate: 5000, per: 'View' },
+  { description: 'Full Turnkey Execution (Per Sqft)', rate: 1800, per: 'Sqft' },
+  { description: 'Modular Kitchen Fabrication', rate: 120000, per: 'Flat' },
+  { description: 'False Ceiling Layout & Work', rate: 35000, per: 'Flat' },
+  { description: 'Custom Wardrobes & Woodwork', rate: 65000, per: 'Flat' },
+  { description: 'Site Visit Consultation', rate: 3000, per: 'Visit' }
 ];
 
 export default function InvoicePage() {
@@ -142,14 +144,19 @@ export default function InvoicePage() {
 
   useEffect(() => {
     // Wrap in try/catch — localStorage.setItem throws QuotaExceededError if storage is full
-    // (e.g. if a large Base64 signature_data accidentally ends up in formData)
-    try {
-      // Exclude signature_data from draft — it's persisted in the DB, not localStorage
-      const { signature_data, ...draftSafe } = formData;
-      localStorage.setItem('ds16_invoice_draft', JSON.stringify(draftSafe));
-    } catch (e) {
-      console.warn('localStorage draft save failed (quota?):', e);
-    }
+    const timer = setTimeout(() => {
+      try {
+        // Exclude signature_data from draft — it's persisted in the DB, not localStorage
+        const { signature_data, ...draftSafe } = formData;
+        // Avoid saving blank templates over loaded drafts
+        if (draftSafe.billToName || draftSafe.items?.length > 1 || draftSafe.items?.[0]?.description) {
+          localStorage.setItem('ds16_invoice_draft', JSON.stringify(draftSafe));
+        }
+      } catch (e) {
+        console.warn('localStorage draft save failed:', e);
+      }
+    }, 800); // 800ms debounce
+    return () => clearTimeout(timer);
   }, [formData]);
 
   useEffect(() => {
@@ -188,7 +195,10 @@ export default function InvoicePage() {
         invoiceNo: inv.invoice_no || '',
         date: inv.date ? String(inv.date).split('T')[0] : INITIAL_FORM.date,
         dueDate: inv.due_date ? String(inv.due_date).split('T')[0] : '',
-        refNo: inv.ref_no || '',
+        refNo: inv.ref_no || inv.tax_details?.referenceNoAndDate || '',
+        otherReferences: inv.tax_details?.otherReferences || '',
+        buyerOrderNo: inv.buyer_order_no || inv.tax_details?.buyerOrderNo || '',
+        termsOfDelivery: inv.tax_details?.termsOfDelivery || '',
         billToName: inv.client_name || '',
         billToAddress: inv.bill_to_address || '',
         billToGst: inv.bill_to_gst || '',
@@ -198,7 +208,7 @@ export default function InvoicePage() {
         ifsc: inv.ifsc || '',
         bankName: inv.bank_name || '',
         items: Array.isArray(inv.items) && inv.items.length > 0
-          ? inv.items.map(item => ({ ...item, id: item.id || Date.now(), hsn: item.hsn || '' }))
+          ? inv.items.map(item => ({ ...item, id: item.id || Date.now(), hsn: item.hsn || '', per: item.per || '' }))
           : INITIAL_FORM.items,
         cgstPercent: inv.tax_details?.cgstPercent ?? 9,
         sgstPercent: inv.tax_details?.sgstPercent ?? 9,
@@ -323,7 +333,11 @@ export default function InvoicePage() {
           sgstPercent: formData.sgstPercent,
           igstPercent: formData.igstPercent,
           isGstEnabled,
-          isIgst
+          isIgst,
+          referenceNoAndDate: formData.refNo,
+          otherReferences: formData.otherReferences,
+          buyerOrderNo: formData.buyerOrderNo,
+          termsOfDelivery: formData.termsOfDelivery
         },
         status,
         due_date: formData.dueDate,
@@ -445,33 +459,12 @@ export default function InvoicePage() {
       }
       setSavedInvoiceRef(saved);
 
-      const element = previewRef.current;
-      const canvas = await html2canvas(element, { scale: 2, useCORS: true });
-      const imgData = canvas.toDataURL('image/jpeg', 0.8);
-      const pdf = new jsPDF({
-        orientation: 'p',
-        unit: 'mm',
-        format: 'a4',
-        compress: true
-      });
-      const imgWidth = 210;
-      const pageHeight = 295;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
-      heightLeft -= pageHeight;
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
-        heightLeft -= pageHeight;
-      }
-      pdf.save(`Invoice_${formData.invoiceNo}.pdf`);
-      toast.success('Invoice saved & PDF exported');
+      // Trigger browser native vector print dialog
+      window.print();
+      toast.success('Invoice saved & print dialogue loaded');
     } catch (error) {
-      toast.error('Failed to generate PDF');
+      console.error(error);
+      toast.error('Failed to open print layout');
     } finally {
       setIsGenerating(false);
     }
@@ -594,6 +587,30 @@ export default function InvoicePage() {
 
   return (
     <AppLayout>
+      <style dangerouslySetInnerHTML={{__html: `
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          #printable-invoice-area, #printable-invoice-area * {
+            visibility: visible !important;
+          }
+          #printable-invoice-area {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 210mm !important;
+            min-height: 297mm !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          @page {
+            size: A4;
+            margin: 10mm 15mm 10mm 15mm;
+          }
+        }
+      `}} />
       <div className="flex flex-col lg:flex-row h-[calc(100vh-4.5rem)] lg:h-[calc(100vh-3rem)] bg-[#F0F2F5] overflow-hidden -m-4 lg:-m-6" style={{ fontFamily: '"Inter", sans-serif' }}>
         
         {/* Left: Interactive Input Form (Redesigned) */}
@@ -729,8 +746,20 @@ export default function InvoicePage() {
                   <input type="date" name="dueDate" value={formData.dueDate} onChange={handleChange} className="input" />
                 </div>
                 <div>
-                  <label className="label">PO / Ref No</label>
-                  <input type="text" name="refNo" value={formData.refNo} onChange={handleChange} className="input" placeholder="e.g. PO-9922" />
+                  <label className="label">Reference No & Date</label>
+                  <input type="text" name="refNo" value={formData.refNo} onChange={handleChange} className="input" placeholder="e.g. Ref-01" />
+                </div>
+                <div>
+                  <label className="label">Other References</label>
+                  <input type="text" name="otherReferences" value={formData.otherReferences || ''} onChange={handleChange} className="input" placeholder="e.g. Email discussion" />
+                </div>
+                <div>
+                  <label className="label">Buyer's Order No.</label>
+                  <input type="text" name="buyerOrderNo" value={formData.buyerOrderNo} onChange={handleChange} className="input" placeholder="e.g. PO-9922" />
+                </div>
+                <div className="col-span-2">
+                  <label className="label">Terms of Delivery</label>
+                  <textarea name="termsOfDelivery" value={formData.termsOfDelivery || ''} onChange={handleChange} className="input min-h-[45px] py-2 text-xs" placeholder="e.g. Delivery within 15 days of drawings approval" />
                 </div>
               </div>
             </section>
@@ -753,7 +782,7 @@ export default function InvoicePage() {
                       onClick={() => {
                         setFormData(prev => ({
                           ...prev,
-                          items: [...prev.items, { id: Date.now(), description: item.description, hsn: '', quantity: 1, rate: item.rate }]
+                          items: [...prev.items, { id: Date.now(), description: item.description, hsn: '', quantity: 1, rate: item.rate, per: item.per || '' }]
                         }));
                         setShowCatalog(false);
                       }}
@@ -782,7 +811,7 @@ export default function InvoicePage() {
                         className="input min-h-[60px] text-xs bg-white" 
                         placeholder="Service description..."
                       />
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-4 gap-2">
                         <div>
                           <label className="text-[9px] font-bold text-gray-400 uppercase">HSN/SAC</label>
                           <input type="text" value={item.hsn} onChange={(e) => handleItemChange(item.id, 'hsn', e.target.value)} className="input text-xs h-8 px-2" placeholder="9983" />
@@ -794,6 +823,10 @@ export default function InvoicePage() {
                         <div>
                           <label className="text-[9px] font-bold text-gray-400 uppercase">Rate (₹)</label>
                           <input type="number" value={item.rate} onChange={(e) => handleItemChange(item.id, 'rate', e.target.value)} className="input text-xs h-8 px-2 text-right" />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-bold text-gray-400 uppercase">Per</label>
+                          <input type="text" value={item.per || ''} onChange={(e) => handleItemChange(item.id, 'per', e.target.value)} className="input text-xs h-8 px-2" placeholder="e.g. Sqft" />
                         </div>
                       </div>
                     </div>
@@ -902,174 +935,237 @@ export default function InvoicePage() {
         <div className="flex-1 h-full bg-[#525659] overflow-y-auto p-12 flex justify-center custom-scrollbar">
           <div 
             ref={previewRef}
-            className="bg-white shadow-[0_20px_50px_rgba(0,0,0,0.3)] relative text-[#1A1A1A]"
-            style={{ width: '210mm', minHeight: '297mm', padding: '20mm', boxSizing: 'border-box' }}
+            id="printable-invoice-area"
+            className="bg-white shadow-[0_20px_50px_rgba(0,0,0,0.3)] relative text-[#1A1A1A] p-[15mm]"
+            style={{ width: '210mm', minHeight: '297mm', boxSizing: 'border-box' }}
           >
-            {/* Corporate Header */}
-            <div className="flex justify-between items-start mb-12 border-b-2 border-gray-900 pb-8">
-              <div className="flex items-center gap-5">
-                <img src="/logo.jpg" alt="Logo" className="h-20 w-20 object-contain grayscale" />
-                <div>
-                  <h1 className="text-3xl font-black uppercase tracking-tight leading-none mb-1">{COMPANY_CONFIG.name}</h1>
-                  <p className="text-xs font-bold text-gray-500 tracking-[0.3em] uppercase mb-4">Architecture • Interiors</p>
-                  <div className="text-[10px] text-gray-600 leading-relaxed font-medium max-w-[300px]">
-                    {COMPANY_CONFIG.address}<br />
-                    GSTIN: {COMPANY_CONFIG.gst} • PAN: {COMPANY_CONFIG.pan}
-                  </div>
-                </div>
-              </div>
-              <div className="text-right">
-                <h2 className="text-4xl font-black text-gray-900 uppercase tracking-tighter mb-2">TAX INVOICE</h2>
-                <div className="inline-block bg-gray-900 text-white text-[10px] px-3 py-1 font-black tracking-widest uppercase mb-6">Original Copy</div>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-right text-[11px] font-bold">
-                  <span className="text-gray-400 uppercase tracking-tighter">Invoice No:</span>
-                  <span className="text-gray-900">{formData.invoiceNo}</span>
-                  <span className="text-gray-400 uppercase tracking-tighter">Date:</span>
-                  <span className="text-gray-900">{formData.date}</span>
-                  {formData.dueDate && (
-                    <>
-                      <span className="text-gray-400 uppercase tracking-tighter">Due Date:</span>
-                      <span className="text-gray-900">{formData.dueDate}</span>
-                    </>
-                  )}
-                  {formData.refNo && (
-                    <>
-                      <span className="text-gray-400 uppercase tracking-tighter">Ref No:</span>
-                      <span className="text-gray-900">{formData.refNo}</span>
-                    </>
-                  )}
-                </div>
-              </div>
+            {/* Centered Top Invoice Banner */}
+            <div className="w-full text-center bg-gray-500 text-white py-1 text-xs font-black uppercase tracking-widest border border-black border-b-0">
+              INVOICE
             </div>
 
-            {/* Client Section */}
-            <div className="grid grid-cols-2 gap-10 mb-12">
-              <div>
-                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 border-b border-gray-100 pb-2">Billed To</h3>
-                <div className="text-lg font-black text-gray-900 leading-tight mb-2">{formData.billToName || 'CLIENT NAME'}</div>
-                <div className="text-[11px] text-gray-600 font-medium leading-relaxed whitespace-pre-wrap mb-3">
-                  {formData.billToAddress}
-                </div>
-                <div className="space-y-1 text-[11px]">
-                  {formData.billToGst && <p className="font-bold"><span className="text-gray-400 uppercase tracking-tighter">GSTIN:</span> {formData.billToGst}</p>}
-                  {formData.billToPhone && <p className="font-medium"><span className="text-gray-400 uppercase tracking-tighter">Phone:</span> {formData.billToPhone}</p>}
-                </div>
-              </div>
-              <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
-                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 border-b border-gray-200 pb-2">Project Details</h3>
-                <div className="space-y-3 text-[11px] font-bold">
-                  <div>
-                    <span className="text-gray-400 uppercase tracking-tighter block mb-0.5">Project Name:</span>
-                    <span className="text-gray-900">{getProjectName() || 'N/A'}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 uppercase tracking-tighter block mb-0.5">Client Name:</span>
-                    <span className="text-gray-900">{formData.billToName || 'N/A'}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 uppercase tracking-tighter block mb-0.5">Contact Number:</span>
-                    <span className="text-gray-900">{formData.billToPhone || 'N/A'}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 uppercase tracking-tighter block mb-0.5">Billing Address:</span>
-                    <span className="text-gray-900 leading-relaxed block whitespace-pre-wrap">{formData.billToAddress || 'N/A'}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Items Table */}
-            <table className="w-full mb-10">
-              <thead>
-                <tr className="bg-gray-900 text-white text-[10px] font-black uppercase tracking-widest">
-                  <th className="py-3 px-4 text-center w-12">#</th>
-                  <th className="py-3 px-4 text-left">Description of Services</th>
-                  <th className="py-3 px-4 text-center w-24">HSN/SAC</th>
-                  <th className="py-3 px-4 text-center w-16">Qty</th>
-                  <th className="py-3 px-4 text-right w-28">Rate</th>
-                  <th className="py-3 px-4 text-right w-32">Amount</th>
+            {/* Corporate Grid Table Header */}
+            <table className="w-full table-fixed border border-black text-[10px]" style={{ borderCollapse: 'collapse' }}>
+              <tbody>
+                <tr>
+                  {/* Left Column: Logo & Address */}
+                  <td className="w-[45%] border-r border-black p-3 align-top" rowSpan={3}>
+                    <div className="flex gap-3 items-start mb-3">
+                      <img src="/logo.jpg" alt="Logo" className="h-12 w-12 object-contain grayscale" />
+                      <div>
+                        <div className="font-extrabold text-sm uppercase tracking-tight text-gray-900">DESIGN STUDIO 16</div>
+                        <div className="text-[8px] text-[#E05A1E] uppercase tracking-widest font-black">Architecture • Interiors</div>
+                      </div>
+                    </div>
+                    <div className="space-y-0.5 leading-normal text-gray-800 font-bold">
+                      <p>104, A, Pande Layout, Khamla, Nagpur</p>
+                      <p>E-Mail: ddesignstudio.16@gmail.com</p>
+                      <p className="font-black text-black mt-2">GSTIN: {COMPANY_CONFIG.gst || '27AJKPG8543M1ZN'}</p>
+                    </div>
+                  </td>
+                  {/* Top-Right sub-grids */}
+                  <td className="w-[27.5%] border-r border-b border-black p-2 align-top">
+                    <div className="text-gray-400 font-bold uppercase text-[7px] tracking-wider mb-0.5">Invoice No.</div>
+                    <div className="font-mono font-black text-xs text-[#E05A1E]">{formData.invoiceNo}</div>
+                  </td>
+                  <td className="w-[27.5%] border-b border-black p-2 align-top">
+                    <div className="text-gray-400 font-bold uppercase text-[7px] tracking-wider mb-0.5">DATE</div>
+                    <div className="font-black text-xs">{formData.date ? new Date(formData.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}</div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="text-[11px] font-bold">
-                {(formData.items || INITIAL_FORM.items).map((item, idx) => (
-                  <tr key={item.id} className="border-b border-gray-100">
-                    <td className="py-5 px-4 text-center text-gray-400">{idx + 1}</td>
-                    <td className="py-5 px-4 text-gray-900 leading-relaxed whitespace-pre-wrap">{item.description || 'Professional Design Services'}</td>
-                    <td className="py-5 px-4 text-center text-gray-600">{item.hsn || '9983'}</td>
-                    <td className="py-5 px-4 text-center text-gray-900">{item.quantity}</td>
-                    <td className="py-5 px-4 text-right text-gray-900">₹{parseFloat(item.rate).toLocaleString('en-IN')}</td>
-                    <td className="py-5 px-4 text-right text-gray-900">₹{(item.quantity * item.rate).toLocaleString('en-IN')}</td>
-                  </tr>
-                ))}
+                <tr>
+                  <td className="border-r border-b border-black p-2 align-top">
+                    <div className="text-gray-400 font-bold uppercase text-[7px] tracking-wider mb-0.5">Reference No. & Date</div>
+                    <div className="font-black text-[9px]">{formData.refNo || '-'}</div>
+                  </td>
+                  <td className="border-b border-black p-2 align-top">
+                    <div className="text-gray-400 font-bold uppercase text-[7px] tracking-wider mb-0.5">Other References</div>
+                    <div className="font-black text-[9px]">{formData.otherReferences || '-'}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border-r border-b border-black p-2 align-top">
+                    <div className="text-gray-400 font-bold uppercase text-[7px] tracking-wider mb-0.5">Buyer's Order No.</div>
+                    <div className="font-black text-[9px]">{formData.buyerOrderNo || '-'}</div>
+                  </td>
+                  <td className="border-b border-black p-2 align-top">
+                    <div className="text-gray-400 font-bold uppercase text-[7px] tracking-wider mb-0.5">Dated</div>
+                    <div className="font-black text-[9px]">{formData.date ? new Date(formData.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td className="p-2 align-top" colSpan={3}>
+                    <div className="text-gray-400 font-bold uppercase text-[7px] tracking-wider mb-0.5">Terms of Delivery</div>
+                    <div className="font-bold text-gray-700 italic">{formData.termsOfDelivery || 'N/A'}</div>
+                  </td>
+                </tr>
               </tbody>
             </table>
 
-            {/* Footer Totals */}
-            <div className="flex justify-end mb-12">
-              <div className="w-[300px] space-y-2">
-                <div className="flex justify-between text-[11px] font-bold">
-                  <span className="text-gray-400 uppercase tracking-widest">Subtotal</span>
-                  <span className="text-gray-900">₹{subtotal.toLocaleString('en-IN')}</span>
-                </div>
+            {/* Buyer (Bill to) Header & Box */}
+            <div className="w-full bg-gray-100 text-[#1A1A1A] px-3 py-1 text-[8px] font-black uppercase tracking-wider border border-black border-t-0">
+              Buyer (Bill to) - {formData.billToName || 'CLIENT NAME'}
+            </div>
+            <div className="w-full border border-black border-t-0 p-3 text-[10px] space-y-1 leading-normal font-bold">
+              <div className="text-base font-black text-gray-900 leading-none mb-1">{formData.billToName || 'CLIENT NAME'}</div>
+              <div className="text-gray-600 font-medium whitespace-pre-wrap">{formData.billToAddress || 'Client Address Not Provided'}</div>
+              <div className="grid grid-cols-2 gap-4 pt-1 text-[8px]">
+                {formData.billToGst && <p><span className="text-gray-400 uppercase font-black">GSTIN:</span> {formData.billToGst}</p>}
+                {formData.billToPhone && <p><span className="text-gray-400 uppercase font-black">Phone:</span> {formData.billToPhone}</p>}
+              </div>
+            </div>
+
+            {/* Main Service Ledger Grid */}
+            <table className="w-full border border-black border-t-0 text-[10px]" style={{ borderCollapse: 'collapse' }}>
+              <thead>
+                <tr className="bg-gray-100 border-b border-black text-[8px] font-black uppercase tracking-wider text-center">
+                  <th className="py-2 border-r border-black w-10">Sr. NO</th>
+                  <th className="py-2 border-r border-black text-left px-3">DESCRIPTION OF SERVICE</th>
+                  <th className="py-2 border-r border-black w-16">Quantity</th>
+                  <th className="py-2 border-r border-black w-24">Rate</th>
+                  <th className="py-2 border-r border-black w-14">per</th>
+                  <th className="py-2 w-28 text-right px-3">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="font-bold">
+                {(formData.items || INITIAL_FORM.items).map((item, idx) => (
+                  <tr key={item.id} className="border-b border-gray-100 align-top">
+                    <td className="py-3 text-center border-r border-black text-gray-400 font-normal">{idx + 1}</td>
+                    <td className="py-3 px-3 border-r border-black text-gray-900 whitespace-pre-wrap leading-relaxed">{item.description || 'Professional Design Services'}</td>
+                    <td className="py-3 text-center border-r border-black text-gray-700">{item.quantity}</td>
+                    <td className="py-3 text-center border-r border-black text-gray-700">₹{parseFloat(item.rate || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td className="py-3 text-center border-r border-black text-gray-600 font-medium italic">{item.per || '-'}</td>
+                    <td className="py-3 px-3 text-right text-gray-900 font-mono">₹{(item.quantity * item.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  </tr>
+                ))}
+                
+                {/* Total Computations */}
+                <tr className="border-t border-black bg-gray-50/50">
+                  <td className="py-2 border-r border-black" colSpan={4}></td>
+                  <td className="py-2 border-r border-black text-center font-black uppercase text-[7px]">SUB TOTAL</td>
+                  <td className="py-2 px-3 text-right font-black font-mono">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
                 {isGstEnabled && !isIgst && (
                   <>
-                    <div className="flex justify-between text-[11px] font-bold">
-                      <span className="text-gray-400 uppercase tracking-widest">CGST ({formData.cgstPercent}%)</span>
-                      <span className="text-gray-900">₹{cgst.toLocaleString('en-IN')}</span>
-                    </div>
-                    <div className="flex justify-between text-[11px] font-bold">
-                      <span className="text-gray-400 uppercase tracking-widest">SGST ({formData.sgstPercent}%)</span>
-                      <span className="text-gray-900">₹{sgst.toLocaleString('en-IN')}</span>
-                    </div>
+                    <tr className="border-b border-gray-100">
+                      <td className="py-1.5 border-r border-black" colSpan={4}></td>
+                      <td className="py-1.5 border-r border-black text-center font-black uppercase text-[7px]">CGST @ {formData.cgstPercent}%</td>
+                      <td className="py-1.5 px-3 text-right font-black font-mono">₹{cgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                    <tr className="border-b border-black">
+                      <td className="py-1.5 border-r border-black" colSpan={4}></td>
+                      <td className="py-1.5 border-r border-black text-center font-black uppercase text-[7px]">SGST @ {formData.sgstPercent}%</td>
+                      <td className="py-1.5 px-3 text-right font-black font-mono">₹{sgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    </tr>
                   </>
                 )}
                 {isGstEnabled && isIgst && (
-                  <div className="flex justify-between text-[11px] font-bold">
-                    <span className="text-gray-400 uppercase tracking-widest">IGST ({formData.igstPercent}%)</span>
-                    <span className="text-gray-900">₹{igst.toLocaleString('en-IN')}</span>
-                  </div>
+                  <tr className="border-b border-black">
+                    <td className="py-1.5 border-r border-black" colSpan={4}></td>
+                    <td className="py-1.5 border-r border-black text-center font-black uppercase text-[7px]">IGST @ {formData.igstPercent}%</td>
+                    <td className="py-1.5 px-3 text-right font-black font-mono">₹{igst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  </tr>
                 )}
-                <div className="flex justify-between items-center bg-gray-900 text-white p-4 rounded-xl mt-4">
-                  <span className="text-xs font-black uppercase tracking-[0.2em]">Grand Total</span>
-                  <span className="text-lg font-black font-mono">₹{grandTotal.toLocaleString('en-IN')}</span>
-                </div>
-              </div>
+                <tr className="bg-gray-100 font-black border-b border-black">
+                  <td className="py-2 px-3 uppercase text-[8px] tracking-wider" colSpan={4}>TOTAL</td>
+                  <td className="py-2 border-r border-black text-center text-[8px]">Rupees</td>
+                  <td className="py-2 px-3 text-right text-[#E05A1E] font-black text-sm font-mono">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            {/* Bottom GST Audit Breakdown Table */}
+            <div className="w-full text-center bg-gray-50 text-gray-800 py-0.5 text-[8px] font-bold uppercase tracking-wider border border-black border-t-0">
+              GST Tax Breakdown Grid
+            </div>
+            <table className="w-full table-fixed border border-black border-t-0 text-[9px]" style={{ borderCollapse: 'collapse' }}>
+              <thead>
+                <tr className="bg-gray-50 border-b border-black text-[8px] font-black uppercase text-center">
+                  <th className="py-1 border-r border-black w-24">GSTIN</th>
+                  <th className="py-1 border-r border-black">Taxable Value</th>
+                  <th className="py-1 border-r border-black" colSpan={2}>CGST</th>
+                  <th className="py-1 border-r border-black" colSpan={2}>SGST</th>
+                  <th className="py-1 font-black">Total Tax Amount</th>
+                </tr>
+                <tr className="bg-gray-50 border-b border-black text-[7px] font-black uppercase text-center">
+                  <th className="py-0.5 border-r border-black"></th>
+                  <th className="py-0.5 border-r border-black"></th>
+                  <th className="py-0.5 border-r border-black w-10">Rate</th>
+                  <th className="py-0.5 border-r border-black">Amount</th>
+                  <th className="py-0.5 border-r border-black w-10">Rate</th>
+                  <th className="py-0.5 border-r border-black">Amount</th>
+                  <th className="py-0.5"></th>
+                </tr>
+              </thead>
+              <tbody className="font-bold text-center">
+                <tr className="align-middle">
+                  <td className="py-1.5 border-r border-black text-[8px]">{COMPANY_CONFIG.gst || '27AJKPG8543M1ZN'}</td>
+                  <td className="py-1.5 border-r border-black font-mono">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  <td className="py-1.5 border-r border-black">{isGstEnabled && !isIgst ? `${formData.cgstPercent}%` : '0%'}</td>
+                  <td className="py-1.5 border-r border-black font-mono">₹{cgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  <td className="py-1.5 border-r border-black">{isGstEnabled && !isIgst ? `${formData.sgstPercent}%` : '0%'}</td>
+                  <td className="py-1.5 border-r border-black font-mono">₹{sgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  <td className="py-1.5 font-mono">₹{(cgst + sgst).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr className="bg-gray-50 border-t border-black font-black uppercase text-[8px]">
+                  <td className="py-1.5 border-r border-black text-left px-2">TOTAL</td>
+                  <td className="py-1.5 border-r border-black font-mono">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  <td className="py-1.5 border-r border-black"></td>
+                  <td className="py-1.5 border-r border-black font-mono">₹{cgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  <td className="py-1.5 border-r border-black"></td>
+                  <td className="py-1.5 border-r border-black font-mono">₹{sgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                  <td className="py-1.5 font-mono">₹{(cgst + sgst).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            {/* Total Amount in Words Banner */}
+            <div className="w-full bg-gray-500 text-white px-3 py-1 text-[8px] font-black uppercase tracking-wider border border-black border-t-0 flex items-center justify-between">
+              <span>Total Amount (in words):</span>
+              <span className="font-extrabold">{convertNumberToWords(grandTotal).toUpperCase()} HUNDRED ONLY</span>
             </div>
 
-            {/* Words & Bank */}
-            <div className="grid grid-cols-2 gap-10 mb-12">
-              <div className="space-y-6">
-                <div>
-                  <h4 className="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Amount in Words</h4>
-                  <p className="text-[11px] font-black text-gray-900 italic">Rupees {convertNumberToWords(grandTotal)} Only</p>
-                </div>
-                <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
-                  <h4 className="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3">Bank Transfer Details</h4>
-                  <div className="space-y-1.5 text-[10px] font-bold">
-                    <p><span className="text-gray-400 uppercase tracking-tighter w-20 inline-block">A/C Name:</span> {formData.accountName}</p>
-                    <p><span className="text-gray-400 uppercase tracking-tighter w-20 inline-block">A/C No:</span> {formData.accountNo}</p>
-                    <p><span className="text-gray-400 uppercase tracking-tighter w-20 inline-block">IFSC Code:</span> {formData.ifsc}</p>
-                    <p><span className="text-gray-400 uppercase tracking-tighter w-20 inline-block">Bank:</span> {formData.bankName}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-col items-end justify-between py-2">
-                <div className="text-right">
-                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Authorized Signatory</p>
-                  <p className="text-[11px] font-black uppercase tracking-tight">{COMPANY_CONFIG.name}</p>
-                </div>
-                <div className="mt-6">
-                  {signatureData ? (
-                    <img src={signatureData} alt="Signature" className="h-16 object-contain mix-blend-multiply" />
-                  ) : (
-                    <div className="h-16 w-48 border-b-2 border-dashed border-gray-200" />
-                  )}
-                </div>
-              </div>
-            </div>
+            {/* Accounts Details & Legal Declaration */}
+            <table className="w-full table-fixed border border-black border-t-0 text-[9px] min-h-[110px]" style={{ borderCollapse: 'collapse' }}>
+              <tbody>
+                <tr>
+                  <td className="w-1/2 border-r border-black p-3 align-top leading-normal font-bold">
+                    <div className="text-[9px] font-black uppercase tracking-wider mb-2 border-b pb-0.5 text-gray-900">ACCOUNT DETAILS</div>
+                    <p className="flex justify-between"><span className="text-gray-400 font-black">a. Company Name:</span> <span>{formData.accountName || 'Design Studio Sixteen'}</span></p>
+                    <p className="flex justify-between"><span className="text-gray-400 font-black">b. Account Number:</span> <span className="font-mono">{formData.accountNo || '0058107040000460'}</span></p>
+                    <p className="flex justify-between"><span className="text-gray-400 font-black">c. IFSC Code:</span> <span className="font-mono">{formData.ifsc || 'MSCI0082056'}</span></p>
+                    <p className="flex justify-between"><span className="text-gray-400 font-black">d. Branch:</span> <span>{formData.bankName || 'RANAPRATAP NAGAR'}</span></p>
+                    <p className="flex justify-between"><span className="text-gray-400 font-black">e. GSTIN:</span> <span className="font-mono">{COMPANY_CONFIG.gst || '27AJKPG8543M1ZN'}</span></p>
+                  </td>
+                  <td className="w-1/2 p-3 align-top leading-relaxed font-bold flex flex-col justify-between h-full">
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-gray-400 uppercase font-black text-[8px]">PAN:</span>
+                        <span className="font-mono text-xs tracking-wide bg-gray-100 px-2 py-0.5 rounded border border-gray-200">AJKPG8543M</span>
+                      </div>
+                      <p className="text-[7.5px] text-gray-500 leading-normal italic font-medium">
+                        We declare that this invoice shows the actual price of the services described and that all particulars are true and correct.
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
 
-            <div className="text-[9px] text-gray-400 font-bold uppercase tracking-widest text-center border-t border-gray-100 pt-8">
-              Computer Generated Invoice • No Signature Required Unless Specified
+            {/* Authorized Signatory Block */}
+            <div className="w-full border border-black border-t-0 p-4 flex justify-between items-center text-[10px]">
+              <div className="text-left font-bold space-y-1">
+                <p className="text-gray-400 font-black uppercase tracking-wider text-[7px]">Authorized Signatory</p>
+                <p className="font-black text-xs uppercase text-gray-900">DESIGN STUDIO 16</p>
+                <p className="font-black text-gray-700 pt-7 border-t border-dashed border-gray-300 w-44 mt-6">Ar. Abhijit Gaulkar</p>
+              </div>
+              <div className="flex flex-col items-center justify-center">
+                {signatureData ? (
+                  <img src={signatureData} alt="Signature" className="h-12 object-contain mix-blend-multiply" />
+                ) : (
+                  <div className="h-12 w-44 border-b border-dashed border-gray-200" />
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1089,14 +1185,15 @@ export default function InvoicePage() {
                       key={inv.id}
                       onClick={() => {
                         setFormData({
-                          // Only pick the form fields we care about — never spread raw DB columns
-                          // (avoids signature_data Base64, created_at, id, etc. landing in formData)
                           ...INITIAL_FORM,
                           project_id: inv.project_id || null,
                           invoiceNo: inv.invoice_no || '',
                           date: inv.date ? inv.date.split('T')[0] : INITIAL_FORM.date,
                           dueDate: inv.due_date ? inv.due_date.split('T')[0] : '',
-                          refNo: inv.ref_no || '',
+                          refNo: inv.ref_no || inv.tax_details?.referenceNoAndDate || '',
+                          otherReferences: inv.tax_details?.otherReferences || '',
+                          buyerOrderNo: inv.buyer_order_no || inv.tax_details?.buyerOrderNo || '',
+                          termsOfDelivery: inv.tax_details?.termsOfDelivery || '',
                           billToName: inv.client_name || '',
                           billToAddress: inv.bill_to_address || '',
                           billToGst: inv.bill_to_gst || '',
@@ -1106,7 +1203,7 @@ export default function InvoicePage() {
                           ifsc: inv.ifsc || '',
                           bankName: inv.bank_name || '',
                           items: Array.isArray(inv.items)
-                            ? inv.items.map(item => ({ ...item, id: item.id || Date.now(), hsn: item.hsn || '' }))
+                            ? inv.items.map(item => ({ ...item, id: item.id || Date.now(), hsn: item.hsn || '', per: item.per || '' }))
                             : INITIAL_FORM.items,
                           cgstPercent: inv.tax_details?.cgstPercent ?? 9,
                           sgstPercent: inv.tax_details?.sgstPercent ?? 9,
