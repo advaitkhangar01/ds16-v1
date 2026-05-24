@@ -178,7 +178,9 @@ function FinancialStats({ finances, onOpenBreakdown }) {
           </div>
 
           <div className="relative">
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-tight mb-1">{s.label}</p>
+            <div className="h-8 flex items-start mb-1">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-normal">{s.label}</p>
+            </div>
             <h3 className={`text-2xl font-black ${s.color} tracking-tight`}>
               ₹{Number(s.value).toLocaleString('en-IN')}
             </h3>
