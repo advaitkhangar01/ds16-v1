@@ -197,6 +197,7 @@ export default function AccountingPage() {
       
       setSummary({
         totalIncome: data.total_income,
+        currentProjectValue: data.current_project_value,
         billedIncome: data.billed_income,
         receivedIncome: data.received_income,
         pendingIncome: data.pending_income,
@@ -580,7 +581,19 @@ export default function AccountingPage() {
                 </div>
               </div>
 
-              {/* Box 2: Billed Amount */}
+              {/* Box 2: Current Project Value */}
+              <div 
+                className="bg-white p-5 rounded-xl border border-purple-100 shadow-sm relative overflow-hidden group cursor-pointer hover:shadow-md hover:border-purple-200 transition-all active:scale-[0.98]"
+                onClick={() => setFinancialModal({ isOpen: true, type: 'current', label: 'Current Project Value' })}
+              >
+                <p className="text-[10px] font-bold text-purple-500 uppercase tracking-widest">Current Project Value</p>
+                <h3 className="text-2xl font-black text-purple-600 mt-2">₹{(Number(summary.currentProjectValue) || 0).toLocaleString('en-IN')}</h3>
+                <div className="absolute top-0 right-0 p-3 opacity-5 text-purple-600 group-hover:opacity-10 transition-opacity">
+                  <IndianRupee size={40} />
+                </div>
+              </div>
+
+              {/* Box 3: Billed Amount */}
               <div 
                 className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group cursor-pointer hover:shadow-md hover:border-blue-200 transition-all active:scale-[0.98]"
                 onClick={() => setFinancialModal({ isOpen: true, type: 'billed', label: 'Billed Amount' })}
@@ -592,25 +605,12 @@ export default function AccountingPage() {
                 </div>
               </div>
 
-              {/* Box 3: Unbilled Amount */}
+              {/* Box 4: Unbilled Amount */}
               <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Unbilled Amount</p>
                 <h3 className="text-2xl font-black text-gray-600 mt-2">₹{(Number(summary.unbilledIncome) || 0).toLocaleString('en-IN')}</h3>
                 <div className="absolute top-0 right-0 p-3 opacity-5">
                   <TrendingUp size={40} />
-                </div>
-              </div>
-
-              {/* Box 4: Total Expenses */}
-              <div 
-                className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group cursor-pointer hover:shadow-md hover:border-red-200 transition-all active:scale-[0.98]"
-                onClick={() => setFinancialModal({ isOpen: true, type: 'expenses', label: 'Total Expenses' })}
-              >
-                <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Total Expenses</p>
-                <h3 className="text-2xl font-black text-red-500 mt-2">₹{(summary.totalExpense || 0).toLocaleString('en-IN')}</h3>
-                <p className="text-[10px] text-muted mt-1 italic">Excl. vendor payments</p>
-                <div className="absolute top-0 right-0 p-3 opacity-5 text-red-500">
-                  <ArrowDownRight size={40} />
                 </div>
               </div>
 
@@ -638,7 +638,29 @@ export default function AccountingPage() {
                 </div>
               </div>
 
-              {/* Box 7: Profit & Loss */}
+              {/* Box 7: Total Expenses */}
+              <div 
+                className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group cursor-pointer hover:shadow-md hover:border-red-200 transition-all active:scale-[0.98]"
+                onClick={() => setFinancialModal({ isOpen: true, type: 'expenses', label: 'Total Expenses' })}
+              >
+                <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Total Expenses</p>
+                <h3 className="text-2xl font-black text-red-500 mt-2">₹{(summary.totalExpense || 0).toLocaleString('en-IN')}</h3>
+                <p className="text-[10px] text-muted mt-1 italic">Excl. vendor payments</p>
+                <div className="absolute top-0 right-0 p-3 opacity-5 text-red-500">
+                  <ArrowDownRight size={40} />
+                </div>
+              </div>
+
+              {/* Box 8: Incentives */}
+              <div className="bg-white p-5 rounded-xl border border-purple-100 shadow-sm relative overflow-hidden group">
+                <p className="text-[10px] font-bold text-purple-600 uppercase tracking-widest">Incentives Paid</p>
+                <h3 className="text-2xl font-black text-purple-600 mt-2">₹{(Number(summary.totalIncentives) || 0).toLocaleString('en-IN')}</h3>
+                <div className="absolute top-0 right-0 p-3 opacity-10 text-purple-600">
+                  <TrendingUp size={40} />
+                </div>
+              </div>
+
+              {/* Box 9: Profit & Loss */}
               <div className="bg-white p-5 rounded-xl border border-blue-100 shadow-sm relative overflow-hidden group md:col-span-2">
                 <div className="flex justify-between items-start">
                   <div>
@@ -653,14 +675,6 @@ export default function AccountingPage() {
                   <div className="p-2 bg-blue-50 rounded-lg">
                     <Activity size={20} className="text-blue-600" />
                   </div>
-                </div>
-              </div>
-              {/* Box 8: Incentives */}
-              <div className="bg-white p-5 rounded-xl border border-purple-100 shadow-sm relative overflow-hidden group">
-                <p className="text-[10px] font-bold text-purple-600 uppercase tracking-widest">Incentives Paid</p>
-                <h3 className="text-2xl font-black text-purple-600 mt-2">₹{(Number(summary.totalIncentives) || 0).toLocaleString('en-IN')}</h3>
-                <div className="absolute top-0 right-0 p-3 opacity-10 text-purple-600">
-                  <TrendingUp size={40} />
                 </div>
               </div>
             </div>

@@ -277,38 +277,96 @@ router.get('/summary', authenticate, async (req, res) => {
     try {
       const { start_date, end_date } = req.query;
       
-      // 1. Income from document amounts (Total Potential)
-      let incomeQuery = `SELECT COALESCE(SUM(amount), 0) as total_value FROM project_document_amounts WHERE 1=1`;
+      // 1. Income from document amounts (Total Potential) - Only for active stages: Design Proposal, Sanction, Execution (when global)
+      let incomeQuery;
       const incomeParams = [];
       if (projectId) {
-        incomeQuery += ` AND project_id = $1`;
+        incomeQuery = `SELECT COALESCE(SUM(amount), 0) as total_value FROM project_document_amounts WHERE project_id = $1`;
         incomeParams.push(projectId);
+      } else {
+        incomeQuery = `
+          WITH active_stages AS (
+            SELECT DISTINCT ON (project_id) project_id, stage_name, status
+            FROM project_stages
+            WHERE status != 'completed'
+            ORDER BY project_id, id ASC
+          ),
+          project_categories AS (
+            SELECT p.id as project_id,
+              CASE 
+                WHEN a.project_id IS NULL THEN 'completed'
+                WHEN a.status = 'pending' THEN 'pending'
+                WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
+                WHEN a.stage_name = 'Submission' THEN 'sanction'
+                WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
+                ELSE 'pending'
+              END as stage_category
+            FROM projects p
+            LEFT JOIN active_stages a ON p.id = a.project_id
+          )
+          SELECT COALESCE(SUM(pda.amount), 0) as total_value 
+          FROM project_document_amounts pda
+          JOIN project_categories pc ON pda.project_id = pc.project_id
+          WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
+        `;
       }
       const incomeRes = await pool.query(incomeQuery, incomeParams);
       const totalValue = parseFloat(incomeRes.rows[0].total_value);
 
-      // 2. Billed/Received/Pending from payment stages
-      let stagesQuery = `
-        SELECT 
-          COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) as received,
-          COALESCE(SUM(CASE WHEN status IN ('bill generated', 'bill delivered') THEN amount ELSE 0 END), 0) as pending
-        FROM project_payment_stages
-        WHERE status != 'cancelled'
-      `;
+      // 2. Billed/Received/Pending from payment stages - Only for active stages: Design Proposal, Sanction, Execution (when global)
+      let stagesQuery;
       const stagesParams = [];
       let sIdx = 1;
+      
       if (projectId) {
-        stagesQuery += ` AND project_id = $${sIdx++}`;
+        stagesQuery = `
+          SELECT 
+            COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) as received,
+            COALESCE(SUM(CASE WHEN status IN ('bill generated', 'bill delivered') THEN amount ELSE 0 END), 0) as pending
+          FROM project_payment_stages
+          WHERE status != 'cancelled' AND project_id = $${sIdx++}
+        `;
         stagesParams.push(projectId);
+      } else {
+        stagesQuery = `
+          WITH active_stages AS (
+            SELECT DISTINCT ON (project_id) project_id, stage_name, status
+            FROM project_stages
+            WHERE status != 'completed'
+            ORDER BY project_id, id ASC
+          ),
+          project_categories AS (
+            SELECT p.id as project_id,
+              CASE 
+                WHEN a.project_id IS NULL THEN 'completed'
+                WHEN a.status = 'pending' THEN 'pending'
+                WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
+                WHEN a.stage_name = 'Submission' THEN 'sanction'
+                WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
+                ELSE 'pending'
+              END as stage_category
+            FROM projects p
+            LEFT JOIN active_stages a ON p.id = a.project_id
+          )
+          SELECT 
+            COALESCE(SUM(CASE WHEN pps.status = 'paid' THEN pps.amount ELSE 0 END), 0) as received,
+            COALESCE(SUM(CASE WHEN pps.status IN ('bill generated', 'bill delivered') THEN pps.amount ELSE 0 END), 0) as pending
+          FROM project_payment_stages pps
+          JOIN project_categories pc ON pps.project_id = pc.project_id
+          WHERE pps.status != 'cancelled'
+            AND pc.stage_category IN ('design_proposal', 'sanction', 'execution')
+        `;
       }
+      
       if (start_date) {
-        stagesQuery += ` AND created_at >= $${sIdx++}`;
+        stagesQuery += ` AND pps.created_at >= $${sIdx++}`;
         stagesParams.push(start_date);
       }
       if (end_date) {
-        stagesQuery += ` AND created_at <= $${sIdx++}`;
+        stagesQuery += ` AND pps.created_at <= $${sIdx++}`;
         stagesParams.push(end_date);
       }
+      
       const stagesRes = await pool.query(stagesQuery, stagesParams);
       const stageReceived = parseFloat(stagesRes.rows[0].received);
       const pending = parseFloat(stagesRes.rows[0].pending);
@@ -376,6 +434,7 @@ router.get('/summary', authenticate, async (req, res) => {
 
       res.json({
         total_income: totalValue,
+        current_project_value: totalValue - received,
         billed_income: billed,
         received_income: received,
         pending_income: pending,

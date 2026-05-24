@@ -249,7 +249,7 @@ export default function DocumentsTab({ projectId, currentUser }) {
               <tr className="bg-gray-50/80 border-b border-[#EBEBEB]">
                 <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-10">#</th>
                 <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-1/5">Type</th>
-                {isAdmin && <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-32">Amount</th>}
+                {isAdmin && <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-48">Amount</th>}
                 <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-2/5">Documents</th>
                 <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-48">Details</th>
                 {isAdmin && <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-10 text-center">✔</th>}

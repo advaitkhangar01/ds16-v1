@@ -86,6 +86,20 @@ function FinancialStats({ finances, onOpenBreakdown }) {
       )
     },
     { 
+      id: 'current',
+      label: 'Current Project Value', 
+      value: finances?.current_amount ?? 0, 
+      color: 'text-purple-600', 
+      bg: 'bg-purple-50/50', 
+      border: 'border-purple-100',
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="12" y1="1" x2="12" y2="23"></line>
+          <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+        </svg>
+      )
+    },
+    { 
       id: 'billed',
       label: 'Billed Amount', 
       value: finances?.billed_amount ?? 0, 
@@ -147,7 +161,7 @@ function FinancialStats({ finances, onOpenBreakdown }) {
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
       {stats.map((s) => (
         <div 
           key={s.label} 
