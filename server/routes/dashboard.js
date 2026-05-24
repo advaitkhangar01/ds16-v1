@@ -572,31 +572,58 @@ router.get('/employee', authenticate, async (req, res) => {
       [userId]
     );
 
-    // 3. My projects (assigned or commented)
-    const { rows: projRows } = await pool.query(
-      `SELECT p.id, p.name, p.client_name, p.type, p.location,
-         COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]') as stages
-       FROM projects p
-       WHERE 
-         EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = p.id AND pa.user_id = $1)
-         OR EXISTS (SELECT 1 FROM comments c WHERE c.project_id = p.id AND c.assigned_to = $1)
-       ORDER BY p.id DESC`,
-      [userId]
-    );
+    // 3. My projects (assigned or commented, or all for design_head)
+    let projRows;
+    if (req.user.role === 'design_head') {
+      const { rows } = await pool.query(
+        `SELECT p.id, p.name, p.client_name, p.type, p.location,
+           COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]') as stages
+         FROM projects p
+         ORDER BY p.id DESC`
+      );
+      projRows = rows;
+    } else {
+      const { rows } = await pool.query(
+        `SELECT p.id, p.name, p.client_name, p.type, p.location,
+           COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]') as stages
+         FROM projects p
+         WHERE 
+           EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = p.id AND pa.user_id = $1)
+           OR EXISTS (SELECT 1 FROM comments c WHERE c.project_id = p.id AND c.assigned_to = $1)
+         ORDER BY p.id DESC`,
+        [userId]
+      );
+      projRows = rows;
+    }
 
-    // 4. Project Kanban (Filtered for employee)
-    const { rows: projectRows } = await pool.query(
-      `SELECT p.id, p.name, p.client_name, p.type, p.status,
-         COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
-       FROM projects p
-       JOIN project_assignments pa ON pa.project_id = p.id
-       LEFT JOIN project_stages ps ON ps.project_id = p.id
-       WHERE pa.user_id = $1
-       GROUP BY p.id
-       ORDER BY p.created_at DESC 
-       LIMIT 100`,
-      [userId]
-    );
+    // 4. Project Kanban (Filtered for employee, or all for design_head)
+    let projectRows;
+    if (req.user.role === 'design_head') {
+      const { rows } = await pool.query(
+        `SELECT p.id, p.name, p.client_name, p.type, p.status,
+           COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
+         FROM projects p
+         LEFT JOIN project_stages ps ON ps.project_id = p.id
+         GROUP BY p.id
+         ORDER BY p.created_at DESC 
+         LIMIT 100`
+      );
+      projectRows = rows;
+    } else {
+      const { rows } = await pool.query(
+        `SELECT p.id, p.name, p.client_name, p.type, p.status,
+           COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
+         FROM projects p
+         JOIN project_assignments pa ON pa.project_id = p.id
+         LEFT JOIN project_stages ps ON ps.project_id = p.id
+         WHERE pa.user_id = $1
+         GROUP BY p.id
+         ORDER BY p.created_at DESC 
+         LIMIT 100`,
+        [userId]
+      );
+      projectRows = rows;
+    }
     const kanban = { pending: [], design_proposal: [], sanction: [], execution: [], completed: [] };
     projectRows.forEach((p) => {
       const stages = p.stages || [];

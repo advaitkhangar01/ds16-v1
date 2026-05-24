@@ -105,7 +105,7 @@ router.get('/', authenticate, async (req, res) => {
         tasksQuery += ` WHERE t.status != 'passed' `;
       }
 
-      if (req.user.role !== 'admin') {
+      if (req.user.role !== 'admin' && req.user.role !== 'design_head' && req.user.role !== 'accounts') {
         tasksQuery += ` AND (t.assigned_to = $1 OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $1)) `;
         tasksParams.push(req.user.id);
       }
@@ -200,7 +200,7 @@ router.get('/', authenticate, async (req, res) => {
       query += ` WHERE t.status != 'passed' `;
     }
 
-    if (req.user.role !== 'admin') {
+    if (req.user.role !== 'admin' && req.user.role !== 'design_head' && req.user.role !== 'accounts') {
       query += ` AND (t.assigned_to = $1 OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $1)) `;
       params.push(req.user.id);
     }
