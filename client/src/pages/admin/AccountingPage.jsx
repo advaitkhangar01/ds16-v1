@@ -575,7 +575,7 @@ export default function AccountingPage() {
                 onClick={() => setFinancialModal({ isOpen: true, type: 'total', label: 'Total Project Value' })}
               >
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Project Value</p>
-                <h3 className="text-2xl font-black text-gray-900 mt-2">₹{(Number(summary.totalIncome) || 0).toLocaleString('en-IN')}</h3>
+                <h3 className="text-xl font-black text-gray-900 mt-2">₹{(Number(summary.totalIncome) || 0).toLocaleString('en-IN')}</h3>
                 <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
                   <Briefcase size={40} />
                 </div>
@@ -587,7 +587,7 @@ export default function AccountingPage() {
                 onClick={() => setFinancialModal({ isOpen: true, type: 'current', label: 'Current Project Value' })}
               >
                 <p className="text-[10px] font-bold text-purple-500 uppercase tracking-widest">Current Project Value</p>
-                <h3 className="text-2xl font-black text-purple-600 mt-2">₹{(Number(summary.currentProjectValue) || 0).toLocaleString('en-IN')}</h3>
+                <h3 className="text-xl font-black text-purple-600 mt-2">₹{(Number(summary.currentProjectValue) || 0).toLocaleString('en-IN')}</h3>
                 <div className="absolute top-0 right-0 p-3 opacity-5 text-purple-600 group-hover:opacity-10 transition-opacity">
                   <IndianRupee size={40} />
                 </div>
@@ -599,7 +599,7 @@ export default function AccountingPage() {
                 onClick={() => setFinancialModal({ isOpen: true, type: 'billed', label: 'Billed Amount' })}
               >
                 <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Billed Amount</p>
-                <h3 className="text-2xl font-black text-blue-600 mt-2">₹{(Number(summary.billedIncome) || 0).toLocaleString('en-IN')}</h3>
+                <h3 className="text-xl font-black text-blue-600 mt-2">₹{(Number(summary.billedIncome) || 0).toLocaleString('en-IN')}</h3>
                 <div className="absolute top-0 right-0 p-3 opacity-5 text-blue-600 group-hover:opacity-10 transition-opacity">
                   <FileText size={40} />
                 </div>
@@ -608,7 +608,7 @@ export default function AccountingPage() {
               {/* Box 4: Unbilled Amount */}
               <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm relative overflow-hidden group">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Unbilled Amount</p>
-                <h3 className="text-2xl font-black text-gray-600 mt-2">₹{(Number(summary.unbilledIncome) || 0).toLocaleString('en-IN')}</h3>
+                <h3 className="text-xl font-black text-gray-600 mt-2">₹{(Number(summary.unbilledIncome) || 0).toLocaleString('en-IN')}</h3>
                 <div className="absolute top-0 right-0 p-3 opacity-5">
                   <TrendingUp size={40} />
                 </div>
@@ -620,7 +620,7 @@ export default function AccountingPage() {
                 onClick={() => setFinancialModal({ isOpen: true, type: 'received', label: 'Received Amount' })}
               >
                 <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Received Amount</p>
-                <h3 className="text-2xl font-black text-emerald-600 mt-2">₹{(Number(summary.receivedIncome) || 0).toLocaleString('en-IN')}</h3>
+                <h3 className="text-xl font-black text-emerald-600 mt-2">₹{(Number(summary.receivedIncome) || 0).toLocaleString('en-IN')}</h3>
                 <div className="absolute top-0 right-0 p-3 opacity-10 text-emerald-600 group-hover:opacity-20 transition-opacity">
                   <CheckCircle2 size={40} />
                 </div>
@@ -632,7 +632,7 @@ export default function AccountingPage() {
                 onClick={() => setFinancialModal({ isOpen: true, type: 'pending', label: 'Pending Amount' })}
               >
                 <p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Pending Amount</p>
-                <h3 className="text-2xl font-black text-orange-600 mt-2">₹{(Number(summary.pendingIncome) || 0).toLocaleString('en-IN')}</h3>
+                <h3 className="text-xl font-black text-orange-600 mt-2">₹{(Number(summary.pendingIncome) || 0).toLocaleString('en-IN')}</h3>
                 <div className="absolute top-0 right-0 p-3 opacity-10 text-orange-500 group-hover:opacity-20 transition-opacity">
                   <Activity size={40} />
                 </div>
@@ -644,7 +644,7 @@ export default function AccountingPage() {
                 onClick={() => setFinancialModal({ isOpen: true, type: 'expenses', label: 'Total Expenses' })}
               >
                 <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Total Expenses</p>
-                <h3 className="text-2xl font-black text-red-500 mt-2">₹{(summary.totalExpense || 0).toLocaleString('en-IN')}</h3>
+                <h3 className="text-xl font-black text-red-500 mt-2">₹{(summary.totalExpense || 0).toLocaleString('en-IN')}</h3>
                 <p className="text-[10px] text-muted mt-1 italic">Excl. vendor payments</p>
                 <div className="absolute top-0 right-0 p-3 opacity-5 text-red-500">
                   <ArrowDownRight size={40} />
@@ -654,7 +654,7 @@ export default function AccountingPage() {
               {/* Box 8: Incentives */}
               <div className="bg-white p-5 rounded-xl border border-purple-100 shadow-sm relative overflow-hidden group">
                 <p className="text-[10px] font-bold text-purple-600 uppercase tracking-widest">Incentives Paid</p>
-                <h3 className="text-2xl font-black text-purple-600 mt-2">₹{(Number(summary.totalIncentives) || 0).toLocaleString('en-IN')}</h3>
+                <h3 className="text-xl font-black text-purple-600 mt-2">₹{(Number(summary.totalIncentives) || 0).toLocaleString('en-IN')}</h3>
                 <div className="absolute top-0 right-0 p-3 opacity-10 text-purple-600">
                   <TrendingUp size={40} />
                 </div>
@@ -666,7 +666,7 @@ export default function AccountingPage() {
                   <div>
                     <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Profit & Loss (Realized)</p>
                     <div className="flex items-baseline gap-3 mt-2">
-                      <h3 className={`text-2xl font-black ${((summary.receivedIncome || 0) - (summary.totalExpense || 0)) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                      <h3 className={`text-xl font-black ${((summary.receivedIncome || 0) - (summary.totalExpense || 0)) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
                         ₹{((summary.receivedIncome || 0) - (summary.totalExpense || 0)).toLocaleString('en-IN')}
                       </h3>
                       <span className="text-[10px] font-bold text-gray-400 italic">Formula: Received - Expenses</span>
