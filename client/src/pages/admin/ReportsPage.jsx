@@ -263,7 +263,7 @@ export default function ReportsPage() {
         'Role': r.role,
         'Check-In': r.check_in ? new Date(r.check_in).toLocaleTimeString() : '—',
         'Check-Out': r.check_out ? new Date(r.check_out).toLocaleTimeString() : '—',
-        'Status': r.status === 'half_day' ? 'Half Day' : r.status === 'leave' ? 'On Leave' : r.status === 'working' ? 'Present' : 'Absent',
+        'Status': (r.status === 'working' || r.status === 'completed' || r.status === 'present') ? 'Present' : r.status === 'half_day' ? 'Half Day' : r.status === 'leave' ? 'On Leave' : 'Absent',
         'Late Arrival': r.is_late ? 'Yes' : 'No',
         'Late Minutes': r.late_minutes || 0,
         'Hours Worked': r.hours_worked || 0,
@@ -916,12 +916,12 @@ export default function ReportsPage() {
                           </td>
                           <td className="px-6 py-3 text-center">
                             <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter shadow-sm border ${
-                              row.status === 'working' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                              (row.status === 'working' || row.status === 'completed' || row.status === 'present') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
                               row.status === 'half_day' ? 'bg-amber-50 text-amber-600 border-amber-100' :
                               row.status === 'leave' ? 'bg-purple-50 text-purple-600 border-purple-100' :
                               'bg-red-50 text-red-500 border-red-100'
                             }`}>
-                              {row.status === 'working' ? 'Present' : row.status === 'half_day' ? 'Half Day' : row.status === 'leave' ? 'On Leave' : 'Absent'}
+                              {(row.status === 'working' || row.status === 'completed' || row.status === 'present') ? 'Present' : row.status === 'half_day' ? 'Half Day' : row.status === 'leave' ? 'On Leave' : 'Absent'}
                             </span>
                           </td>
                         </>
