@@ -2,6 +2,7 @@ export function mapAttendance(data) {
   if (!data || Object.keys(data).length === 0) return null;
   const attendance = {
     ...data,
+    status: data.status ? data.status.toLowerCase() : undefined,
     id: data.id,
     userId: data.user_id || data.userId,
     checkIn: data.check_in || data.checkIn,

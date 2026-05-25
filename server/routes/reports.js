@@ -11,7 +11,7 @@ router.get('/attendance', authenticate, requireAdmin, async (req, res) => {
     const { user_id, start_date, end_date } = req.query;
     let query = `
       SELECT 
-        a.id, a.user_id, a.date, a.check_in, a.check_out, a.status, 
+        a.id, a.user_id, a.date, a.check_in, a.check_out, LOWER(a.status) AS status, 
         a.is_late, a.late_minutes, a.hours_worked, a.checkin_distance, a.checkin_zone,
         u.name as employee_name, u.role, u.department
       FROM attendance a

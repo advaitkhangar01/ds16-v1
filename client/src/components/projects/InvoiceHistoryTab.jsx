@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
@@ -6,7 +6,18 @@ import toast from 'react-hot-toast';
 export default function InvoiceHistoryTab({ projectId, project }) {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [invoiceFilter, setInvoiceFilter] = useState('all'); // 'all', 'generated', 'draft'
   const navigate = useNavigate();
+
+  const filteredInvoicesList = useMemo(() => {
+    if (invoiceFilter === 'generated') {
+      return invoices.filter(inv => inv.status !== 'draft');
+    }
+    if (invoiceFilter === 'draft') {
+      return invoices.filter(inv => inv.status === 'draft');
+    }
+    return invoices;
+  }, [invoices, invoiceFilter]);
 
   const fetchInvoices = useCallback(async () => {
     try {
@@ -65,17 +76,38 @@ export default function InvoiceHistoryTab({ projectId, project }) {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="flex justify-between items-center">
-        <h3 className="text-sm font-semibold text-[#1A1A1A] flex items-center gap-2">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="16" y1="13" x2="8" y2="13" />
-            <line x1="16" y1="17" x2="8" y2="17" />
-            <polyline points="10 9 9 9 8 9" />
-          </svg>
-          Invoice Archive
-        </h3>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="flex items-center gap-3">
+          <h3 className="text-sm font-semibold text-[#1A1A1A] flex items-center gap-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+            Invoice Archive
+          </h3>
+          <div className="flex bg-gray-100 p-0.5 rounded-lg border border-[#EBEBEB] shadow-inner">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'generated', label: 'Generated' },
+              { id: 'draft', label: 'Drafts' }
+            ].map((filter) => (
+              <button
+                key={filter.id}
+                onClick={() => setInvoiceFilter(filter.id)}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                  invoiceFilter === filter.id
+                    ? 'bg-white shadow-sm text-primary'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <button 
           onClick={() => navigate('/admin/invoice', { 
             state: { 
@@ -108,14 +140,16 @@ export default function InvoiceHistoryTab({ projectId, project }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-[#F0F0F0]">
-            {invoices.length === 0 ? (
+            {filteredInvoicesList.length === 0 ? (
               <tr>
                 <td colSpan="5" className="px-4 py-10 text-center text-muted italic">
-                  No invoices found for this project.
+                  {invoiceFilter === 'generated' ? 'No generated invoices found for this project.' :
+                   invoiceFilter === 'draft' ? 'No draft invoices found for this project.' :
+                   'No invoices found for this project.'}
                 </td>
               </tr>
             ) : (
-              invoices.map((inv) => (
+              filteredInvoicesList.map((inv) => (
                 <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="px-4 py-4 text-[#1A1A1A] font-medium">
                     {new Date(inv.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
@@ -128,10 +162,10 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                   </td>
                   <td className="px-4 py-4">
                     <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
-                      inv.status === 'paid' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                      inv.status === 'sent' ? 'bg-blue-50 text-blue-600 border-blue-100' :
-                      inv.status === 'cancelled' ? 'bg-red-50 text-red-600 border-red-100' :
-                      'bg-orange-50 text-orange-600 border-orange-100'
+                      inv.status === 'paid' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                      inv.status === 'sent' ? 'bg-blue-50 text-blue-700 border-blue-100' :
+                      inv.status === 'cancelled' ? 'bg-red-50 text-red-700 border-red-100' :
+                      'bg-orange-50 text-orange-700 border-orange-100'
                     }`}>
                       {inv.status}
                     </span>
@@ -148,14 +182,14 @@ export default function InvoiceHistoryTab({ projectId, project }) {
               ))
             )}
           </tbody>
-          {invoices.length > 0 && (
+          {filteredInvoicesList.length > 0 && (
             <tfoot className="bg-gray-50 font-bold border-t border-[#F0F0F0]">
               <tr>
                 <td className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase" colSpan={2}>
-                  Total of {invoices.length} {invoices.length === 1 ? 'Invoice' : 'Invoices'}
+                  Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}
                 </td>
                 <td className="px-4 py-3 text-[#E05A1E] font-black">
-                  ₹{invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  ₹{filteredInvoicesList.reduce((sum, inv) => sum + parseFloat(inv.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </td>
                 <td colSpan={2}></td>
               </tr>

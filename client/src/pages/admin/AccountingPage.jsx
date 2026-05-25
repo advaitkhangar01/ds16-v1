@@ -101,6 +101,17 @@ export default function AccountingPage() {
   // Invoices Data
   const [invoices, setInvoices] = useState([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [invoiceFilter, setInvoiceFilter] = useState('all'); // 'all', 'generated', 'draft'
+
+  const filteredInvoicesList = useMemo(() => {
+    if (invoiceFilter === 'generated') {
+      return invoices.filter(inv => inv.status !== 'draft');
+    }
+    if (invoiceFilter === 'draft') {
+      return invoices.filter(inv => inv.status === 'draft');
+    }
+    return invoices;
+  }, [invoices, invoiceFilter]);
 
   const [projects, setProjects] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1558,12 +1569,33 @@ export default function AccountingPage() {
 
         {activeTab === 'invoices' && (
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+            <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
                 <Receipt size={18} className="text-primary" />
                 Invoice History
               </h3>
-              <span className="badge badge-in-progress bg-gray-100 text-gray-700">{invoices.length} Invoices</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex bg-gray-100 p-1 rounded-xl shadow-inner">
+                  {[
+                    { id: 'all', label: 'All' },
+                    { id: 'generated', label: 'Generated' },
+                    { id: 'draft', label: 'Drafts' }
+                  ].map((filter) => (
+                    <button
+                      key={filter.id}
+                      onClick={() => setInvoiceFilter(filter.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all capitalize ${
+                        invoiceFilter === filter.id
+                          ? 'bg-white shadow-sm text-primary'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+                <span className="badge badge-in-progress bg-gray-100 text-gray-700">{filteredInvoicesList.length} Invoices</span>
+              </div>
             </div>
             
             <div className="overflow-x-auto">
@@ -1589,7 +1621,7 @@ export default function AccountingPage() {
                         </div>
                       </td>
                     </tr>
-                  ) : invoices.map(inv => {
+                  ) : filteredInvoicesList.map(inv => {
                     const statusColors = {
                       paid: 'bg-emerald-50 text-emerald-700 border-emerald-200',
                       generated: 'bg-sky-50 text-sky-700 border-sky-200',
@@ -1611,7 +1643,7 @@ export default function AccountingPage() {
                         <td className="px-6 py-4">
                           {inv.project_name ? (
                             <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-[10px] font-black uppercase tracking-wider rounded">
-                              {inv.project_name}
+                               {inv.project_name}
                             </span>
                           ) : (
                             <span className="text-gray-400 text-xs italic">No Project</span>
@@ -1656,28 +1688,30 @@ export default function AccountingPage() {
                       </tr>
                     );
                   })}
-                  {!loadingInvoices && invoices.length === 0 && (
+                  {!loadingInvoices && filteredInvoicesList.length === 0 && (
                     <tr>
                       <td colSpan="7" className="px-6 py-12 text-center text-gray-400 italic text-sm">
-                        No invoice history available. Use the Invoice Editor to create new invoices.
+                        {invoiceFilter === 'generated' ? 'No generated invoices found.' : 
+                         invoiceFilter === 'draft' ? 'No draft invoices found.' : 
+                         'No invoice history available. Use the Invoice Editor to create new invoices.'}
                       </td>
                     </tr>
                   )}
                 </tbody>
-                {invoices.length > 0 && (
+                {filteredInvoicesList.length > 0 && (
                   <tfoot className="bg-gray-50/80 font-bold border-t border-gray-200">
                     <tr>
                       <td className="px-6 py-4 text-xs font-bold text-gray-500 uppercase" colSpan={4}>
                         <div className="flex items-center gap-4">
-                          <span>Total of {invoices.length} {invoices.length === 1 ? 'Invoice' : 'Invoices'}</span>
+                          <span>Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}</span>
                           <span className="text-[10px] text-gray-400 font-normal normal-case">
-                            (Paid: ₹{invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} | 
-                            Pending: ₹{invoices.filter(i => i.status !== 'paid' && i.status !== 'cancelled').reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })})
+                            (Paid: ₹{filteredInvoicesList.filter(i => i.status === 'paid').reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} | 
+                            Pending: ₹{filteredInvoicesList.filter(i => i.status !== 'paid' && i.status !== 'cancelled').reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })})
                           </span>
                         </div>
                       </td>
                       <td className="px-6 py-4 text-right font-mono text-sm font-black text-[#E05A1E]">
-                        ₹{invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{filteredInvoicesList.reduce((sum, inv) => sum + parseFloat(inv.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td colSpan={2}></td>
                     </tr>

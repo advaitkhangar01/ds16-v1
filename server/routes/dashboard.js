@@ -17,7 +17,7 @@ async function calculateSalaryStats(userId, month, year, todayStr, settings) {
 
   // Fetch attendance for this month
   const { rows: monthAtt } = await pool.query(
-    `SELECT check_in, check_out, date, status, is_late, hours_worked FROM attendance 
+    `SELECT check_in, check_out, date, LOWER(status) AS status, is_late, hours_worked FROM attendance 
      WHERE user_id = $1 AND EXTRACT(MONTH FROM date) = $2 AND EXTRACT(YEAR FROM date) = $3`,
     [userId, month, year]
   );
@@ -542,7 +542,10 @@ router.get('/employee', authenticate, async (req, res) => {
 
     // 1. Today's attendance (self)
     const { rows: attRows } = await pool.query(
-      'SELECT * FROM attendance WHERE user_id = $1 AND date = $2::date',
+      `SELECT id, user_id, check_in, check_out, lat, lng, date, LOWER(status) AS status, is_late, late_minutes, 
+              checkin_accuracy, checkin_distance, checkin_zone, is_boundary_checkin, checkin_verified, 
+              checkout_lat, checkout_lng, checkout_accuracy, checkout_distance, checkout_zone, checkout_outside_zone, hours_worked 
+       FROM attendance WHERE user_id = $1 AND date = $2::date`,
       [userId, todayStr]
     );
 
