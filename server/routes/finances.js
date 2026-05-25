@@ -61,17 +61,17 @@ router.get('/transactions', authenticate, async (req, res) => {
 
         const { rows: dbTransactions } = await pool.query(projectQuery, projectParams);
 
-        // Fetch virtual income transactions from paid payment stages
+        // Fetch virtual income transactions from payment stages and invoices
         let virtualTransactions = [];
         if (!type || type === 'income') {
           let stageQuery = `
             SELECT 
               pps.id, 
-              'income' as type, 
+              'payment_stage' as type, 
               COALESCE(pps.document_type, 'Milestone') as category, 
               pps.amount, 
               COALESCE(pps.updated_at, pps.created_at) as date, 
-              ('Paid Milestone: ' || COALESCE(pps.document_type, 'General')) as description, 
+              ('Milestone Stage: ' || COALESCE(pps.document_type, 'General') || ' [' || COALESCE(pps.status, 'pending') || ']') as description, 
               pps.project_id, 
               NULL as vendor_id, 
               NULL as employee_id, 
@@ -87,7 +87,7 @@ router.get('/transactions', authenticate, async (req, res) => {
             FROM project_payment_stages pps
             JOIN projects p ON p.id = pps.project_id
             LEFT JOIN users u ON u.id = pps.initiated_by
-            WHERE pps.project_id = $1 AND pps.status = 'paid'
+            WHERE pps.project_id = $1 AND pps.status != 'cancelled'
           `;
           const stageParams = [project_id];
           let sIdx = 2;
@@ -101,8 +101,49 @@ router.get('/transactions', authenticate, async (req, res) => {
             stageParams.push(end_date);
           }
 
-          const { rows: stageRows } = await pool.query(stageQuery, stageParams);
-          virtualTransactions = stageRows;
+          let invoiceQuery = `
+            SELECT 
+              inv.id, 
+              'invoice' as type, 
+              'Invoice' as category, 
+              inv.amount, 
+              inv.date, 
+              ('Invoice: ' || inv.invoice_no || ' [' || COALESCE(inv.status, 'draft') || ']') as description, 
+              inv.project_id, 
+              NULL as vendor_id, 
+              NULL as employee_id, 
+              NULL as reference_id, 
+              NULL as receipt_url, 
+              inv.created_by, 
+              inv.created_at, 
+              'invoice' as source,
+              p.name as project_name,
+              NULL as vendor_name,
+              NULL as employee_name,
+              u.name as creator_name
+            FROM invoices inv
+            JOIN projects p ON p.id = inv.project_id
+            LEFT JOIN users u ON u.id = inv.created_by
+            WHERE inv.project_id = $1 AND inv.status != 'cancelled'
+          `;
+          const invoiceParams = [project_id];
+          let iIdx = 2;
+
+          if (start_date) {
+            invoiceQuery += ` AND inv.date >= $${iIdx++}`;
+            invoiceParams.push(start_date);
+          }
+          if (end_date) {
+            invoiceQuery += ` AND inv.date <= $${iIdx++}`;
+            invoiceParams.push(end_date);
+          }
+
+          const [stageRes, invoiceRes] = await Promise.all([
+            pool.query(stageQuery, stageParams),
+            pool.query(invoiceQuery, invoiceParams)
+          ]);
+
+          virtualTransactions = [...stageRes.rows, ...invoiceRes.rows];
         }
 
         const allTransactions = [...dbTransactions, ...virtualTransactions].sort((a, b) => new Date(b.date) - new Date(a.date));

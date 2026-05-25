@@ -191,9 +191,15 @@ export default function ProjectFinancesTab({ projectId }) {
                     <td className="px-4 py-3 whitespace-nowrap text-muted">{new Date(t.date).toLocaleDateString()}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] ${
-                        t.type === 'income' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'
+                        t.type === 'income' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                        t.type === 'expense' ? 'bg-red-50 text-red-600 border border-red-100' :
+                        t.type === 'payment_stage' ? 'bg-blue-50 text-blue-600 border border-blue-100' :
+                        t.type === 'invoice' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' :
+                        'bg-gray-50 text-gray-600 border border-gray-100'
                       }`}>
-                        {(t.category || t.type || 'transaction').replace('_', ' ')}
+                        {t.type === 'payment_stage' ? 'Milestone' :
+                         t.type === 'invoice' ? 'Invoice' :
+                         (t.category || t.type || 'transaction').replace('_', ' ')}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -202,8 +208,14 @@ export default function ProjectFinancesTab({ projectId }) {
                         {t.vendor_name && <span className="text-[10px] text-muted">Paid to: {t.vendor_name}</span>}
                       </div>
                     </td>
-                    <td className={`px-4 py-3 text-right font-bold ${t.type === 'income' ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {t.type === 'income' ? '+' : '-'} ₹{(Number(t.amount) || 0).toLocaleString('en-IN')}
+                    <td className={`px-4 py-3 text-right font-bold ${
+                      t.type === 'income' ? 'text-emerald-600' :
+                      t.type === 'expense' ? 'text-red-600' :
+                      t.type === 'payment_stage' ? 'text-blue-600' :
+                      t.type === 'invoice' ? 'text-indigo-600' :
+                      'text-gray-600'
+                    }`}>
+                      {t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '•'} ₹{(Number(t.amount) || 0).toLocaleString('en-IN')}
                     </td>
                   </tr>
                 ))
