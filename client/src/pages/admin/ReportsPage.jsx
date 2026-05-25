@@ -58,7 +58,7 @@ export default function ReportsPage() {
     async function loadDirectories() {
       try {
         const [usersRes, projRes, clientsRes] = await Promise.all([
-          api.get('/settings/users'),
+          api.get('/attendance/users'),
           api.get('/projects'),
           api.get('/clients')
         ]);
@@ -81,19 +81,44 @@ export default function ReportsPage() {
 
       if (activeTab === 'attendance') {
         endpoint = '/reports/attendance';
-        params = attendanceFilters;
+        params = {
+          user_id: attendanceFilters.userId,
+          start_date: attendanceFilters.startDate,
+          end_date: attendanceFilters.endDate
+        };
       } else if (activeTab === 'finances') {
         endpoint = '/reports/finances';
-        params = financeFilters;
+        params = {
+          project_id: financeFilters.projectId,
+          start_date: financeFilters.startDate,
+          end_date: financeFilters.endDate,
+          type: financeFilters.type,
+          category: financeFilters.category
+        };
       } else if (activeTab === 'payroll') {
         endpoint = '/reports/payroll';
-        params = payrollFilters;
+        params = {
+          department: payrollFilters.department,
+          month: payrollFilters.month,
+          year: payrollFilters.year
+        };
       } else if (activeTab === 'invoices') {
         endpoint = '/reports/invoices';
-        params = invoiceFilters;
+        params = {
+          client_id: invoiceFilters.clientId,
+          project_id: invoiceFilters.projectId,
+          status: invoiceFilters.status,
+          start_date: invoiceFilters.startDate,
+          end_date: invoiceFilters.endDate
+        };
       } else if (activeTab === 'projects') {
         endpoint = '/reports/projects';
-        params = projectFilters;
+        params = {
+          status: projectFilters.status,
+          type: projectFilters.type,
+          start_date: projectFilters.startDate,
+          end_date: projectFilters.endDate
+        };
       }
 
       const { data } = await api.get(endpoint, { params, signal });
