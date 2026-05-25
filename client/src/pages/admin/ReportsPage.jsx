@@ -73,7 +73,7 @@ export default function ReportsPage() {
   }, []);
 
   // Fetch Report Data based on active tab and filters
-  const fetchReportData = async () => {
+  const fetchReportData = async (signal) => {
     setLoading(true);
     try {
       let endpoint = '';
@@ -96,20 +96,28 @@ export default function ReportsPage() {
         params = projectFilters;
       }
 
-      const { data } = await api.get(endpoint, { params });
+      const { data } = await api.get(endpoint, { params, signal });
       setReportData(data.data || []);
       toast.success('Report data updated!');
     } catch (err) {
-      console.error(err);
-      toast.error('Failed to load report data');
+      if (err.name !== 'CanceledError' && err.message !== 'canceled') {
+        console.error(err);
+        toast.error('Failed to load report data');
+      }
     } finally {
-      setLoading(false);
+      if (!signal || !signal.aborted) {
+        setLoading(false);
+      }
     }
   };
 
   // Trigger load when filters change
   useEffect(() => {
-    fetchReportData();
+    const controller = new AbortController();
+    fetchReportData(controller.signal);
+    return () => {
+      controller.abort();
+    };
   }, [activeTab, attendanceFilters, financeFilters, payrollFilters, invoiceFilters, projectFilters]);
 
   // Helper to format Excel files with dynamic widths

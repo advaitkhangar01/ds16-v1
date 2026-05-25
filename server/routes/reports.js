@@ -3,10 +3,10 @@
 
 const router = require('express').Router();
 const pool = require('../db');
-const { authenticate, requireAdmin } = require('../middleware/auth');
+const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 
 // 1. Attendance Analytical Report Endpoint
-router.get('/attendance', authenticate, requireAdmin, async (req, res) => {
+router.get('/attendance', authenticate, requireAccounting, async (req, res) => {
   try {
     const { user_id, start_date, end_date } = req.query;
     let query = `
@@ -43,9 +43,11 @@ router.get('/attendance', authenticate, requireAdmin, async (req, res) => {
 });
 
 // 2. Financial Ledger Report Endpoint
-router.get('/finances', authenticate, requireAdmin, async (req, res) => {
+router.get('/finances', authenticate, requireAccounting, async (req, res) => {
   try {
     const { project_id, start_date, end_date, type, category } = req.query;
+    
+    // Core transactions query
     let query = `
       SELECT 
         t.id, t.type, t.category, t.amount, t.date, t.description, t.reference_id, t.created_at,
@@ -84,8 +86,135 @@ router.get('/finances', authenticate, requireAdmin, async (req, res) => {
     }
 
     query += ' ORDER BY t.date DESC, t.id DESC';
-    const { rows } = await pool.query(query, params);
-    res.json({ success: true, data: rows });
+    const { rows: transactions } = await pool.query(query, params);
+
+    // Fetch virtual payroll disbursements (salaries and performance incentives)
+    let payrollRows = [];
+    if (!type || type === 'expense') {
+      // General ledger salaries match unless we are filtered strictly for a project that isn't payroll
+      if (!project_id || project_id === '') {
+        let payrollQuery = `
+          SELECT 
+            p.id, 
+            'expense' as type, 
+            'Salaries' as category, 
+            (p.net_paid - p.incentives) as amount, 
+            p.payment_date as date, 
+            'Monthly salary payment' as description, 
+            NULL as reference_id,
+            p.created_at,
+            NULL as project_name,
+            NULL as vendor_name,
+            u.name as employee_name,
+            'System' as creator_name
+          FROM payroll p
+          JOIN users u ON u.id = p.user_id
+          WHERE p.status = 'paid'
+        `;
+        const payrollParams = [];
+        let pyIdx = 1;
+
+        if (start_date) {
+          payrollQuery += ` AND p.payment_date >= $${pyIdx++}::date`;
+          payrollParams.push(start_date);
+        }
+        if (end_date) {
+          payrollQuery += ` AND p.payment_date <= $${pyIdx++}::date`;
+          payrollParams.push(end_date);
+        }
+        if (category && category !== 'Salaries') {
+          // If filtering by category and it's not Salaries, we exclude these
+          payrollQuery += ` AND 1=0`;
+        }
+
+        const { rows } = await pool.query(payrollQuery, payrollParams);
+        payrollRows = rows;
+
+        // Merge incentives if applicable
+        let incentivesQuery = `
+          SELECT 
+            p.id, 
+            'expense' as type, 
+            'Incentives' as category, 
+            p.incentives as amount, 
+            p.payment_date as date, 
+            'Performance incentive' as description, 
+            NULL as reference_id,
+            p.created_at,
+            NULL as project_name,
+            NULL as vendor_name,
+            u.name as employee_name,
+            'System' as creator_name
+          FROM payroll p
+          JOIN users u ON u.id = p.user_id
+          WHERE p.status = 'paid' AND p.incentives > 0
+        `;
+        const incParams = [];
+        let incIdx = 1;
+
+        if (start_date) {
+          incentivesQuery += ` AND p.payment_date >= $${incIdx++}::date`;
+          incParams.push(start_date);
+        }
+        if (end_date) {
+          incentivesQuery += ` AND p.payment_date <= $${incIdx++}::date`;
+          incParams.push(end_date);
+        }
+        if (category && category !== 'Incentives') {
+          incentivesQuery += ` AND 1=0`;
+        }
+
+        const { rows: incRows } = await pool.query(incentivesQuery, incParams);
+        payrollRows = [...payrollRows, ...incRows];
+      }
+    }
+
+    // Fetch general office expenses (only for general query, as they are not mapped to specific projects)
+    let officeRows = [];
+    if (!type || type === 'expense') {
+      if (!project_id || project_id === '') {
+        let officeQuery = `
+          SELECT 
+            oe.id,
+            'expense' as type,
+            oe.category,
+            oe.amount,
+            oe.date,
+            oe.description,
+            NULL as reference_id,
+            oe.created_at,
+            NULL as project_name,
+            NULL as vendor_name,
+            NULL as employee_name,
+            'System' as creator_name
+          FROM office_expenses oe
+          WHERE 1=1
+        `;
+        const officeParams = [];
+        let oeIdx = 1;
+
+        if (start_date) {
+          officeQuery += ` AND oe.date >= $${oeIdx++}::date`;
+          officeParams.push(start_date);
+        }
+        if (end_date) {
+          officeQuery += ` AND oe.date <= $${oeIdx++}::date`;
+          officeParams.push(end_date);
+        }
+        if (category) {
+          officeQuery += ` AND oe.category = $${oeIdx++}`;
+          officeParams.push(category);
+        }
+
+        const { rows } = await pool.query(officeQuery, officeParams);
+        officeRows = rows;
+      }
+    }
+
+    // Merge transactions, payroll and office expenses
+    const allRecords = [...transactions, ...payrollRows, ...officeRows].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    res.json({ success: true, data: allRecords });
   } catch (err) {
     console.error('Error fetching financial reports:', err);
     res.status(500).json({ error: 'Server error' });
@@ -93,7 +222,7 @@ router.get('/finances', authenticate, requireAdmin, async (req, res) => {
 });
 
 // 3. Payroll Ledger Report Endpoint
-router.get('/payroll', authenticate, requireAdmin, async (req, res) => {
+router.get('/payroll', authenticate, requireAccounting, async (req, res) => {
   try {
     const { department, month, year } = req.query;
     let query = `
@@ -129,7 +258,7 @@ router.get('/payroll', authenticate, requireAdmin, async (req, res) => {
 });
 
 // 4. Invoices Telemetry Report Endpoint
-router.get('/invoices', authenticate, requireAdmin, async (req, res) => {
+router.get('/invoices', authenticate, requireAccounting, async (req, res) => {
   try {
     const { client_id, project_id, status, start_date, end_date } = req.query;
     let query = `
@@ -176,7 +305,7 @@ router.get('/invoices', authenticate, requireAdmin, async (req, res) => {
 });
 
 // 5. Projects & Stages Report Endpoint
-router.get('/projects', authenticate, requireAdmin, async (req, res) => {
+router.get('/projects', authenticate, requireAccounting, async (req, res) => {
   try {
     const { status, type, start_date, end_date } = req.query;
     let query = `

@@ -187,6 +187,14 @@ pool.query('SELECT NOW()', (err) => {
         await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id)');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date)');
         
+        // Analytical indexes for reporting speed optimizations
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)');
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_transactions_type_cat ON transactions(type, category)');
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_payroll_period ON payroll(year, month)');
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_payroll_date ON payroll(payment_date)');
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(date)');
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_invoices_client ON invoices(client_id)');
+        
         // 9. Ensure payroll table has incentives column
         await pool.query("ALTER TABLE payroll ADD COLUMN IF NOT EXISTS incentives DECIMAL(15, 2) DEFAULT 0");
 
