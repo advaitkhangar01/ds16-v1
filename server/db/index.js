@@ -182,8 +182,11 @@ pool.query('SELECT NOW()', (err) => {
             updated_at TIMESTAMPTZ DEFAULT NOW()
           )
         `);
-        
         await pool.query('ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS amount DECIMAL(15, 2) DEFAULT 0');
+        await pool.query("ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS type VARCHAR(50) DEFAULT 'casual'");
+        await pool.query("ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS remarks TEXT");
+        await pool.query("ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL");
+        await pool.query("ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()");
         await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id)');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date)');
         

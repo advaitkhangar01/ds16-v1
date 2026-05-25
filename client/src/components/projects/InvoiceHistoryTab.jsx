@@ -16,6 +16,7 @@ export default function InvoiceHistoryTab({ projectId, project }) {
     if (invoiceFilter === 'draft') {
       return invoices.filter(inv => inv.status === 'draft');
     }
+    return invoices;
   }, [invoices, invoiceFilter]);
 
   const handleGenerateBillFromStage = (inv) => {
