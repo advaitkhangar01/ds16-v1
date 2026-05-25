@@ -21,6 +21,8 @@ const TasksPage = lazy(() => import('./pages/TasksPage'));
 const AccountingPage = lazy(() => import('./pages/admin/AccountingPage'));
 const SettingsPage = lazy(() => import('./pages/admin/SettingsPage'));
 const ReportsPage = lazy(() => import('./pages/admin/ReportsPage'));
+const StaffPage = lazy(() => import('./pages/admin/StaffPage'));
+const StaffDetailPage = lazy(() => import('./pages/admin/StaffDetailPage'));
 
 function ProtectedRoute({ children, adminOnly = false, allowAccounts = false }) {
   const { user, loading } = useAuth();
@@ -89,6 +91,12 @@ function AppRoutes() {
         } />
         <Route path="/admin/reports" element={
           <ProtectedRoute adminOnly><ReportsPage /></ProtectedRoute>
+        } />
+        <Route path="/admin/staff" element={
+          <ProtectedRoute adminOnly allowAccounts><StaffPage /></ProtectedRoute>
+        } />
+        <Route path="/admin/staff/:id" element={
+          <ProtectedRoute adminOnly allowAccounts><StaffDetailPage /></ProtectedRoute>
         } />
 
         {/* Employee */}

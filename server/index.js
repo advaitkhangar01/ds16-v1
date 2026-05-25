@@ -23,6 +23,7 @@ const invoiceRoutes = require('./routes/invoices');
 
 const leaveRoutes = require('./routes/leaves');
 const reportsRoutes = require('./routes/reports');
+const staffRoutes = require('./routes/staff');
 
 const app = express();
 
@@ -79,6 +80,7 @@ app.use('/api/invoices', invoiceRoutes);
 
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/staff', staffRoutes);
 
 // 404 handler for API routes
 app.all(/\/api\/.*/, (req, res) => {
