@@ -35,24 +35,36 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/leaves - Apply for leave
+// POST /api/leaves - Apply for leave/requests
 router.post('/', authenticate, async (req, res) => {
   try {
-    const { start_date, end_date, type, reason } = req.body;
+    const { start_date, end_date, type, reason, amount } = req.body;
     const userId = req.user.id;
 
-    if (!start_date || !end_date || !type) {
+    if (!start_date || !type) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // Set end_date same as start_date for single-day items if missing
+    let finalEndDate = end_date || start_date;
+    let finalAmount = 0;
+
+    // Enforce amount for advance requests
+    if (type === 'advance') {
+      finalAmount = parseFloat(amount || 0);
+      if (isNaN(finalAmount) || finalAmount <= 0) {
+        return res.status(400).json({ error: 'Valid amount is required for salary advance requests' });
+      }
+    }
+
     const { rows } = await pool.query(
-      `INSERT INTO leave_requests (user_id, start_date, end_date, type, reason, status)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO leave_requests (user_id, start_date, end_date, type, amount, reason, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [userId, start_date, end_date, type, reason, LEAVE_STATUS.PENDING]
+      [userId, start_date, finalEndDate, type, finalAmount, reason, LEAVE_STATUS.PENDING]
     );
 
-    res.status(201).json({ message: 'Leave request submitted', leave: rows[0] });
+    res.status(201).json({ message: 'Request submitted successfully', leave: rows[0] });
   } catch (err) {
     console.error('[Leaves Error] POST /:', err.message);
     res.status(500).json({ error: 'Server error', details: err.message });

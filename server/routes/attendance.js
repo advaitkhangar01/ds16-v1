@@ -431,6 +431,7 @@ router.get('/today', authenticate, async (req, res) => {
        LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date
        LEFT JOIN leave_requests lr ON lr.user_id = u.id
          AND LOWER(lr.status) = LOWER($4)
+         AND lr.type NOT IN ('advance', 'resignation')
          AND $1::date BETWEEN lr.start_date AND lr.end_date
        ORDER BY a.check_in ASC NULLS LAST, u.name ASC`,
       [today, ATTENDANCE_STATUS.LEAVE, ATTENDANCE_STATUS.ABSENT, LEAVE_STATUS.APPROVED]
@@ -489,6 +490,7 @@ router.get('/all', authenticate, async (req, res) => {
        JOIN attendance a ON a.user_id = u.id
        LEFT JOIN leave_requests lr ON lr.user_id = u.id
          AND LOWER(lr.status) = LOWER($${approvedStatusIdx})
+         AND lr.type NOT IN ('advance', 'resignation')
          AND a.date BETWEEN lr.start_date AND lr.end_date
        WHERE 1=1 ${dateFilter}
        ORDER BY a.date DESC, a.check_in ASC NULLS LAST, u.name

@@ -48,6 +48,36 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
 }
 
 export default function AttendancePage() {
+  const getRequestTypeDetails = (type, amount) => {
+    const t = type?.toLowerCase();
+    if (t === 'half_day') {
+      return {
+        label: 'Half Day',
+        subLabel: 'Half Day',
+        badgeClass: 'bg-sky-50 text-sky-600 border-sky-200 font-bold',
+      };
+    } else if (t === 'advance') {
+      return {
+        label: 'Salary Advance',
+        subLabel: `Advance: ₹${Number(amount || 0).toLocaleString('en-IN')}`,
+        badgeClass: 'bg-emerald-50 text-emerald-600 border-emerald-200 font-bold',
+      };
+    } else if (t === 'resignation') {
+      return {
+        label: 'Resignation',
+        subLabel: 'Resignation Notice',
+        badgeClass: 'bg-amber-50 text-amber-600 border-amber-200 font-bold',
+      };
+    } else {
+      const leaveLabel = type ? type.charAt(0).toUpperCase() + type.slice(1) : 'Leave';
+      return {
+        label: `${leaveLabel} Leave`,
+        subLabel: `${leaveLabel} Leave`,
+        badgeClass: 'bg-violet-50 text-violet-600 border-violet-200 font-bold',
+      };
+    }
+  };
+
   const [records, setRecords] = useState([]);
   const [myRecord, setMyRecord] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -63,10 +93,11 @@ export default function AttendancePage() {
   const [settings, setSettings] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all'); 
   const [showLeaveForm, setShowLeaveForm] = useState(false);
+  const [requestCategory, setRequestCategory] = useState('leave'); // 'leave' | 'half_day' | 'advance' | 'resignation'
   const [leaves, setLeaves] = useState([]);
   const [leaveLoading, setLeaveLoading] = useState(false);
   const [leaveStatusFilter, setLeaveStatusFilter] = useState('all');
-  const [leaveForm, setLeaveForm] = useState({ start_date: '', end_date: '', type: 'casual', reason: '' });
+  const [leaveForm, setLeaveForm] = useState({ start_date: '', end_date: '', type: 'casual', reason: '', amount: '' });
   const [manualForm, setManualForm] = useState({ 
     user_id: '', 
     date: getISODateIST(), 
@@ -710,11 +741,11 @@ export default function AttendancePage() {
 
         {view === 'leaves' && (
           <div className="space-y-6 animate-in fade-in duration-500">
-            {/* Leave Header & Stats */}
+            {/* Request Header & Stats */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                <div>
                   <h3 className="text-xl font-black text-[#1A1A1A] tracking-tight">
-                    {settings?.role === 'admin' ? 'Leave Management' : 'My Leave Requests'}
+                    {settings?.role === 'admin' ? 'Applications & Requests' : 'My Submitted Requests'}
                   </h3>
                   <p className="text-xs font-medium text-muted uppercase tracking-widest mt-1">
                     {leaveSummary.pending} Pending Review • {leaveSummary.approved} Approved
@@ -736,7 +767,7 @@ export default function AttendancePage() {
                </div>
             </div>
 
-            {/* Leave Request Cards Grid */}
+            {/* Request Cards Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {leaveLoading ? (
                 Array(3).fill(0).map((_, i) => <div key={i} className="card skeleton h-48 rounded-2xl" />)
@@ -745,101 +776,134 @@ export default function AttendancePage() {
                    <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 mb-4 border border-slate-100">
                       <CalendarOff size={32} />
                    </div>
-                   <p className="text-sm font-bold text-slate-400 italic">No leave applications found matching your filter.</p>
+                   <p className="text-sm font-bold text-slate-400 italic">No applications found matching your filter.</p>
                 </div>
-              ) : filteredLeaves.map((l) => (
-                <div key={l.id} className="card group hover:border-[#E05A1E]/30 hover:shadow-xl transition-all duration-300 p-5 border-slate-200 relative overflow-hidden rounded-2xl flex flex-col justify-between">
-                  {/* Status Indicator Bar */}
-                  <div className={`absolute top-0 left-0 w-1.5 h-full ${
-                    l.status === 'approved' ? 'bg-emerald-500' :
-                    l.status === 'rejected' ? 'bg-red-500' :
-                    'bg-amber-400'
-                  }`} />
-                  
-                  <div>
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 text-sm font-black uppercase">
-                          {l.user_name?.split(' ').map(n => n[0]).join('') || 'ME'}
-                        </div>
-                        <div>
-                          <p className="text-sm font-black text-[#1A1A1A]">{l.user_name || 'My Application'}</p>
-                          <p className="text-[10px] text-muted font-bold uppercase tracking-tighter">{l.department || 'Employee'}</p>
-                        </div>
-                      </div>
-                      <span className={`px-2 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest ${
-                        l.status === 'approved' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                        l.status === 'rejected' ? 'bg-red-50 text-red-600 border-red-100' :
-                        'bg-amber-50 text-amber-600 border-amber-100'
-                      }`}>
-                        {l.status}
-                      </span>
-                    </div>
-
-                    <div className="space-y-3 mb-6">
-                      <div className="flex items-center gap-4">
-                        <div className="flex-1">
-                           <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-0.5">Start Date</p>
-                           <p className="text-xs font-bold text-[#1A1A1A]">{formatDateIST(l.start_date)}</p>
-                        </div>
-                        <div className="w-px h-6 bg-slate-200" />
-                        <div className="flex-1">
-                           <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-0.5">End Date</p>
-                           <p className="text-xs font-bold text-[#1A1A1A]">{formatDateIST(l.end_date)}</p>
-                        </div>
-                      </div>
-                      
-                      <div className="bg-slate-50/80 rounded-xl p-3 border border-slate-100">
-                         <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Reason & Type ({l.type})</p>
-                         <p className="text-xs text-[#444] font-medium leading-relaxed italic line-clamp-2">"{l.reason}"</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                    <p className="text-[9px] font-black text-muted uppercase tracking-widest">
-                      Applied {formatDateIST(l.created_at)}
-                    </p>
+              ) : filteredLeaves.map((l) => {
+                const details = getRequestTypeDetails(l.type, l.amount);
+                return (
+                  <div key={l.id} className="card group hover:border-[#E05A1E]/30 hover:shadow-xl transition-all duration-300 p-5 border-slate-200 relative overflow-hidden rounded-2xl flex flex-col justify-between">
+                    {/* Status Indicator Bar */}
+                    <div className={`absolute top-0 left-0 w-1.5 h-full ${
+                      l.status === 'approved' ? 'bg-emerald-500' :
+                      l.status === 'rejected' ? 'bg-red-500' :
+                      'bg-amber-400'
+                    }`} />
                     
-                    {/* Admin Actions */}
-                    {l.status === 'pending' && settings?.role === 'admin' && (
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={async () => {
-                            try {
-                              await api.patch(`/leaves/${l.id}`, { status: 'approved' });
-                              toast.success('Leave approved');
-                              fetchLeaves();
-                            } catch { toast.error('Failed to update'); }
-                          }}
-                          className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-all"
-                        >Approve</button>
-                        <button 
-                          onClick={async () => {
-                            try {
-                              await api.patch(`/leaves/${l.id}`, { status: 'rejected' });
-                              toast.success('Leave rejected');
-                              fetchLeaves();
-                            } catch { toast.error('Failed to update'); }
-                          }}
-                          className="px-3 py-1.5 bg-slate-100 text-red-600 border border-red-100 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-red-50 transition-all"
-                        >Reject</button>
+                    <div>
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 text-sm font-black uppercase">
+                            {l.user_name?.split(' ').map(n => n[0]).join('') || 'ME'}
+                          </div>
+                          <div>
+                            <p className="text-sm font-black text-[#1A1A1A]">{l.user_name || 'My Request'}</p>
+                            <p className="text-[10px] text-muted font-bold uppercase tracking-tighter">{l.department || 'Employee'}</p>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`px-2 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest ${
+                            l.status === 'approved' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                            l.status === 'rejected' ? 'bg-red-50 text-red-600 border-red-100' :
+                            'bg-amber-50 text-amber-600 border-amber-100'
+                          }`}>
+                            {l.status}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-lg border text-[8px] font-black uppercase tracking-widest ${details.badgeClass}`}>
+                            {details.label}
+                          </span>
+                        </div>
                       </div>
-                    )}
+
+                      <div className="space-y-3 mb-6">
+                        <div className="flex items-center gap-4">
+                          {l.type === 'casual' || l.type === 'sick' || l.type === 'emergency' || l.type === 'unpaid' ? (
+                            <>
+                              <div className="flex-1">
+                                 <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-0.5">Start Date</p>
+                                 <p className="text-xs font-bold text-[#1A1A1A]">{formatDateIST(l.start_date)}</p>
+                              </div>
+                              <div className="w-px h-6 bg-slate-200" />
+                              <div className="flex-1">
+                                 <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-0.5">End Date</p>
+                                 <p className="text-xs font-bold text-[#1A1A1A]">{formatDateIST(l.end_date)}</p>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex-1">
+                               <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-0.5">
+                                 {l.type === 'resignation' ? 'Proposed Last Day' : 'Requested Date'}
+                               </p>
+                               <p className="text-xs font-bold text-[#1A1A1A]">{formatDateIST(l.start_date)}</p>
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="bg-slate-50/80 rounded-xl p-3 border border-slate-100">
+                           <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">
+                             {l.type === 'advance' ? `Amount Details` : 'Application Details'}
+                           </p>
+                           {l.type === 'advance' && (
+                             <p className="text-sm font-extrabold text-emerald-600 mb-1 font-mono">
+                               Requested Advance: ₹{Number(l.amount || 0).toLocaleString('en-IN')}
+                             </p>
+                           )}
+                           <p className="text-xs text-[#444] font-medium leading-relaxed italic line-clamp-2">"{l.reason}"</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">
+                         Submitted {formatDateIST(l.created_at)}
+                      </p>
+                      
+                      {/* Admin Actions */}
+                      {l.status === 'pending' && settings?.role === 'admin' && (
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={async () => {
+                              try {
+                                await api.patch(`/leaves/${l.id}`, { status: 'approved' });
+                                toast.success('Application approved');
+                                fetchLeaves();
+                              } catch { toast.error('Failed to update'); }
+                            }}
+                            className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-all"
+                          >Approve</button>
+                          <button 
+                            onClick={async () => {
+                              try {
+                                await api.patch(`/leaves/${l.id}`, { status: 'rejected' });
+                                toast.success('Application rejected');
+                                fetchLeaves();
+                              } catch { toast.error('Failed to update'); }
+                            }}
+                            className="px-3 py-1.5 bg-slate-100 text-red-600 border border-red-100 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-red-50 transition-all"
+                          >Reject</button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* Apply Leave Modal */}
+        {/* Apply Request Modal */}
         {showLeaveForm && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="card w-full max-w-md animate-in zoom-in-95 duration-200 shadow-2xl">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-black text-[#1A1A1A]">Apply for Leave</h3>
-                <button onClick={() => { setShowLeaveForm(false); setLeaveForm({ start_date: '', end_date: '', type: 'casual', reason: '' }); }} className="text-muted hover:text-red-500 transition-colors">
+                <h3 className="text-xl font-black text-[#1A1A1A]">Submit Application</h3>
+                <button 
+                  onClick={() => { 
+                    setShowLeaveForm(false); 
+                    setLeaveForm({ start_date: '', end_date: '', type: 'casual', reason: '', amount: '' }); 
+                    setRequestCategory('leave');
+                  }} 
+                  className="text-muted hover:text-red-500 transition-colors"
+                >
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
                 </button>
               </div>
@@ -848,33 +912,103 @@ export default function AttendancePage() {
                 e.preventDefault();
                 try {
                   await api.post('/leaves', leaveForm);
-                  toast.success('Leave request submitted!');
+                  toast.success('Application submitted successfully!');
                   setShowLeaveForm(false);
+                  setLeaveForm({ start_date: '', end_date: '', type: 'casual', reason: '', amount: '' });
+                  setRequestCategory('leave');
                   if (view === 'leaves') fetchLeaves();
-                } catch { toast.error('Failed to submit leave'); }
+                } catch (err) { 
+                  toast.error(err.response?.data?.error || 'Failed to submit request'); 
+                }
               }} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="label">Start Date</label>
-                    <input type="date" required className="input" value={leaveForm.start_date} onChange={e => setLeaveForm({...leaveForm, start_date: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="label">End Date</label>
-                    <input type="date" required className="input" value={leaveForm.end_date} onChange={e => setLeaveForm({...leaveForm, end_date: e.target.value})} />
-                  </div>
-                </div>
                 <div>
-                  <label className="label">Type</label>
-                  <select className="input" value={leaveForm.type} onChange={e => setLeaveForm({...leaveForm, type: e.target.value})}>
-                    <option value="casual">Casual Leave</option>
-                    <option value="sick">Sick Leave</option>
-                    <option value="emergency">Emergency Leave</option>
-                    <option value="unpaid">Unpaid Leave</option>
+                  <label className="label">Request Category</label>
+                  <select 
+                    className="input font-bold" 
+                    value={requestCategory} 
+                    onChange={e => {
+                      const cat = e.target.value;
+                      setRequestCategory(cat);
+                      if (cat === 'leave') {
+                        setLeaveForm({...leaveForm, type: 'casual', amount: ''});
+                      } else {
+                        setLeaveForm({...leaveForm, type: cat, amount: ''});
+                      }
+                    }}
+                  >
+                    <option value="leave">Leave (Full Day)</option>
+                    <option value="half_day">Half Day Request</option>
+                    <option value="advance">Salary Advance</option>
+                    <option value="resignation">Resignation Notice</option>
                   </select>
                 </div>
+
+                {requestCategory === 'leave' ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="label">Start Date</label>
+                        <input type="date" required className="input" value={leaveForm.start_date} onChange={e => setLeaveForm({...leaveForm, start_date: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="label">End Date</label>
+                        <input type="date" required className="input" value={leaveForm.end_date} onChange={e => setLeaveForm({...leaveForm, end_date: e.target.value})} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="label">Leave Sub-type</label>
+                      <select className="input" value={leaveForm.type} onChange={e => setLeaveForm({...leaveForm, type: e.target.value})}>
+                        <option value="casual">Casual Leave</option>
+                        <option value="sick">Sick Leave</option>
+                        <option value="emergency">Emergency Leave</option>
+                        <option value="unpaid">Unpaid Leave</option>
+                      </select>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <label className="label">
+                      {requestCategory === 'half_day' ? 'Half Day Date' :
+                       requestCategory === 'resignation' ? 'Proposed Last Working Date' : 'Requested Date'}
+                    </label>
+                    <input 
+                      type="date" 
+                      required 
+                      className="input" 
+                      value={leaveForm.start_date} 
+                      onChange={e => setLeaveForm({...leaveForm, start_date: e.target.value, end_date: e.target.value})} 
+                    />
+                  </div>
+                )}
+
+                {requestCategory === 'advance' && (
+                  <div>
+                    <label className="label">Requested Amount (₹)</label>
+                    <input 
+                      type="number" 
+                      min="1" 
+                      required 
+                      placeholder="Enter amount in INR" 
+                      className="input font-mono font-bold text-emerald-600" 
+                      value={leaveForm.amount || ''} 
+                      onChange={e => setLeaveForm({...leaveForm, amount: e.target.value})} 
+                    />
+                  </div>
+                )}
+
                 <div>
-                  <label className="label">Reason</label>
-                  <textarea required className="input min-h-[100px]" placeholder="Briefly explain the reason..." value={leaveForm.reason} onChange={e => setLeaveForm({...leaveForm, reason: e.target.value})} />
+                  <label className="label">Application details / Reason</label>
+                  <textarea 
+                    required 
+                    className="input min-h-[100px]" 
+                    placeholder={
+                      requestCategory === 'resignation' ? 'Provide exit explanation / notice remarks...' :
+                      requestCategory === 'advance' ? 'Briefly state why the salary advance is needed...' :
+                      'State the reason for this application...'
+                    } 
+                    value={leaveForm.reason} 
+                    onChange={e => setLeaveForm({...leaveForm, reason: e.target.value})} 
+                  />
                 </div>
                 <button type="submit" className="btn-primary w-full py-3 text-base">Submit Application</button>
               </form>

@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS leave_requests (
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
   type VARCHAR(50) NOT NULL,
+  amount DECIMAL(15, 2) DEFAULT 0,
   reason TEXT,
   status VARCHAR(20) DEFAULT 'pending',
   remarks TEXT,

@@ -22,7 +22,10 @@ export const LEAVE_TYPE = {
   CASUAL: 'casual',
   SICK: 'sick',
   EMERGENCY: 'emergency',
-  UNPAID: 'unpaid'
+  UNPAID: 'unpaid',
+  HALF_DAY: 'half_day',
+  ADVANCE: 'advance',
+  RESIGNATION: 'resignation'
 };
 
 export const TASK_STATUS = {

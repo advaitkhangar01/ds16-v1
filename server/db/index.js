@@ -183,6 +183,7 @@ pool.query('SELECT NOW()', (err) => {
           )
         `);
         
+        await pool.query('ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS amount DECIMAL(15, 2) DEFAULT 0');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id)');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date)');
         
