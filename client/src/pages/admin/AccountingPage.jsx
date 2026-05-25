@@ -134,6 +134,54 @@ export default function AccountingPage() {
     return invoices;
   }, [invoices, invoiceFilter]);
 
+  const invoiceTotalsBreakdown = useMemo(() => {
+    let totalPrincipal = 0;
+    let totalGst = 0;
+    let totalGrand = 0;
+
+    filteredInvoicesList.forEach(inv => {
+      const amount = parseFloat(inv.amount || 0);
+      if (inv.is_payment_stage) {
+        totalPrincipal += amount;
+        totalGrand += amount;
+        return;
+      }
+
+      const taxDetails = inv.tax_details || {};
+      const isGstEnabled = taxDetails.isGstEnabled !== false;
+
+      if (!isGstEnabled) {
+        totalPrincipal += amount;
+        totalGrand += amount;
+        return;
+      }
+
+      const cgstPercent = parseFloat(taxDetails.cgstPercent ?? 9);
+      const sgstPercent = parseFloat(taxDetails.sgstPercent ?? 9);
+      const igstPercent = parseFloat(taxDetails.igstPercent ?? 18);
+      const isIgst = !!taxDetails.isIgst;
+
+      const totalTaxPercent = isIgst ? igstPercent : (cgstPercent + sgstPercent);
+
+      if (totalTaxPercent <= 0) {
+        totalPrincipal += amount;
+        totalGrand += amount;
+      } else {
+        const principal = amount / (1 + totalTaxPercent / 100);
+        const gst = amount - principal;
+        totalPrincipal += principal;
+        totalGst += gst;
+        totalGrand += amount;
+      }
+    });
+
+    return {
+      principal: totalPrincipal,
+      gst: totalGst,
+      grand: totalGrand
+    };
+  }, [filteredInvoicesList]);
+
   const [projects, setProjects] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [viewType, setViewType] = useState('table'); // table or kanban
@@ -1735,9 +1783,9 @@ export default function AccountingPage() {
                   )}
                 </tbody>
                 {filteredInvoicesList.length > 0 && (
-                  <tfoot className="bg-gray-50/80 font-bold border-t border-gray-200">
-                    <tr>
-                      <td className="px-6 py-4 text-xs font-bold text-gray-500 uppercase" colSpan={4}>
+                  <tfoot className="bg-gray-50/85 font-bold border-t-2 border-gray-200">
+                    <tr className="border-b border-gray-100/50">
+                      <td className="px-6 py-2.5 text-xs font-bold text-gray-500 uppercase" colSpan={4}>
                         <div className="flex items-center gap-4">
                           <span>Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}</span>
                           <span className="text-[10px] text-gray-400 font-normal normal-case">
@@ -1746,8 +1794,22 @@ export default function AccountingPage() {
                           </span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-right font-mono text-sm font-black text-[#E05A1E]">
-                        ₹{filteredInvoicesList.reduce((sum, inv) => sum + parseFloat(inv.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      <td className="px-6 py-2.5 text-right font-semibold text-gray-500 text-xs">
+                        Principal: ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td colSpan={2}></td>
+                    </tr>
+                    <tr className="border-b border-gray-100/50">
+                      <td colSpan={4} className="px-6 py-2"></td>
+                      <td className="px-6 py-2 text-right font-semibold text-gray-500 text-xs">
+                        GST Amount: ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td colSpan={2}></td>
+                    </tr>
+                    <tr className="bg-gray-100/30">
+                      <td colSpan={4} className="px-6 py-3"></td>
+                      <td className="px-6 py-3 text-right font-mono text-sm font-black text-[#E05A1E]">
+                        Total Value: ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td colSpan={2}></td>
                     </tr>

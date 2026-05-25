@@ -41,6 +41,54 @@ export default function InvoiceHistoryTab({ projectId, project }) {
     });
   };
 
+  const invoiceTotalsBreakdown = useMemo(() => {
+    let totalPrincipal = 0;
+    let totalGst = 0;
+    let totalGrand = 0;
+
+    filteredInvoicesList.forEach(inv => {
+      const amount = parseFloat(inv.amount || 0);
+      if (inv.is_payment_stage) {
+        totalPrincipal += amount;
+        totalGrand += amount;
+        return;
+      }
+
+      const taxDetails = inv.tax_details || {};
+      const isGstEnabled = taxDetails.isGstEnabled !== false;
+
+      if (!isGstEnabled) {
+        totalPrincipal += amount;
+        totalGrand += amount;
+        return;
+      }
+
+      const cgstPercent = parseFloat(taxDetails.cgstPercent ?? 9);
+      const sgstPercent = parseFloat(taxDetails.sgstPercent ?? 9);
+      const igstPercent = parseFloat(taxDetails.igstPercent ?? 18);
+      const isIgst = !!taxDetails.isIgst;
+
+      const totalTaxPercent = isIgst ? igstPercent : (cgstPercent + sgstPercent);
+
+      if (totalTaxPercent <= 0) {
+        totalPrincipal += amount;
+        totalGrand += amount;
+      } else {
+        const principal = amount / (1 + totalTaxPercent / 100);
+        const gst = amount - principal;
+        totalPrincipal += principal;
+        totalGst += gst;
+        totalGrand += amount;
+      }
+    });
+
+    return {
+      principal: totalPrincipal,
+      gst: totalGst,
+      grand: totalGrand
+    };
+  }, [filteredInvoicesList]);
+
   const fetchInvoices = useCallback(async () => {
     try {
       const { data } = await api.get(`/invoices?project_id=${projectId}`);
@@ -215,13 +263,27 @@ export default function InvoiceHistoryTab({ projectId, project }) {
             )}
           </tbody>
           {filteredInvoicesList.length > 0 && (
-            <tfoot className="bg-gray-50 font-bold border-t border-[#F0F0F0]">
-              <tr>
-                <td className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase" colSpan={2}>
+            <tfoot className="bg-gray-50 font-bold border-t border-[#F0F0F0] text-[10px]">
+              <tr className="border-b border-[#F0F0F0]/50">
+                <td className="px-4 py-2 text-gray-500 uppercase font-bold" colSpan={2}>
                   Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}
                 </td>
-                <td className="px-4 py-3 text-[#E05A1E] font-black">
-                  ₹{filteredInvoicesList.reduce((sum, inv) => sum + parseFloat(inv.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                <td className="px-4 py-2 text-gray-600 font-semibold">
+                  Principal: ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </td>
+                <td colSpan={2}></td>
+              </tr>
+              <tr className="border-b border-[#F0F0F0]/50">
+                <td colSpan={2} className="px-4 py-1.5"></td>
+                <td className="px-4 py-1.5 text-gray-600 font-semibold">
+                  GST Amount: ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </td>
+                <td colSpan={2}></td>
+              </tr>
+              <tr className="bg-gray-100/20">
+                <td colSpan={2} className="px-4 py-2.5"></td>
+                <td className="px-4 py-2.5 text-[#E05A1E] font-black text-xs">
+                  Total Value: ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </td>
                 <td colSpan={2}></td>
               </tr>
