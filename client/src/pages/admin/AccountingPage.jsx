@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import AppLayout from '../../components/layout/AppLayout';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
@@ -68,8 +69,28 @@ const getReceiptIcon = (fileName) => {
 };
 
 export default function AccountingPage() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('summary');
   const [loading, setLoading] = useState(true);
+
+  const handleGenerateBillFromStage = (inv) => {
+    navigate('/admin/invoice', {
+      state: {
+        preFill: {
+          project_id: inv.project_id,
+          billToName: inv.client_name_full || inv.client_name || '',
+          items: [
+            {
+              id: Date.now(),
+              description: `${inv.invoice_no.replace(' (Stage)', '')} - ${inv.project_name}`,
+              quantity: 1,
+              rate: inv.amount || 0
+            }
+          ]
+        }
+      }
+    });
+  };
   
   // Filters
   const [filters, setFilters] = useState({
@@ -1629,7 +1650,9 @@ export default function AccountingPage() {
                       draft: 'bg-gray-50 text-gray-600 border-gray-200',
                       cancelled: 'bg-red-50 text-red-700 border-red-200'
                     };
-                    const statusColor = statusColors[inv.status] || 'bg-gray-50 text-gray-600 border-gray-200';
+                    const statusColor = inv.is_payment_stage
+                      ? 'bg-amber-50 text-amber-700 border-amber-200'
+                      : (statusColors[inv.status] || 'bg-gray-50 text-gray-600 border-gray-200');
                     return (
                       <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
                         <td className="px-6 py-4">
@@ -1651,8 +1674,8 @@ export default function AccountingPage() {
                         </td>
                         <td className="px-6 py-4 text-xs text-gray-500">
                           <div className="flex flex-col gap-0.5">
-                            <span>Issued: {new Date(inv.date).toLocaleDateString()}</span>
-                            {inv.due_date && <span className="text-[10px] text-gray-400">Due: {new Date(inv.due_date).toLocaleDateString()}</span>}
+                            <span>{inv.is_payment_stage ? 'Initiated' : 'Issued'}: {new Date(inv.date).toLocaleDateString()}</span>
+                            {!inv.is_payment_stage && inv.due_date && <span className="text-[10px] text-gray-400">Due: {new Date(inv.due_date).toLocaleDateString()}</span>}
                           </div>
                         </td>
                         <td className="px-6 py-4 text-right font-mono text-sm font-black text-gray-900">
@@ -1660,29 +1683,42 @@ export default function AccountingPage() {
                         </td>
                         <td className="px-6 py-4 text-center">
                           <span className={`inline-block px-2.5 py-0.5 border rounded-full text-[10px] font-black uppercase tracking-wider ${statusColor}`}>
-                            {inv.status}
+                            {inv.is_payment_stage ? 'Payment Stage' : inv.status}
                           </span>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-end gap-2">
-                            {inv.status !== 'paid' && inv.project_id && (
+                            {inv.is_payment_stage ? (
                               <button
-                                onClick={() => handleMarkPaid(inv.id)}
-                                className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
-                                title="Mark as Paid"
+                                onClick={() => handleGenerateBillFromStage(inv)}
+                                className="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-primary border border-orange-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                title="Generate Invoice from this Payment Stage"
                               >
-                                <CheckCircle2 size={12} />
-                                Mark Paid
+                                <Plus size={12} />
+                                Bill Stage
                               </button>
+                            ) : (
+                              <>
+                                {inv.status !== 'paid' && inv.project_id && (
+                                  <button
+                                    onClick={() => handleMarkPaid(inv.id)}
+                                    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                    title="Mark as Paid"
+                                  >
+                                    <CheckCircle2 size={12} />
+                                    Mark Paid
+                                  </button>
+                                )}
+                                <a
+                                  href={`/admin/invoice?invoice_id=${inv.id}`}
+                                  className="px-2.5 py-1 bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                  title="View / Print Invoice"
+                                >
+                                  <FileText size={12} />
+                                  View
+                                </a>
+                              </>
                             )}
-                            <a
-                              href={`/admin/invoice?invoice_id=${inv.id}`}
-                              className="px-2.5 py-1 bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
-                              title="View / Print Invoice"
-                            >
-                              <FileText size={12} />
-                              View
-                            </a>
                           </div>
                         </td>
                       </tr>

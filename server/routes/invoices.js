@@ -13,6 +13,7 @@ router.get('/', authenticate, async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const limitInt = parseInt(limit);
 
+    // 1. Fetch actual invoices matching filters
     let query = `
       SELECT i.*, p.name as project_name, c.name as client_name_full
       FROM invoices i
@@ -51,11 +52,68 @@ router.get('/', authenticate, async (req, res) => {
       query += ` WHERE ` + conditions.join(' AND ');
     }
 
-    query += ` ORDER BY i.date DESC, i.created_at DESC LIMIT $${idx++} OFFSET $${idx++}`;
-    params.push(limitInt, offset);
+    query += ` ORDER BY i.date DESC, i.created_at DESC`;
     
-    const { rows } = await pool.query(query, params);
-    res.json({ invoices: rows, page: parseInt(page), limit: limitInt });
+    const { rows: invoiceRows } = await pool.query(query, params);
+
+    // 2. Fetch active payment stages matching filters
+    let stagesQuery = `
+      SELECT pps.*, p.name as project_name, c.name as client_name_full, c.id as client_id
+      FROM project_payment_stages pps
+      JOIN projects p ON p.id = pps.project_id
+      LEFT JOIN clients c ON c.id = p.client_id
+      WHERE pps.status != 'paid' AND pps.status != 'cancelled'
+    `;
+    const stagesParams = [];
+    let sIdx = 1;
+    
+    if (project_id) {
+      stagesQuery += ` AND pps.project_id = $${sIdx++}`;
+      stagesParams.push(project_id);
+    }
+    if (client_id) {
+      stagesQuery += ` AND p.client_id = $${sIdx++}`;
+      stagesParams.push(client_id);
+    }
+    if (start_date) {
+      stagesQuery += ` AND pps.created_at >= $${sIdx++}`;
+      stagesParams.push(start_date);
+    }
+    if (end_date) {
+      stagesQuery += ` AND pps.created_at <= $${sIdx++}`;
+      stagesParams.push(end_date);
+    }
+
+    if (req.user.role !== 'admin') {
+      stagesQuery += ` AND EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = pps.project_id AND pa.user_id = $${sIdx++})`;
+      stagesParams.push(req.user.id);
+    }
+
+    stagesQuery += ` ORDER BY pps.created_at DESC`;
+    const { rows: stageRows } = await pool.query(stagesQuery, stagesParams);
+
+    const virtualInvoices = stageRows.map(stage => ({
+      id: `stage-${stage.id}`,
+      invoice_no: `${stage.document_type} (Stage)`,
+      project_id: stage.project_id,
+      client_id: stage.client_id,
+      client_name: stage.client_name_full,
+      client_name_full: stage.client_name_full,
+      project_name: stage.project_name,
+      amount: stage.amount,
+      date: stage.created_at,
+      status: 'draft',
+      is_payment_stage: true,
+      stage_status: stage.status
+    }));
+
+    // 3. Merge, sort, and slice
+    const allInvoices = [...invoiceRows, ...virtualInvoices];
+    allInvoices.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const paginatedInvoices = allInvoices.slice(offset, offset + limitInt);
+
+    res.json({ invoices: paginatedInvoices, page: parseInt(page), limit: limitInt, totalCount: allInvoices.length });
   } catch (err) {
     console.error('Get invoices error:', err);
     res.status(500).json({ error: 'Server error' });

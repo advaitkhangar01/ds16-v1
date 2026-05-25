@@ -16,8 +16,30 @@ export default function InvoiceHistoryTab({ projectId, project }) {
     if (invoiceFilter === 'draft') {
       return invoices.filter(inv => inv.status === 'draft');
     }
-    return invoices;
   }, [invoices, invoiceFilter]);
+
+  const handleGenerateBillFromStage = (inv) => {
+    navigate('/admin/invoice', {
+      state: {
+        preFill: {
+          project_id: projectId,
+          billToName: project?.client_display_name || project?.client_name || '',
+          billToAddress: project?.location || '',
+          billToGst: project?.gst_number || '',
+          billToPhone: project?.primary_contact_phone || '',
+          billToEmail: project?.primary_contact_email || '',
+          items: [
+            {
+              id: Date.now(),
+              description: `${inv.invoice_no.replace(' (Stage)', '')} - ${project?.name || ''}`,
+              quantity: 1,
+              rate: inv.amount || 0
+            }
+          ]
+        }
+      }
+    });
+  };
 
   const fetchInvoices = useCallback(async () => {
     try {
@@ -162,21 +184,31 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                   </td>
                   <td className="px-4 py-4">
                     <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                      inv.is_payment_stage ? 'bg-amber-50 text-amber-600 border-amber-100' :
                       inv.status === 'paid' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
                       inv.status === 'sent' ? 'bg-blue-50 text-blue-700 border-blue-100' :
                       inv.status === 'cancelled' ? 'bg-red-50 text-red-700 border-red-100' :
                       'bg-orange-50 text-orange-700 border-orange-100'
                     }`}>
-                      {inv.status}
+                      {inv.is_payment_stage ? 'Payment Stage' : inv.status}
                     </span>
                   </td>
                   <td className="px-4 py-4 text-right">
-                    <button 
-                      onClick={() => handleViewInvoice(inv)}
-                      className="bg-[#1A1A1A] text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-[#E05A1E] transition-all"
-                    >
-                      View & Print
-                    </button>
+                    {inv.is_payment_stage ? (
+                      <button
+                        onClick={() => handleGenerateBillFromStage(inv)}
+                        className="bg-[#E05A1E] text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-[#b8420e] transition-all"
+                      >
+                        + Bill Stage
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => handleViewInvoice(inv)}
+                        className="bg-[#1A1A1A] text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-[#E05A1E] transition-all"
+                      >
+                        View & Print
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))
