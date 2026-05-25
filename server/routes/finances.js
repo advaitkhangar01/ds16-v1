@@ -45,6 +45,8 @@ router.get('/transactions', authenticate, async (req, res) => {
         if (category) {
           projectQuery += ` AND t.category = $${pIdx++}`;
           projectParams.push(category);
+        } else {
+          projectQuery += ` AND t.category != 'vendor_payment'`;
         }
         if (type) {
           projectQuery += ` AND t.type = $${pIdx++}`;
@@ -63,7 +65,7 @@ router.get('/transactions', authenticate, async (req, res) => {
 
         // Fetch virtual income transactions from payment stages and invoices
         let virtualTransactions = [];
-        if (!type || type === 'income') {
+        if ((!type || type === 'income') && (!category || (category !== 'vendor_payment' && category !== 'salary' && category !== 'incentive' && category !== 'salaries' && category !== 'incentives'))) {
           let stageQuery = `
             SELECT 
               pps.id, 
@@ -177,6 +179,8 @@ router.get('/transactions', authenticate, async (req, res) => {
     if (category) {
       query += ` AND t.category = $${idx++}`;
       params.push(category);
+    } else {
+      query += ` AND t.category != 'vendor_payment'`;
     }
     if (type) {
       query += ` AND t.type = $${idx++}`;
