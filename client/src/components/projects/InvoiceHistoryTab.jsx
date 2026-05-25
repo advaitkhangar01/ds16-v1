@@ -269,21 +269,21 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                   Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}
                 </td>
                 <td className="px-4 py-2 text-gray-600 font-semibold">
-                  Principal: ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  Principal: ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
                 <td colSpan={2}></td>
               </tr>
               <tr className="border-b border-[#F0F0F0]/50">
                 <td colSpan={2} className="px-4 py-1.5"></td>
                 <td className="px-4 py-1.5 text-gray-600 font-semibold">
-                  GST Amount: ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  GST Amount: ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
                 <td colSpan={2}></td>
               </tr>
               <tr className="bg-gray-100/20">
                 <td colSpan={2} className="px-4 py-2.5"></td>
                 <td className="px-4 py-2.5 text-[#E05A1E] font-black text-xs">
-                  Total Value: ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  Total Value: ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
                 <td colSpan={2}></td>
               </tr>
