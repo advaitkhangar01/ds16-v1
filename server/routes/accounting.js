@@ -63,7 +63,7 @@ router.post('/expenses', upload.single('receipt'), async (req, res) => {
 });
 
 // Delete expense
-router.delete('/expenses/:id', async (req, res) => {
+router.delete('/expenses/:id', requireAdmin, async (req, res) => {
   try {
     await pool.query('DELETE FROM office_expenses WHERE id = $1', [req.params.id]);
     res.json({ message: 'Expense deleted' });
@@ -224,7 +224,7 @@ router.get('/payroll/employees', async (req, res) => {
 });
 
 // Update employee base salary or hourly rate
-router.put('/payroll/employees/:id', async (req, res) => {
+router.put('/payroll/employees/:id', requireAdmin, async (req, res) => {
   const { base_salary, hourly_rate } = req.body;
   try {
     const { rows } = await pool.query(
@@ -259,7 +259,7 @@ router.get('/payroll/history', async (req, res) => {
 });
 
 // Process payroll (add/update)
-router.post('/payroll', async (req, res) => {
+router.post('/payroll', requireAdmin, async (req, res) => {
   const { user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status } = req.body;
   try {
     const { rows } = await pool.query(
