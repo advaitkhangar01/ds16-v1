@@ -208,6 +208,8 @@ export default function InvoiceHistoryTab({ projectId, project }) {
               <th className="px-4 py-3">Date</th>
               <th className="px-4 py-3">Invoice #</th>
               <th className="px-4 py-3">Amount</th>
+              <th className="px-4 py-3">Received</th>
+              <th className="px-4 py-3">Pending</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
@@ -215,7 +217,7 @@ export default function InvoiceHistoryTab({ projectId, project }) {
           <tbody className="divide-y divide-[#F0F0F0]">
             {filteredInvoicesList.length === 0 ? (
               <tr>
-                <td colSpan="5" className="px-4 py-10 text-center text-muted italic">
+                <td colSpan="7" className="px-4 py-10 text-center text-muted italic">
                   {invoiceFilter === 'generated' ? 'No generated invoices found for this project.' :
                    invoiceFilter === 'draft' ? 'No draft invoices found for this project.' :
                    'No invoices found for this project.'}
@@ -232,6 +234,12 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                   </td>
                   <td className="px-4 py-4 text-[#1A1A1A] font-bold">
                     ₹{parseFloat(inv.amount).toLocaleString('en-IN')}
+                  </td>
+                  <td className="px-4 py-4 text-emerald-600 font-mono font-bold">
+                    ₹{parseFloat(inv.received_amount || 0).toLocaleString('en-IN')}
+                  </td>
+                  <td className="px-4 py-4 text-orange-600 font-mono font-bold">
+                    ₹{parseFloat(inv.pending_amount || 0).toLocaleString('en-IN')}
                   </td>
                   <td className="px-4 py-4">
                     <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
@@ -285,6 +293,12 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                 <td className="px-4 py-2 text-gray-600 font-semibold">
                   Principal: ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
+                <td className="px-4 py-2 text-emerald-600 font-mono font-bold">
+                  ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </td>
+                <td className="px-4 py-2 text-orange-600 font-mono font-bold">
+                  ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </td>
                 <td colSpan={2}></td>
               </tr>
               <tr className="border-b border-[#F0F0F0]/50">
@@ -292,14 +306,14 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                 <td className="px-4 py-1.5 text-gray-600 font-semibold">
                   GST Amount: ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
-                <td colSpan={2}></td>
+                <td colSpan={4}></td>
               </tr>
               <tr className="bg-gray-100/20">
                 <td colSpan={2} className="px-4 py-2.5"></td>
                 <td className="px-4 py-2.5 text-[#E05A1E] font-black text-xs">
                   Total Value: ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
-                <td colSpan={2}></td>
+                <td colSpan={4}></td>
               </tr>
             </tfoot>
           )}

@@ -53,8 +53,19 @@ router.get('/', authenticate, async (req, res) => {
     }
 
     query += ` ORDER BY i.date DESC, i.created_at DESC`;
-    
     const { rows: invoiceRows } = await pool.query(query, params);
+
+    const formattedInvoices = invoiceRows.map(inv => {
+      const isPaid = (inv.status || '').toLowerCase() === 'paid';
+      const isCancelled = (inv.status || '').toLowerCase() === 'cancelled';
+      const amt = parseFloat(inv.amount || 0);
+      return {
+        ...inv,
+        received_amount: isPaid ? amt : 0,
+        pending_amount: (!isPaid && !isCancelled) ? amt : 0,
+        is_payment_stage: false
+      };
+    });
 
     // 2. Fetch active payment stages matching filters
     let stagesQuery = `
@@ -95,10 +106,16 @@ router.get('/', authenticate, async (req, res) => {
     const virtualInvoices = stageRows.map(stage => {
       const lowerStatus = (stage.status || '').toLowerCase();
       let mappedStatus = 'draft';
+      const amt = parseFloat(stage.amount || 0);
+      let receivedAmount = 0;
+      let pendingAmount = 0;
+
       if (lowerStatus === 'paid') {
         mappedStatus = 'paid';
+        receivedAmount = amt;
       } else if (lowerStatus === 'bill generated' || lowerStatus === 'bill delivered') {
         mappedStatus = 'generated';
+        pendingAmount = amt;
       }
       return {
         id: `stage-${stage.id}`,
@@ -112,12 +129,14 @@ router.get('/', authenticate, async (req, res) => {
         date: stage.created_at,
         status: mappedStatus,
         is_payment_stage: true,
-        stage_status: stage.status
+        stage_status: stage.status,
+        received_amount: receivedAmount,
+        pending_amount: pendingAmount
       };
     });
 
     // 3. Merge, sort, and slice
-    const allInvoices = [...invoiceRows, ...virtualInvoices];
+    const allInvoices = [...formattedInvoices, ...virtualInvoices];
     allInvoices.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     const paginatedInvoices = allInvoices.slice(offset, offset + limitInt);

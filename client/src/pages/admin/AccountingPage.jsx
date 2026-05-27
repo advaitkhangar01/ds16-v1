@@ -1689,6 +1689,8 @@ export default function AccountingPage() {
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Project</th>
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date / Due Date</th>
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Amount</th>
+                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Received</th>
+                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Pending</th>
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Status</th>
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
                   </tr>
@@ -1696,7 +1698,7 @@ export default function AccountingPage() {
                 <tbody className="divide-y divide-gray-100">
                   {loadingInvoices ? (
                     <tr>
-                      <td colSpan="7" className="px-6 py-12 text-center">
+                      <td colSpan="9" className="px-6 py-12 text-center">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <div className="w-8 h-8 border-2 border-[#E05A1E] border-t-transparent rounded-full animate-spin" />
                           <p className="text-gray-400 text-xs italic">Loading invoice history...</p>
@@ -1741,6 +1743,12 @@ export default function AccountingPage() {
                         </td>
                         <td className="px-6 py-4 text-right font-mono text-sm font-black text-gray-900">
                           ₹{parseFloat(inv.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-6 py-4 text-right font-mono text-xs font-bold text-emerald-600">
+                          ₹{parseFloat(inv.received_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-6 py-4 text-right font-mono text-xs font-bold text-orange-600">
+                          ₹{parseFloat(inv.pending_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-6 py-4 text-center">
                           <span className={`inline-block px-2.5 py-0.5 border rounded-full text-[10px] font-black uppercase tracking-wider ${statusColor}`}>
@@ -1806,7 +1814,7 @@ export default function AccountingPage() {
                   })}
                   {!loadingInvoices && filteredInvoicesList.length === 0 && (
                     <tr>
-                      <td colSpan="7" className="px-6 py-12 text-center text-gray-400 italic text-sm">
+                      <td colSpan="9" className="px-6 py-12 text-center text-gray-400 italic text-sm">
                         {invoiceFilter === 'generated' ? 'No generated invoices found.' : 
                          invoiceFilter === 'draft' ? 'No draft invoices found.' : 
                          'No invoice history available. Use the Invoice Editor to create new invoices.'}
@@ -1820,14 +1828,16 @@ export default function AccountingPage() {
                       <td className="px-6 py-2.5 text-xs font-bold text-gray-500 uppercase" colSpan={4}>
                         <div className="flex items-center gap-4">
                           <span>Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}</span>
-                          <span className="text-[10px] text-gray-400 font-normal normal-case">
-                            (Paid: ₹{filteredInvoicesList.filter(i => i.status === 'paid').reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | 
-                            Pending: ₹{filteredInvoicesList.filter(i => i.status !== 'paid' && i.status !== 'cancelled').reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                          </span>
                         </div>
                       </td>
                       <td className="px-6 py-2.5 text-right font-semibold text-gray-500 text-xs">
                         Principal: ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-6 py-2.5 text-right font-mono text-xs font-bold text-emerald-600">
+                        ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-6 py-2.5 text-right font-mono text-xs font-bold text-orange-600">
+                        ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td colSpan={2}></td>
                     </tr>
@@ -1836,14 +1846,14 @@ export default function AccountingPage() {
                       <td className="px-6 py-2 text-right font-semibold text-gray-500 text-xs">
                         GST Amount: ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td colSpan={2}></td>
+                      <td colSpan={4}></td>
                     </tr>
                     <tr className="bg-gray-100/30">
                       <td colSpan={4} className="px-6 py-3"></td>
                       <td className="px-6 py-3 text-right font-mono text-sm font-black text-[#E05A1E]">
                         Total Value: ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td colSpan={2}></td>
+                      <td colSpan={4}></td>
                     </tr>
                   </tfoot>
                 )}
