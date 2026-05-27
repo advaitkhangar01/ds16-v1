@@ -251,7 +251,7 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
       )
       SELECT 
         COALESCE(SUM(CASE WHEN pps.status = 'paid' THEN pps.amount ELSE 0 END), 0) as received,
-        COALESCE(SUM(CASE WHEN pps.status IN ('bill generated', 'bill delivered') THEN pps.amount ELSE 0 END), 0) as pending
+        COALESCE(SUM(CASE WHEN pps.status IN ('payment initiated', 'bill generated', 'bill delivered') THEN pps.amount ELSE 0 END), 0) as pending
       FROM project_payment_stages pps
       JOIN project_categories pc ON pps.project_id = pc.project_id
       WHERE pps.status != 'cancelled'
@@ -418,7 +418,7 @@ router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, 
         FROM projects p
         JOIN project_payment_stages pps ON p.id = pps.project_id
         JOIN project_categories pc ON p.id = pc.project_id
-        WHERE pps.status IN ('paid', 'bill generated', 'bill delivered') AND pps.status != 'cancelled'
+        WHERE pps.status IN ('paid', 'payment initiated', 'bill generated', 'bill delivered') AND pps.status != 'cancelled'
           AND pc.stage_category IN ('design_proposal', 'sanction', 'execution')
         GROUP BY p.id, p.name
         ORDER BY amount DESC
@@ -480,7 +480,7 @@ router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, 
         FROM projects p
         JOIN project_payment_stages pps ON p.id = pps.project_id
         JOIN project_categories pc ON p.id = pc.project_id
-        WHERE pps.status IN ('bill generated', 'bill delivered') AND pps.status != 'cancelled'
+        WHERE pps.status IN ('payment initiated', 'bill generated', 'bill delivered') AND pps.status != 'cancelled'
           AND pc.stage_category IN ('design_proposal', 'sanction', 'execution')
         GROUP BY p.id, p.name
         ORDER BY amount DESC

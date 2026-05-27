@@ -390,7 +390,7 @@ router.post('/payment-stages', authenticate, checkProjectAccess(), async (req, r
 
     const { rows } = await pool.query(
       `INSERT INTO project_payment_stages (project_id, document_type, amount, initiated_by, status)
-       VALUES ($1, $2, $3, $4, 'bill generated')
+       VALUES ($1, $2, $3, $4, 'payment initiated')
        RETURNING *`,
       [pid, document_type, parseFloat(amount) || 0, req.user.id]
     );
@@ -453,7 +453,7 @@ router.delete('/payment-stages/remove/tag', authenticate, checkProjectAccess(), 
     const pid = parseInt(project_id);
     await pool.query(
       `DELETE FROM project_payment_stages
-       WHERE project_id = $1 AND document_type = $2 AND status = 'bill generated'`,
+       WHERE project_id = $1 AND document_type = $2 AND status = 'payment initiated'`,
       [pid, document_type]
     );
     res.json({ message: 'Payment stage removed' });

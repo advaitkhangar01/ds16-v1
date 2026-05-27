@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS project_payment_stages (
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   name VARCHAR(255),
   amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
-  status VARCHAR(50) DEFAULT 'bill generated',
+  status VARCHAR(50) DEFAULT 'payment initiated',
   document_type VARCHAR(100),
   initiated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -250,6 +250,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   status VARCHAR(30) DEFAULT 'generated',
   due_date DATE,
   signature_data TEXT,
+  payment_stage_id INTEGER REFERENCES project_payment_stages(id) ON DELETE SET NULL,
   created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );

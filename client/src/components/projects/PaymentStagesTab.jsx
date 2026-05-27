@@ -5,6 +5,7 @@ import { formatIST } from '../../utils/time';
 import toast from 'react-hot-toast';
 
 const STATUS_CONFIG = {
+  'payment initiated': { label: 'Payment Initiated', cls: 'bg-yellow-50 text-yellow-600 border-yellow-100 font-bold' },
   'bill generated': { label: 'Bill Generated', cls: 'bg-blue-50 text-blue-600' },
   'bill delivered': { label: 'Bill Delivered', cls: 'bg-orange-50 text-[#E05A1E]' },
   'pending': { label: 'Bill Delivered', cls: 'bg-orange-50 text-[#E05A1E]' }, // Backward compatibility
@@ -47,6 +48,7 @@ export default function PaymentStagesTab({ projectId, project }) {
     navigate('/admin/invoice', {
       state: {
         preFill: {
+          payment_stage_id: stage.id,
           project_id: projectId,
           billToName: project.client_display_name || project.client_name || '',
           billToAddress: project.location || '',
@@ -131,6 +133,7 @@ export default function PaymentStagesTab({ projectId, project }) {
                       value={stage.status}
                       onChange={(e) => handleStatusChange(stage.id, e.target.value)}
                     >
+                      <option value="payment initiated">Payment Initiated</option>
                       <option value="bill generated">Bill Generated</option>
                       <option value="bill delivered">Bill Delivered</option>
                       <option value="paid">Paid</option>

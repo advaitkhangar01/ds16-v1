@@ -367,7 +367,7 @@ router.get('/summary', authenticate, async (req, res) => {
         stagesQuery = `
           SELECT 
             COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) as received,
-            COALESCE(SUM(CASE WHEN status IN ('bill generated', 'bill delivered') THEN amount ELSE 0 END), 0) as pending
+            COALESCE(SUM(CASE WHEN status IN ('payment initiated', 'bill generated', 'bill delivered') THEN amount ELSE 0 END), 0) as pending
           FROM project_payment_stages
           WHERE status != 'cancelled' AND project_id = $${sIdx++}
         `;
@@ -395,7 +395,7 @@ router.get('/summary', authenticate, async (req, res) => {
           )
           SELECT 
             COALESCE(SUM(CASE WHEN pps.status = 'paid' THEN pps.amount ELSE 0 END), 0) as received,
-            COALESCE(SUM(CASE WHEN pps.status IN ('bill generated', 'bill delivered') THEN pps.amount ELSE 0 END), 0) as pending
+            COALESCE(SUM(CASE WHEN pps.status IN ('payment initiated', 'bill generated', 'bill delivered') THEN pps.amount ELSE 0 END), 0) as pending
           FROM project_payment_stages pps
           JOIN project_categories pc ON pps.project_id = pc.project_id
           WHERE pps.status != 'cancelled'

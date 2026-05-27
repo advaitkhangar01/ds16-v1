@@ -78,6 +78,7 @@ export default function AccountingPage() {
       state: {
         preFill: {
           project_id: inv.project_id,
+          payment_stage_id: inv.is_payment_stage ? parseInt(inv.id.replace('stage-', '')) : null,
           billToName: inv.client_name_full || inv.client_name || '',
           items: [
             {
@@ -1749,14 +1750,25 @@ export default function AccountingPage() {
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-end gap-2">
                             {inv.is_payment_stage ? (
-                              <button
-                                onClick={() => handleGenerateBillFromStage(inv)}
-                                className="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-primary border border-orange-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
-                                title="Generate Invoice from this Payment Stage"
-                              >
-                                <Plus size={12} />
-                                Bill Stage
-                              </button>
+                              ['bill generated', 'bill delivered', 'paid'].includes(inv.stage_status?.toLowerCase()) ? (
+                                <button
+                                  disabled
+                                  className="px-2.5 py-1 bg-gray-100 text-gray-400 border border-gray-200 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 cursor-not-allowed"
+                                  title="Bill already generated for this payment stage"
+                                >
+                                  <Lock size={12} />
+                                  Billed
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleGenerateBillFromStage(inv)}
+                                  className="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-primary border border-orange-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                  title="Generate Invoice from this Payment Stage"
+                                >
+                                  <Plus size={12} />
+                                  Bill Stage
+                                </button>
+                              )
                             ) : (
                               <>
                                 {inv.status !== 'paid' && inv.project_id && (

@@ -62,7 +62,7 @@ router.get('/', authenticate, async (req, res) => {
       FROM project_payment_stages pps
       JOIN projects p ON p.id = pps.project_id
       LEFT JOIN clients c ON c.id = p.client_id
-      WHERE pps.status != 'paid' AND pps.status != 'cancelled'
+      WHERE pps.status = 'payment initiated'
     `;
     const stagesParams = [];
     let sIdx = 1;
@@ -207,6 +207,7 @@ router.get('/:id', authenticate, checkProjectAccess({ idIsResource: 'invoice' })
 // POST /api/invoices - Strictly CREATE a new invoice (no silent overwrites)
 // Returns 409 Conflict if the invoice_no already exists
 router.post('/', authenticate, requireAccounting, async (req, res) => {
+  const client = await pool.connect();
   try {
     const { 
       invoice_no, 
@@ -219,7 +220,8 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
       tax_details, 
       status,
       due_date,
-      signature_data
+      signature_data,
+      payment_stage_id
     } = req.body;
 
     if (!invoice_no || !client_name || !amount || !items) {
@@ -239,17 +241,20 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }
 
+    // Begin atomic transaction
+    await client.query('BEGIN');
+
     // Strict INSERT — will throw a unique_violation (code 23505) if invoice_no already exists
     const query = `
       INSERT INTO invoices (
         invoice_no, project_id, client_id, client_name, amount, 
-        date, items, tax_details, status, due_date, signature_data, created_by
+        date, items, tax_details, status, due_date, signature_data, payment_stage_id, created_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *;
     `;
 
-    const { rows } = await pool.query(query, [
+    const { rows } = await client.query(query, [
       invoice_no, 
       project_id || null, 
       client_id || null, 
@@ -261,11 +266,24 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
       resolvedStatus,
       due_date || null,
       signature_data || null,
+      payment_stage_id || null,
       req.user.id
     ]);
 
+    // Automatically update the linked payment stage status to 'bill generated'
+    if (payment_stage_id) {
+      await client.query(
+        `UPDATE project_payment_stages 
+         SET status = 'bill generated', updated_at = NOW() 
+         WHERE id = $1`,
+         [payment_stage_id]
+      );
+    }
+
+    await client.query('COMMIT');
     res.status(201).json({ invoice: rows[0] });
   } catch (err) {
+    await client.query('ROLLBACK');
     // PostgreSQL unique_violation error code
     if (err.code === '23505') {
       return res.status(409).json({ 
@@ -276,11 +294,14 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
     }
     console.error('Create invoice error:', err);
     res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
   }
 });
 
 // PATCH /api/invoices/:id/status - Update invoice status and/or signature only
 router.patch('/:id/status', authenticate, requireAccounting, async (req, res) => {
+  const client = await pool.connect();
   try {
     const { status, signature_data } = req.body;
     const { id } = req.params;
@@ -308,18 +329,53 @@ router.patch('/:id/status', authenticate, requireAccounting, async (req, res) =>
       return res.status(400).json({ error: 'No fields to update' });
     }
 
+    await client.query('BEGIN');
+
     params.push(id);
     const query = `UPDATE invoices SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`;
-    const { rows } = await pool.query(query, params);
+    const { rows } = await client.query(query, params);
 
     if (rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Invoice not found' });
     }
 
-    res.json({ invoice: rows[0] });
+    const invoice = rows[0];
+
+    // Automate payment stage status transitions based on new invoice status
+    if (invoice.payment_stage_id) {
+      if (status === 'cancelled') {
+        // Only revert to 'payment initiated' if no other active invoices are linked
+        const { rows: otherInvoices } = await client.query(
+          'SELECT id FROM invoices WHERE payment_stage_id = $1 AND id != $2 AND status != \'cancelled\'',
+          [invoice.payment_stage_id, invoice.id]
+        );
+        if (otherInvoices.length === 0) {
+          await client.query(
+            `UPDATE project_payment_stages 
+             SET status = 'payment initiated', updated_at = NOW() 
+             WHERE id = $1`,
+            [invoice.payment_stage_id]
+          );
+        }
+      } else if (status === 'paid') {
+        await client.query(
+          `UPDATE project_payment_stages 
+           SET status = 'paid', updated_at = NOW() 
+           WHERE id = $1`,
+          [invoice.payment_stage_id]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ invoice });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Update invoice status error:', err);
     res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
   }
 });
 
@@ -381,6 +437,16 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, async (req, res) 
       [id]
     );
 
+    // If the invoice is linked to a payment stage, mark the stage as 'paid'
+    if (invoice.payment_stage_id) {
+      await client.query(
+        `UPDATE project_payment_stages 
+         SET status = 'paid', updated_at = NOW() 
+         WHERE id = $1`,
+         [invoice.payment_stage_id]
+      );
+    }
+
     // Commit only if both steps succeeded
     await client.query('COMMIT');
 
@@ -399,15 +465,50 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, async (req, res) 
 
 // DELETE /api/invoices/:id
 router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query('DELETE FROM invoices WHERE id = $1 RETURNING id', [req.params.id]);
-    if (rows.length === 0) {
+    await client.query('BEGIN');
+
+    // 1. Fetch the invoice to see if it's linked to a payment stage
+    const { rows: invoiceRows } = await client.query(
+      'SELECT payment_stage_id FROM invoices WHERE id = $1',
+      [req.params.id]
+    );
+
+    if (invoiceRows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Invoice not found' });
     }
-    res.json({ message: 'Invoice deleted' });
+
+    const { payment_stage_id } = invoiceRows[0];
+
+    // 2. Delete the invoice
+    await client.query('DELETE FROM invoices WHERE id = $1', [req.params.id]);
+
+    // 3. Revert payment stage status to 'payment initiated' if linked and no other active invoices exist
+    if (payment_stage_id) {
+      const { rows: otherInvoices } = await client.query(
+        'SELECT id FROM invoices WHERE payment_stage_id = $1 AND id != $2 AND status != \'cancelled\'',
+        [payment_stage_id, req.params.id]
+      );
+      if (otherInvoices.length === 0) {
+        await client.query(
+          `UPDATE project_payment_stages 
+           SET status = 'payment initiated', updated_at = NOW() 
+           WHERE id = $1`,
+          [payment_stage_id]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Invoice deleted successfully' });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Delete invoice error:', err);
     res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
   }
 });
 

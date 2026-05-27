@@ -12,6 +12,7 @@ import { useLocation } from 'react-router-dom';
 
 const INITIAL_FORM = {
   project_id: null,
+  payment_stage_id: null,
   invoiceNo: '',
   date: new Date().toISOString().split('T')[0],
   refNo: '', // Reference No. & Date
@@ -323,6 +324,7 @@ export default function InvoicePage() {
       const payload = {
         invoice_no: formData.invoiceNo,
         project_id: formData.project_id,
+        payment_stage_id: formData.payment_stage_id,
         client_id: clients.find(c => c.name === formData.billToName)?.id,
         client_name: formData.billToName,
         amount: grandTotal,
@@ -450,18 +452,21 @@ export default function InvoicePage() {
     }
     setIsGenerating(true);
     try {
-      // Phase 3.1: Save FIRST — if save fails, abort before generating PDF (no ghost invoices)
-      const saved = await handleSaveInvoice();
-      if (!saved) {
-        // handleSaveInvoice already showed a toast; just abort
-        setIsGenerating(false);
-        return;
+      let saved = savedInvoiceRef;
+      // If there is no saved invoice reference, or the invoice number has been changed, save it as a new invoice.
+      // Otherwise, if the invoice number matches the already-saved invoice, bypass the POST insert request!
+      if (!saved || formData.invoiceNo !== saved.invoice_no) {
+        saved = await handleSaveInvoice();
+        if (!saved) {
+          setIsGenerating(false);
+          return;
+        }
+        setSavedInvoiceRef(saved);
       }
-      setSavedInvoiceRef(saved);
 
       // Trigger browser native vector print dialog
       window.print();
-      toast.success('Invoice saved & print dialogue loaded');
+      toast.success('Invoice print dialogue loaded');
     } catch (error) {
       console.error(error);
       toast.error('Failed to open print layout');
@@ -915,7 +920,7 @@ export default function InvoicePage() {
                   disabled={isGenerating}
                   className="btn-primary w-full justify-center shadow-lg shadow-orange-100"
                 >
-                  {isGenerating ? 'Saving...' : 'Export PDF'}
+                  {isGenerating ? (savedInvoiceRef && formData.invoiceNo === savedInvoiceRef.invoice_no ? 'Opening...' : 'Saving...') : 'Export PDF'}
                 </button>
                 {formData.project_id && (
                   <button 

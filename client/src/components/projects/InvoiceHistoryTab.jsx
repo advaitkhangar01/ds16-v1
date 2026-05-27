@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
+import { Lock } from 'lucide-react';
 
 export default function InvoiceHistoryTab({ projectId, project }) {
   const [invoices, setInvoices] = useState([]);
@@ -23,6 +24,7 @@ export default function InvoiceHistoryTab({ projectId, project }) {
     navigate('/admin/invoice', {
       state: {
         preFill: {
+          payment_stage_id: parseInt(inv.id.replace('stage-', '')),
           project_id: projectId,
           billToName: project?.client_display_name || project?.client_name || '',
           billToAddress: project?.location || '',
@@ -244,12 +246,23 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                   </td>
                   <td className="px-4 py-4 text-right">
                     {inv.is_payment_stage ? (
-                      <button
-                        onClick={() => handleGenerateBillFromStage(inv)}
-                        className="bg-[#E05A1E] text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-[#b8420e] transition-all"
-                      >
-                        + Bill Stage
-                      </button>
+                      ['bill generated', 'bill delivered', 'paid'].includes(inv.stage_status?.toLowerCase()) ? (
+                        <button
+                          disabled
+                          className="bg-gray-100 text-gray-400 border border-gray-200 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest cursor-not-allowed flex items-center justify-center gap-1 ml-auto"
+                          title="Bill already generated for this payment stage"
+                        >
+                          <Lock size={10} />
+                          Billed
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleGenerateBillFromStage(inv)}
+                          className="bg-[#E05A1E] text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-[#b8420e] transition-all"
+                        >
+                          + Bill Stage
+                        </button>
+                      )
                     ) : (
                       <button 
                         onClick={() => handleViewInvoice(inv)}

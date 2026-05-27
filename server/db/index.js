@@ -88,13 +88,19 @@ pool.query('SELECT NOW()', (err) => {
             project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
             name VARCHAR(255),
             amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
-            status VARCHAR(50) DEFAULT 'bill generated',
+            status VARCHAR(50) DEFAULT 'payment initiated',
             created_at TIMESTAMPTZ DEFAULT NOW(),
             document_type VARCHAR(100),
             initiated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
             updated_at TIMESTAMPTZ DEFAULT NOW()
           )
         `);
+
+        // Set default value for status to 'payment initiated'
+        await pool.query("ALTER TABLE project_payment_stages ALTER COLUMN status SET DEFAULT 'payment initiated'");
+
+        // Ensure invoices table has payment_stage_id foreign key column
+        await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_stage_id INTEGER REFERENCES project_payment_stages(id) ON DELETE SET NULL");
 
         // Make name nullable safely
         await pool.query(`
