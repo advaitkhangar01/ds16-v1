@@ -62,7 +62,7 @@ router.get('/', authenticate, async (req, res) => {
       FROM project_payment_stages pps
       JOIN projects p ON p.id = pps.project_id
       LEFT JOIN clients c ON c.id = p.client_id
-      WHERE pps.status = 'payment initiated'
+      WHERE LOWER(pps.status) IN ('payment initiated', 'bill generated', 'bill delivered')
     `;
     const stagesParams = [];
     let sIdx = 1;
