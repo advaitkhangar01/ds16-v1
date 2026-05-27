@@ -92,20 +92,29 @@ router.get('/', authenticate, async (req, res) => {
     stagesQuery += ` ORDER BY pps.created_at DESC`;
     const { rows: stageRows } = await pool.query(stagesQuery, stagesParams);
 
-    const virtualInvoices = stageRows.map(stage => ({
-      id: `stage-${stage.id}`,
-      invoice_no: `${stage.document_type} (Stage)`,
-      project_id: stage.project_id,
-      client_id: stage.client_id,
-      client_name: stage.client_name_full,
-      client_name_full: stage.client_name_full,
-      project_name: stage.project_name,
-      amount: stage.amount,
-      date: stage.created_at,
-      status: 'draft',
-      is_payment_stage: true,
-      stage_status: stage.status
-    }));
+    const virtualInvoices = stageRows.map(stage => {
+      const lowerStatus = (stage.status || '').toLowerCase();
+      let mappedStatus = 'draft';
+      if (lowerStatus === 'paid') {
+        mappedStatus = 'paid';
+      } else if (lowerStatus === 'bill generated' || lowerStatus === 'bill delivered') {
+        mappedStatus = 'generated';
+      }
+      return {
+        id: `stage-${stage.id}`,
+        invoice_no: `${stage.document_type} (Stage)`,
+        project_id: stage.project_id,
+        client_id: stage.client_id,
+        client_name: stage.client_name_full,
+        client_name_full: stage.client_name_full,
+        project_name: stage.project_name,
+        amount: stage.amount,
+        date: stage.created_at,
+        status: mappedStatus,
+        is_payment_stage: true,
+        stage_status: stage.status
+      };
+    });
 
     // 3. Merge, sort, and slice
     const allInvoices = [...invoiceRows, ...virtualInvoices];
