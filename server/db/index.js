@@ -230,6 +230,32 @@ pool.query('SELECT NOW()', (err) => {
           END $$;
         `);
 
+        // 13. Auto-sync PostgreSQL serial sequences to prevent duplicate key violations (projects_pkey etc.)
+        await pool.query(`
+          DO $$ 
+          DECLARE 
+              r RECORD;
+          BEGIN
+              FOR r IN (
+                  SELECT 
+                      tc.table_name, 
+                      kcu.column_name,
+                      pg_get_serial_sequence(tc.table_name, kcu.column_name) as seq_name
+                  FROM 
+                      information_schema.table_constraints AS tc 
+                      JOIN information_schema.key_column_usage AS kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                  WHERE tc.constraint_type = 'PRIMARY KEY' 
+                    AND tc.table_schema = 'public'
+              ) LOOP
+                  IF r.seq_name IS NOT NULL THEN
+                      EXECUTE 'SELECT setval(' || quote_literal(r.seq_name) || ', COALESCE((SELECT MAX(' || quote_ident(r.column_name) || ') FROM ' || quote_ident(r.table_name) || '), 1))';
+                  END IF;
+              END LOOP;
+          END $$;
+        `);
+
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
         console.error('❌ Migration failed:', mErr.message);

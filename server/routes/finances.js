@@ -366,10 +366,10 @@ router.get('/summary', authenticate, async (req, res) => {
       if (projectId) {
         stagesQuery = `
           SELECT 
-            COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) as received,
-            COALESCE(SUM(CASE WHEN status IN ('payment initiated', 'bill generated', 'bill delivered') THEN amount ELSE 0 END), 0) as pending
+            COALESCE(SUM(CASE WHEN LOWER(status) = 'paid' THEN amount ELSE 0 END), 0) as received,
+            COALESCE(SUM(CASE WHEN LOWER(status) IN ('bill generated', 'bill delivered') THEN amount ELSE 0 END), 0) as pending
           FROM project_payment_stages
-          WHERE status != 'cancelled' AND project_id = $${sIdx++}
+          WHERE LOWER(status) != 'cancelled' AND project_id = $${sIdx++}
         `;
         stagesParams.push(projectId);
       } else {
@@ -394,11 +394,11 @@ router.get('/summary', authenticate, async (req, res) => {
             LEFT JOIN active_stages a ON p.id = a.project_id
           )
           SELECT 
-            COALESCE(SUM(CASE WHEN pps.status = 'paid' THEN pps.amount ELSE 0 END), 0) as received,
-            COALESCE(SUM(CASE WHEN pps.status IN ('payment initiated', 'bill generated', 'bill delivered') THEN pps.amount ELSE 0 END), 0) as pending
+            COALESCE(SUM(CASE WHEN LOWER(pps.status) = 'paid' THEN pps.amount ELSE 0 END), 0) as received,
+            COALESCE(SUM(CASE WHEN LOWER(pps.status) IN ('bill generated', 'bill delivered') THEN pps.amount ELSE 0 END), 0) as pending
           FROM project_payment_stages pps
           JOIN project_categories pc ON pps.project_id = pc.project_id
-          WHERE pps.status != 'cancelled'
+          WHERE LOWER(pps.status) != 'cancelled'
             AND pc.stage_category IN ('design_proposal', 'sanction', 'execution')
         `;
       }
@@ -415,20 +415,24 @@ router.get('/summary', authenticate, async (req, res) => {
       const stagesRes = await pool.query(stagesQuery, stagesParams);
       const stageReceived = parseFloat(stagesRes.rows[0].received);
       const pending = parseFloat(stagesRes.rows[0].pending);
-      const billed = stageReceived + pending;
-
+ 
       // 2b. Manual income transactions — add to received so summary matches transaction timeline
       let manualIncome = 0;
+      const manualParams = [];
+      let mIdx = 1;
+      let manualQ = `SELECT COALESCE(SUM(amount), 0) as mi FROM transactions WHERE type = 'income'`;
       if (projectId) {
-        const manualParams = [projectId];
-        let mIdx = 2;
-        let manualQ = `SELECT COALESCE(SUM(amount), 0) as mi FROM transactions WHERE type = 'income' AND project_id = $1`;
-        if (start_date) { manualQ += ` AND date >= $${mIdx++}`; manualParams.push(start_date); }
-        if (end_date)   { manualQ += ` AND date <= $${mIdx++}`; manualParams.push(end_date); }
-        const manualRes = await pool.query(manualQ, manualParams);
-        manualIncome = parseFloat(manualRes.rows[0].mi) || 0;
+        manualQ += ` AND project_id = $1`;
+        manualParams.push(projectId);
+        mIdx = 2;
       }
-      const received = stageReceived + manualIncome;
+      if (start_date) { manualQ += ` AND date >= $${mIdx++}`; manualParams.push(start_date); }
+      if (end_date)   { manualQ += ` AND date <= $${mIdx++}`; manualParams.push(end_date); }
+      const manualRes = await pool.query(manualQ, manualParams);
+      manualIncome = parseFloat(manualRes.rows[0].mi) || 0;
+
+      const received = manualIncome > 0 ? manualIncome : stageReceived;
+      const billed = received + pending;
 
       // 3. Expenses from transactions (excluding vendor payments)
       let expenseQuery = `
