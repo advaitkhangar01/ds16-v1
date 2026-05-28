@@ -193,6 +193,7 @@ export default function InvoicePage() {
       setFormData({
         ...INITIAL_FORM,
         project_id: inv.project_id || null,
+        payment_stage_id: inv.payment_stage_id || null,
         invoiceNo: inv.invoice_no || '',
         date: inv.date ? String(inv.date).split('T')[0] : INITIAL_FORM.date,
         dueDate: inv.due_date ? String(inv.due_date).split('T')[0] : '',

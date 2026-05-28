@@ -115,6 +115,7 @@ export default function InvoiceHistoryTab({ projectId, project }) {
         preFill: {
           // Explicit mapping — never spread raw DB record to avoid snake_case/null contamination
           project_id: invoice.project_id || null,
+          payment_stage_id: invoice.payment_stage_id || null,
           invoiceNo: invoice.invoice_no || '',
           date: invoice.date ? String(invoice.date).split('T')[0] : '',
           dueDate: invoice.due_date ? String(invoice.due_date).split('T')[0] : '',

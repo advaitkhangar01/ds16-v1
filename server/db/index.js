@@ -256,6 +256,49 @@ pool.query('SELECT NOW()', (err) => {
           END $$;
         `);
 
+        // 14. Auto-heal: Link unlinked invoices to matching payment stages by project, amount, and document type
+        await pool.query(`
+          UPDATE invoices i
+          SET payment_stage_id = pps.id
+          FROM project_payment_stages pps
+          WHERE i.payment_stage_id IS NULL
+            AND i.project_id = pps.project_id
+            AND ABS(i.amount - pps.amount) < 0.01
+            AND (
+              pps.document_type IS NULL 
+              OR i.items::text ILIKE '%' || pps.document_type || '%'
+              OR i.invoice_no ILIKE '%' || pps.document_type || '%'
+            )
+        `);
+
+        // 15. Auto-sync: Update payment stages to 'paid' or 'bill generated' if they have linked active invoices
+        await pool.query(`
+          UPDATE project_payment_stages pps
+          SET status = CASE 
+            WHEN EXISTS (SELECT 1 FROM invoices i WHERE i.payment_stage_id = pps.id AND i.status = 'paid') THEN 'paid'
+            ELSE 'bill generated'
+          END,
+          updated_at = NOW()
+          WHERE EXISTS (
+            SELECT 1 FROM invoices i 
+            WHERE i.payment_stage_id = pps.id 
+              AND i.status != 'cancelled'
+          )
+          AND pps.status != 'paid'
+        `);
+
+        // 16. Auto-sync: Revert payment stages to 'payment initiated' if no active invoices are linked
+        await pool.query(`
+          UPDATE project_payment_stages pps
+          SET status = 'payment initiated', updated_at = NOW()
+          WHERE LOWER(pps.status) IN ('bill generated', 'bill delivered', 'paid')
+            AND NOT EXISTS (
+              SELECT 1 FROM invoices i 
+              WHERE i.payment_stage_id = pps.id 
+                AND i.status != 'cancelled'
+            )
+        `);
+
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
         console.error('❌ Migration failed:', mErr.message);
