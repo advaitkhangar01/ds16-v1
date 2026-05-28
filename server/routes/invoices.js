@@ -74,6 +74,11 @@ router.get('/', authenticate, async (req, res) => {
       JOIN projects p ON p.id = pps.project_id
       LEFT JOIN clients c ON c.id = p.client_id
       WHERE LOWER(pps.status) IN ('payment initiated', 'bill generated', 'bill delivered')
+        AND NOT EXISTS (
+          SELECT 1 FROM invoices i 
+          WHERE i.payment_stage_id = pps.id 
+            AND i.status != 'cancelled'
+        )
     `;
     const stagesParams = [];
     let sIdx = 1;
