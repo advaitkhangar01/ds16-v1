@@ -322,6 +322,60 @@ pool.query('SELECT NOW()', (err) => {
           WHERE LOWER(status) = 'paid' AND (received_amount IS NULL OR received_amount = 0);
         `);
 
+        // 19. Ensure Monthly Closing & Business History tables exist
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS monthly_closing_log (
+            id                      SERIAL PRIMARY KEY,
+            month                   INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+            year                    INTEGER NOT NULL CHECK (year >= 2020),
+            closed_by               INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            closed_at               TIMESTAMPTZ DEFAULT NOW(),
+            had_pending_payroll     BOOLEAN DEFAULT FALSE,
+            pending_payroll_count   INTEGER DEFAULT 0,
+            pending_payroll_amount  DECIMAL(15,2) DEFAULT 0,
+            close_reason            TEXT,
+            snapshot                JSONB NOT NULL DEFAULT '{}',
+            UNIQUE(month, year)
+          );
+        `);
+
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS employee_leave_balance (
+            id               SERIAL PRIMARY KEY,
+            user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            month            INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+            year             INTEGER NOT NULL CHECK (year >= 2020),
+            opening_balance  DECIMAL(5,2) DEFAULT 0,
+            earned           DECIMAL(5,2) DEFAULT 1.5,
+            leaves_taken     DECIMAL(5,2) DEFAULT 0,
+            closing_balance  DECIMAL(5,2) DEFAULT 0,
+            unpaid_leaves    DECIMAL(5,2) DEFAULT 0,
+            created_at       TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(user_id, month, year)
+          );
+        `);
+
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS period_unlock_log (
+            id             SERIAL PRIMARY KEY,
+            month          INTEGER NOT NULL,
+            year           INTEGER NOT NULL,
+            unlocked_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            unlocked_at    TIMESTAMPTZ DEFAULT NOW(),
+            reason         TEXT NOT NULL,
+            relocked_at    TIMESTAMPTZ,
+            relocked_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            is_active      BOOLEAN DEFAULT TRUE
+          );
+        `);
+
+        await pool.query(`
+          ALTER TABLE transactions ADD COLUMN IF NOT EXISTS period_unlock_id INTEGER REFERENCES period_unlock_log(id) ON DELETE SET NULL;
+        `);
+        await pool.query(`
+          ALTER TABLE office_expenses ADD COLUMN IF NOT EXISTS period_unlock_id INTEGER REFERENCES period_unlock_log(id) ON DELETE SET NULL;
+        `);
+
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
         console.error('❌ Migration failed:', mErr.message);
