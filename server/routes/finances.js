@@ -377,37 +377,57 @@ router.get('/summary', authenticate, async (req, res) => {
       const incomeRes = await pool.query(incomeQuery, incomeParams);
       const totalValue = parseFloat(incomeRes.rows[0].total_value);
 
-      // 2. Billed/Received/Pending — driven entirely by the invoices table
-      //   billed   = total amount of all non-cancelled invoices
-      //   received = sum of received_amount already collected across those invoices
-      //   pending  = sum of outstanding balance (amount - received_amount) for non-paid, non-cancelled invoices
-      let invoiceQuery = `
+      // 2. Active Billed & Received — driven by the invoices table within the active period
+      let activeInvoiceQuery = `
         SELECT
           COALESCE(SUM(amount), 0)                                                        AS billed,
-          COALESCE(SUM(received_amount), 0)                                               AS received,
+          COALESCE(SUM(received_amount), 0)                                               AS received
+        FROM invoices
+        WHERE LOWER(status) != 'cancelled'
+      `;
+      const activeInvoiceParams = [];
+      let aiIdx = 1;
+      if (projectId) {
+        activeInvoiceQuery += ` AND project_id = $${aiIdx++}`;
+        activeInvoiceParams.push(projectId);
+      }
+      if (effectiveStartDate) {
+        activeInvoiceQuery += ` AND date >= $${aiIdx++}`;
+        activeInvoiceParams.push(effectiveStartDate);
+      }
+      if (end_date) {
+        activeInvoiceQuery += ` AND date <= $${aiIdx++}`;
+        activeInvoiceParams.push(end_date);
+      }
+
+      const activeInvoiceRes = await pool.query(activeInvoiceQuery, activeInvoiceParams);
+      const billed = parseFloat(activeInvoiceRes.rows[0].billed);
+      const received = parseFloat(activeInvoiceRes.rows[0].received);
+
+      // 2.5 Cumulative Billed, Received, and Pending — driven by the invoices table globally (across all history)
+      let cumulativeInvoiceQuery = `
+        SELECT
+          COALESCE(SUM(amount), 0)                                                        AS cumulative_billed,
+          COALESCE(SUM(received_amount), 0)                                               AS cumulative_received,
           COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
         FROM invoices
         WHERE LOWER(status) != 'cancelled'
       `;
-      const invoiceParams = [];
-      let iIdx = 1;
+      const cumulativeInvoiceParams = [];
+      let ciIdx = 1;
       if (projectId) {
-        invoiceQuery += ` AND project_id = $${iIdx++}`;
-        invoiceParams.push(projectId);
-      }
-      if (effectiveStartDate) {
-        invoiceQuery += ` AND date >= $${iIdx++}`;
-        invoiceParams.push(effectiveStartDate);
+        cumulativeInvoiceQuery += ` AND project_id = $${ciIdx++}`;
+        cumulativeInvoiceParams.push(projectId);
       }
       if (end_date) {
-        invoiceQuery += ` AND date <= $${iIdx++}`;
-        invoiceParams.push(end_date);
+        cumulativeInvoiceQuery += ` AND date <= $${ciIdx++}`;
+        cumulativeInvoiceParams.push(end_date);
       }
 
-      const invoiceRes = await pool.query(invoiceQuery, invoiceParams);
-      const billed = parseFloat(invoiceRes.rows[0].billed);
-      const received = parseFloat(invoiceRes.rows[0].received);
-      const pending = parseFloat(invoiceRes.rows[0].pending);
+      const cumulativeInvoiceRes = await pool.query(cumulativeInvoiceQuery, cumulativeInvoiceParams);
+      const cumulativeBilled = parseFloat(cumulativeInvoiceRes.rows[0].cumulative_billed);
+      const cumulativeReceived = parseFloat(cumulativeInvoiceRes.rows[0].cumulative_received);
+      const pending = parseFloat(cumulativeInvoiceRes.rows[0].pending);
 
       // 3. Expenses from transactions (excluding vendor payments)
       let expenseQuery = `
@@ -454,7 +474,7 @@ router.get('/summary', authenticate, async (req, res) => {
       }
 
       const totalExpense = transactionExpense + totalPayroll;
-      const unbilled = totalValue - billed;
+      const unbilled = totalValue - cumulativeBilled;
 
       // 5. Total Company Capital (sum of profit of all closed months)
       const capitalRes = await pool.query('SELECT COALESCE(SUM(amount), 0) as total_capital FROM company_capital');
@@ -462,7 +482,7 @@ router.get('/summary', authenticate, async (req, res) => {
 
       res.json({
         total_income: totalValue,
-        current_project_value: totalValue - received,
+        current_project_value: totalValue - cumulativeReceived,
         billed_income: billed,
         received_income: received,
         pending_income: pending,
