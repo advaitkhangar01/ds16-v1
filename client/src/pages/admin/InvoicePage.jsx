@@ -75,14 +75,16 @@ export default function InvoicePage() {
   const [loadingStages, setLoadingStages] = useState(false);
   const [selectedStageIds, setSelectedStageIds] = useState([]);
 
-  const fetchProjectStages = async (pid) => {
+  const fetchProjectStages = async (pid, activeIds = []) => {
     if (!pid) { setProjectStages([]); return; }
     setLoadingStages(true);
     try {
       const { data } = await api.get(`/documents/payment-stages?project_id=${pid}`);
+      const idsToKeep = [...selectedStageIds, ...activeIds];
       setProjectStages(
         (data.paymentStages || []).filter(s =>
-          ['payment initiated', 'bill generated'].includes(s.status?.toLowerCase())
+          ['payment initiated', 'bill generated'].includes(s.status?.toLowerCase()) ||
+          idsToKeep.includes(s.id)
         )
       );
     } catch (err) {
@@ -95,6 +97,9 @@ export default function InvoicePage() {
 
   useEffect(() => {
     if (selectedStageIds.length === 0) return;
+    // Guard: Prevent wiping prefilled state on mount while project stages are loading
+    if (projectStages.length === 0) return;
+    
     const selected = projectStages.filter(s => selectedStageIds.includes(s.id));
     setFormData(prev => ({
       ...prev,
@@ -136,9 +141,11 @@ export default function InvoicePage() {
       }));
       
       if (preFill.project_id) {
-        fetchProjectStages(preFill.project_id);
         if (preFill.payment_stage_id) {
           setSelectedStageIds([preFill.payment_stage_id]);
+          fetchProjectStages(preFill.project_id, [preFill.payment_stage_id]);
+        } else {
+          fetchProjectStages(preFill.project_id);
         }
       }
       
@@ -264,9 +271,11 @@ export default function InvoicePage() {
       });
 
       if (inv.project_id) {
-        fetchProjectStages(inv.project_id);
         if (inv.payment_stage_id) {
           setSelectedStageIds([inv.payment_stage_id]);
+          fetchProjectStages(inv.project_id, [inv.payment_stage_id]);
+        } else {
+          fetchProjectStages(inv.project_id);
         }
       }
 
@@ -1291,6 +1300,7 @@ export default function InvoicePage() {
                         setFormData({
                           ...INITIAL_FORM,
                           project_id: inv.project_id || null,
+                          payment_stage_id: inv.payment_stage_id || null,
                           invoiceNo: inv.invoice_no || '',
                           date: inv.date ? inv.date.split('T')[0] : INITIAL_FORM.date,
                           dueDate: inv.due_date ? inv.due_date.split('T')[0] : '',
@@ -1324,6 +1334,21 @@ export default function InvoicePage() {
                           if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
                           setSignatureData(null);
                         }
+                        
+                        // Sync project stages
+                        if (inv.project_id) {
+                          if (inv.payment_stage_id) {
+                            setSelectedStageIds([inv.payment_stage_id]);
+                            fetchProjectStages(inv.project_id, [inv.payment_stage_id]);
+                          } else {
+                            setSelectedStageIds([]);
+                            fetchProjectStages(inv.project_id);
+                          }
+                        } else {
+                          setSelectedStageIds([]);
+                          setProjectStages([]);
+                        }
+
                         // Phase 1: Track the invoice so mark-paid can use its DB id
                         setSavedInvoiceRef(inv);
                         setShowHistory(false);
