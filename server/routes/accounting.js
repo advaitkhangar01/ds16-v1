@@ -230,8 +230,8 @@ router.get('/payroll/employees', async (req, res) => {
   }
 });
 
-// Update employee base salary or hourly rate
-router.put('/payroll/employees/:id', requireAdmin, async (req, res) => {
+// Update employee base salary or hourly rate (accounting or admin)
+router.put('/payroll/employees/:id', async (req, res) => {
   const { base_salary, hourly_rate } = req.body;
   try {
     const { rows } = await pool.query(
@@ -265,8 +265,8 @@ router.get('/payroll/history', async (req, res) => {
   }
 });
 
-// Process payroll (add/update)
-router.post('/payroll', requireAdmin, checkPeriodLock, async (req, res) => {
+// Process payroll (add/update) — accounting staff can prepare payroll, admin finalizes via month-close
+router.post('/payroll', checkPeriodLock, async (req, res) => {
   const { user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status } = req.body;
   try {
     const { rows } = await pool.query(

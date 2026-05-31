@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import AppLayout from '../../components/layout/AppLayout';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
@@ -71,6 +72,7 @@ const getReceiptIcon = (fileName) => {
 
 export default function AccountingPage() {
   const navigate = useNavigate();
+  const { isAdmin, isAccounts } = useAuth();
   const [activeTab, setActiveTab] = useState('summary');
   const [loading, setLoading] = useState(true);
 
@@ -107,7 +109,8 @@ export default function AccountingPage() {
   const [summary, setSummary] = useState({
     totalIncome: 0,
     totalExpense: 0,
-    netProfit: 0
+    netProfit: 0,
+    totalCapital: 0
   });
 
   // Chart Data
@@ -313,7 +316,8 @@ export default function AccountingPage() {
         unbilledIncome: data.unbilled_income,
         totalIncentives: data.total_incentives || 0,
         totalExpense: data.total_expense,
-        netProfit: data.net_profit
+        netProfit: data.net_profit,
+        totalCapital: data.total_capital || 0
       });
     } catch (err) {
       console.error(err);
@@ -949,6 +953,24 @@ export default function AccountingPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Box 10: Company Capital */}
+              <div className="bg-white p-5 rounded-xl border border-blue-100 shadow-sm relative overflow-hidden group md:col-span-2">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Company Capital (Retained Profit)</p>
+                    <div className="flex items-baseline gap-3 mt-2">
+                      <h3 className="text-xl font-black text-blue-600">
+                        ₹{(Number(summary.totalCapital) || 0).toLocaleString('en-IN')}
+                      </h3>
+                      <span className="text-[10px] font-bold text-gray-400 italic">Accumulated Closed Periods Profit</span>
+                    </div>
+                  </div>
+                  <div className="p-2 bg-blue-50 rounded-lg">
+                    <IndianRupee size={20} className="text-blue-600" />
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Charts Section */}
@@ -1204,7 +1226,7 @@ export default function AccountingPage() {
                             <div className="space-y-3">
                               {items.length > 0 ? items.map(exp => {
                                 const isSys = exp.source === 'payroll';
-                                const canDel = isDeletable(exp.date) && !isSys;
+                                const canDel = isDeletable(exp.date) && !isSys && isAdmin;
                                 const receiptIconData = getReceiptIcon(exp.receipt_url);
 
                                 return (
@@ -1546,7 +1568,7 @@ export default function AccountingPage() {
                               <div className="flex flex-col items-end gap-1">
                                 <div className="flex items-center gap-1 font-mono text-xs font-bold text-gray-600">
                                   <span>₹{parseFloat(emp.base_salary).toLocaleString('en-IN')}</span>
-                                  {!processed && (
+                                  {!processed && isAdmin && (
                                     <button 
                                       onClick={async () => {
                                         const newSal = prompt('Enter new base salary:', emp.base_salary);
@@ -1565,10 +1587,15 @@ export default function AccountingPage() {
                                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                     </button>
                                   )}
+                                  {!processed && isAccounts && !isAdmin && (
+                                    <span title="Only Admin can edit base salary" className="text-gray-300 cursor-not-allowed opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                      <Lock size={9} />
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-1 font-mono text-[10px] font-bold text-primary italic">
                                   <span>₹{parseFloat(emp.hourly_rate || 0).toLocaleString('en-IN')}/hr</span>
-                                  {!processed && (
+                                  {!processed && isAdmin && (
                                     <button 
                                       onClick={async () => {
                                         const newRate = prompt('Enter new hourly rate:', emp.hourly_rate);
@@ -1825,7 +1852,7 @@ export default function AccountingPage() {
                             <Lock size={12} />
                             <span className="text-[9px] font-black uppercase tracking-wider">Closed</span>
                           </div>
-                        ) : isDeletable(exp.date) && exp.source !== 'payroll' ? (
+                        ) : isDeletable(exp.date) && exp.source !== 'payroll' && isAdmin ? (
                           <div className="flex items-center justify-center gap-2">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Editable" />
                             <button 
@@ -2063,14 +2090,16 @@ export default function AccountingPage() {
                                   <FileText size={12} />
                                   View
                                 </a>
-                                <button
-                                  onClick={() => handleDeleteInvoice(inv.id, inv.invoice_no)}
-                                  className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
-                                  title="Delete Invoice"
-                                >
-                                  <Trash2 size={12} />
-                                  Delete
-                                </button>
+                                {isAdmin && (
+                                  <button
+                                    onClick={() => handleDeleteInvoice(inv.id, inv.invoice_no)}
+                                    className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                    title="Delete Invoice"
+                                  >
+                                    <Trash2 size={12} />
+                                    Delete
+                                  </button>
+                                )}
                               </>
                             )}
                           </div>
@@ -2313,19 +2342,26 @@ export default function AccountingPage() {
 
                         {/* Execute Close button */}
                         <div className="flex justify-end gap-3 pt-2">
-                          <button 
-                            onClick={() => {
-                              if (preflight?.payroll?.employees_pending > 0 && !closeReason.trim()) {
-                                toast.error('Justification reason is mandatory when payroll is pending');
-                                return;
-                              }
-                              setShowCloseConfirmModal(true);
-                            }}
-                            className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-red-500 to-[#E05A1E] hover:from-red-600 hover:to-[#C04A15] text-white rounded-lg text-xs font-black uppercase tracking-wider transition-all shadow-md hover:shadow-lg active:scale-[0.98]"
-                          >
-                            <Lock size={14} />
-                            Close Period: {preflight.month_label}
-                          </button>
+                          {isAdmin ? (
+                            <button 
+                              onClick={() => {
+                                if (preflight?.payroll?.employees_pending > 0 && !closeReason.trim()) {
+                                  toast.error('Justification reason is mandatory when payroll is pending');
+                                  return;
+                                }
+                                setShowCloseConfirmModal(true);
+                              }}
+                              className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-red-500 to-[#E05A1E] hover:from-red-600 hover:to-[#C04A15] text-white rounded-lg text-xs font-black uppercase tracking-wider transition-all shadow-md hover:shadow-lg active:scale-[0.98]"
+                            >
+                              <Lock size={14} />
+                              Close Period: {preflight.month_label}
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-2 px-6 py-2.5 bg-gray-100 border border-gray-200 text-gray-400 rounded-lg text-xs font-black uppercase tracking-wider cursor-not-allowed select-none" title="Only Admin can execute month close. Please notify the Admin to run this action.">
+                              <Lock size={14} />
+                              Admin Only — Close Period
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -2364,26 +2400,28 @@ export default function AccountingPage() {
                             <span>by {log.closed_by_name || 'Admin'}</span>
                           </div>
 
-                          <div className="flex justify-end gap-2 pt-1.5">
-                            {log.is_unlocked ? (
-                              <button 
-                                onClick={() => handleRelockMonth(log.month, log.year)}
-                                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded text-[9px] font-black uppercase tracking-widest transition-all"
-                              >
-                                Re-lock Period
-                              </button>
-                            ) : (
-                              <button 
-                                onClick={() => {
-                                  setTargetUnlockMonth({ month: log.month, year: log.year });
-                                  setShowUnlockModal(true);
-                                }}
-                                className="px-2.5 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 rounded text-[9px] font-black uppercase tracking-widest transition-all"
-                              >
-                                Unlock Period
-                              </button>
-                            )}
-                          </div>
+                          {isAdmin && (
+                            <div className="flex justify-end gap-2 pt-1.5">
+                              {log.is_unlocked ? (
+                                <button 
+                                  onClick={() => handleRelockMonth(log.month, log.year)}
+                                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded text-[9px] font-black uppercase tracking-widest transition-all"
+                                >
+                                  Re-lock Period
+                                </button>
+                              ) : (
+                                <button 
+                                  onClick={() => {
+                                    setTargetUnlockMonth({ month: log.month, year: log.year });
+                                    setShowUnlockModal(true);
+                                  }}
+                                  className="px-2.5 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 rounded text-[9px] font-black uppercase tracking-widest transition-all"
+                                >
+                                  Unlock Period
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -2476,12 +2514,14 @@ export default function AccountingPage() {
                               >
                                 View Snapshot
                               </button>
-                              <button 
-                                onClick={() => handleReverseClose(log.month, log.year)}
-                                className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded text-[9px] font-black uppercase tracking-wider transition-colors"
-                              >
-                                Reverse Close
-                              </button>
+                              {isAdmin && (
+                                <button 
+                                  onClick={() => handleReverseClose(log.month, log.year)}
+                                  className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded text-[9px] font-black uppercase tracking-wider transition-colors"
+                                >
+                                  Reverse Close
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>

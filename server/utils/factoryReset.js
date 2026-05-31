@@ -24,6 +24,7 @@ async function executeFactoryReset(pool) {
     'payroll',
     'employee_leave_summary',
     'employee_leave_balance',
+    'company_capital',
     'monthly_closing_log',
     'period_unlock_log',
     'leave_requests',

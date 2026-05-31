@@ -296,15 +296,11 @@ router.get('/preview', requireAccounting, async (req, res) => {
  * POST /api/monthly-close/execute
  * Executes the month closing inside a database transaction.
  */
-router.post('/execute', requireAdmin, async (req, res) => {
-  const month = parseInt(req.body.month);
-  const year = parseInt(req.body.year);
-  const closeReason = req.body.reason || '';
-
-  if (!month || !year || month < 1 || month > 12 || year < 2020) {
-    return res.status(400).json({ error: 'Valid month (1-12) and year are required' });
-  }
-
+/**
+ * Core transactional function to execute a month close.
+ * Reusable by both the HTTP endpoint and the automated background scheduler.
+ */
+async function executeMonthCloseInternal(month, year, closedByUserId = null, closeReason = '') {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -316,7 +312,7 @@ router.post('/execute', requireAdmin, async (req, res) => {
     );
     if (closedRows.length > 0) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'This month is already closed' });
+      throw new Error('This month is already closed');
     }
 
     // 2. Identify employees and compute leave balances
@@ -384,7 +380,7 @@ router.post('/execute', requireAdmin, async (req, res) => {
          VALUES ($1, $2, $3, TRUE, $4, NOW())
          ON CONFLICT (category, month, year) 
          DO UPDATE SET is_verified = TRUE, verified_by = EXCLUDED.verified_by, verified_at = NOW()`,
-        [catRow.category, month, year, req.user.id]
+        [catRow.category, month, year, closedByUserId]
       );
     }
 
@@ -414,23 +410,57 @@ router.post('/execute', requireAdmin, async (req, res) => {
 
     const hadPendingPayroll = pendingCount > 0;
 
+    // 5.5 Write/transfer this profit to company_capital ledger
+    const profit = snapshot.profit_loss.realized;
+    await client.query(
+      `INSERT INTO company_capital (month, year, amount, description)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (month, year) 
+       DO UPDATE SET amount = EXCLUDED.amount, description = EXCLUDED.description`,
+      [month, year, profit, `Capital transferred from profit of ${new Date(year, month - 1, 1).toLocaleString('default', { month: 'long' })} ${year}`]
+    );
+
     // 6. Write record into monthly_closing_log
     const { rows: closeLogRows } = await client.query(
       `INSERT INTO monthly_closing_log 
        (month, year, closed_by, closed_at, had_pending_payroll, pending_payroll_count, pending_payroll_amount, close_reason, snapshot)
        VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8)
        RETURNING *`,
-      [month, year, req.user.id, hadPendingPayroll, pendingCount, pendingAmount, closeReason, snapshot]
+      [month, year, closedByUserId, hadPendingPayroll, pendingCount, pendingAmount, closeReason, snapshot]
     );
 
     await client.query('COMMIT');
-    res.status(201).json(closeLogRows[0]);
+    return closeLogRows[0];
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('Closing execution failed:', err);
-    res.status(500).json({ error: err.message });
+    throw err;
   } finally {
     client.release();
+  }
+}
+
+/**
+ * POST /api/monthly-close/execute
+ * Executes the month closing inside a database transaction.
+ */
+router.post('/execute', requireAdmin, async (req, res) => {
+  const month = parseInt(req.body.month);
+  const year = parseInt(req.body.year);
+  const closeReason = req.body.reason || '';
+
+  if (!month || !year || month < 1 || month > 12 || year < 2020) {
+    return res.status(400).json({ error: 'Valid month (1-12) and year are required' });
+  }
+
+  try {
+    const closedRecord = await executeMonthCloseInternal(month, year, req.user.id, closeReason);
+    res.status(201).json(closedRecord);
+  } catch (err) {
+    console.error('Closing execution failed:', err);
+    if (err.message === 'This month is already closed') {
+      return res.status(409).json({ error: err.message });
+    }
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -591,6 +621,7 @@ router.delete('/:month/:year', requireAdmin, async (req, res) => {
     // 2. Delete rolling leave balances & summaries of this month
     await client.query('DELETE FROM employee_leave_balance WHERE month = $1 AND year = $2', [month, year]);
     await client.query('DELETE FROM employee_leave_summary WHERE month = $1 AND year = $2', [month, year]);
+    await client.query('DELETE FROM company_capital WHERE month = $1 AND year = $2', [month, year]);
 
     // 3. Unlock expense categories of this month
     await client.query(
@@ -615,4 +646,5 @@ router.delete('/:month/:year', requireAdmin, async (req, res) => {
   }
 });
 
+router.executeMonthCloseInternal = executeMonthCloseInternal;
 module.exports = router;

@@ -21,6 +21,18 @@ const ADMIN_LINKS = [
   {to: '/admin/settings', label: 'Settings', icon: 'settings'},
 ];
 
+// Accounts: financial-first nav, no task board or settings
+const ACCOUNTS_LINKS = [
+  { to: '/admin/dashboard', label: 'Dashboard', icon: 'grid' },
+  { to: '/admin/invoice', label: 'Invoice', icon: 'receipt' },
+  { to: '/admin/accounting', label: 'Accounting', icon: 'calculator' },
+  { to: '/admin/reports', label: 'Reports', icon: 'file_spreadsheet' },
+  { to: '/clients', label: 'Clients', icon: 'users' },
+  { to: '/admin/staff', label: 'Staff', icon: 'briefcase' },
+  { to: '/attendance', label: 'Attendance', icon: 'clock' },
+  { to: '/admin/history', label: 'History', icon: 'archive' },
+];
+
 const EMP_LINKS = [
   { to: '/employee/dashboard', label: 'Dashboard', icon: 'grid' },
   { to: '/projects', label: 'My Projects', icon: 'folder' },
@@ -114,7 +126,7 @@ export default function Sidebar({ onClose }) {
   const links = isAdmin 
     ? ADMIN_LINKS 
     : (isAccounts 
-        ? ADMIN_LINKS.filter(link => link.to !== '/admin/settings') 
+        ? ACCOUNTS_LINKS
         : EMP_LINKS);
 
   function handleLogout() {
@@ -134,7 +146,9 @@ export default function Sidebar({ onClose }) {
           <div className="min-w-0">
             <div className="text-sm font-black text-[#1A1A1A] leading-tight truncate uppercase tracking-tight">Design Studio 16</div>
             <div className="text-[10px] font-bold text-[#E05A1E] uppercase tracking-widest">
-              {user?.role === 'design_head' ? 'Design Head' : user?.role}
+              {user?.role === 'design_head' ? 'Design Head' :
+               user?.role === 'accounts' ? 'Accounts Dept.' :
+               user?.role}
             </div>
           </div>
         </div>

@@ -376,6 +376,19 @@ pool.query('SELECT NOW()', (err) => {
           ALTER TABLE office_expenses ADD COLUMN IF NOT EXISTS period_unlock_id INTEGER REFERENCES period_unlock_log(id) ON DELETE SET NULL;
         `);
 
+        // Ensure company_capital table exists
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS company_capital (
+            id              SERIAL PRIMARY KEY,
+            month           INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+            year            INTEGER NOT NULL CHECK (year >= 2020),
+            amount          DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+            created_at      TIMESTAMPTZ DEFAULT NOW(),
+            description     TEXT,
+            UNIQUE(month, year)
+          );
+        `);
+
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
         console.error('❌ Migration failed:', mErr.message);

@@ -45,7 +45,7 @@ export function AuthProvider({ children }) {
 
   const isAdmin = user?.role === 'admin';
   const isEmployee = user?.role === 'employee';
-  const isAccounts = user?.role === 'accounts';
+  const isAccounts = user?.role === 'accounts' || user?.department?.toLowerCase() === 'accounts';
   const isDesignHead = user?.role === 'design_head';
 
   return (

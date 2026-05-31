@@ -121,6 +121,12 @@ app.listen(PORT, () => {
 // Background Tasks - Only run on the first instance in cluster mode
 const isPrimaryInstance = process.env.NODE_APP_INSTANCE === undefined || process.env.NODE_APP_INSTANCE === '0';
 
+// Import and start Monthly Close Scheduler
+const { startMonthlyCloseScheduler } = require('./utils/scheduler');
+if (isPrimaryInstance) {
+  startMonthlyCloseScheduler();
+}
+
 if (cleanupOldTasks && isPrimaryInstance) {
   setInterval(cleanupOldTasks, 24 * 60 * 60 * 1000);
   setTimeout(cleanupOldTasks, 5000);

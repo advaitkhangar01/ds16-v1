@@ -25,13 +25,18 @@ const StaffPage = lazy(() => import('./pages/admin/StaffPage'));
 const StaffDetailPage = lazy(() => import('./pages/admin/StaffDetailPage'));
 const HistoryPage = lazy(() => import('./pages/admin/HistoryPage'));
 
-function ProtectedRoute({ children, adminOnly = false, allowAccounts = false }) {
+function ProtectedRoute({ children, adminOnly = false, allowAccounts = false, blockAccounts = false }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   
   const isAccounts = user.role === 'accounts' || user.department?.toLowerCase() === 'accounts';
   
+  // Explicitly block accounts from certain routes (e.g. projects list)
+  if (blockAccounts && isAccounts && user.role !== 'admin') {
+    return <Navigate to="/admin/dashboard" replace />;
+  }
+
   if (adminOnly && !allowAccounts && user.role !== 'admin') {
     return <Navigate to="/employee/dashboard" replace />;
   }
@@ -94,7 +99,7 @@ function AppRoutes() {
           <ProtectedRoute adminOnly><SettingsPage /></ProtectedRoute>
         } />
         <Route path="/admin/reports" element={
-          <ProtectedRoute adminOnly><ReportsPage /></ProtectedRoute>
+          <ProtectedRoute adminOnly allowAccounts><ReportsPage /></ProtectedRoute>
         } />
         <Route path="/admin/staff" element={
           <ProtectedRoute adminOnly allowAccounts><StaffPage /></ProtectedRoute>
@@ -110,7 +115,7 @@ function AppRoutes() {
 
         {/* Shared */}
         <Route path="/projects" element={
-          <ProtectedRoute><ProjectsPage /></ProtectedRoute>
+          <ProtectedRoute blockAccounts><ProjectsPage /></ProtectedRoute>
         } />
         <Route path="/projects/:id" element={
           <ProtectedRoute><ProjectDetail /></ProtectedRoute>

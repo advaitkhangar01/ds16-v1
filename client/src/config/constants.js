@@ -37,7 +37,9 @@ export const TASK_STATUS = {
 
 export const USER_ROLES = {
   ADMIN: 'admin',
-  EMPLOYEE: 'employee'
+  EMPLOYEE: 'employee',
+  ACCOUNTS: 'accounts',
+  DESIGN_HEAD: 'design_head'
 };
 
 export const VIEW_MODES = {

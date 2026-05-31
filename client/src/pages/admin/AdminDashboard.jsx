@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import api from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import { formatTimeIST, todayIST } from '../../utils/time';
 import { mapAttendance } from '../../utils/attendance';
 import AttendanceCard from '../../components/ui/AttendanceCard';
@@ -446,7 +447,72 @@ function TaskKanbanBoard() {
   );
 }
 
+// ── Accounts Financial Command Center
+function AccountsCommandCenter() {
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [invRes, payrollRes] = await Promise.all([
+          api.get('/invoices?limit=500'),
+          api.get('/accounting/payroll/history'),
+        ]);
+        const invoices = invRes.data?.invoices || [];
+        const now = new Date();
+        const pending = invoices.filter(i => i.status !== 'paid' && i.status !== 'cancelled' && !i.is_payment_stage);
+        const overdue = pending.filter(i => i.due_date && new Date(i.due_date) < now);
+        const pendingValue = pending.reduce((s, i) => s + parseFloat(i.pending_amount || i.amount || 0), 0);
+        const overdueValue = overdue.reduce((s, i) => s + parseFloat(i.pending_amount || i.amount || 0), 0);
+        const thisMonth = now.getMonth() + 1;
+        const thisYear = now.getFullYear();
+        const payroll = payrollRes.data || [];
+        const thisMonthPayroll = payroll.filter(p => p.month === thisMonth && p.year === thisYear);
+        setSummary({ pending: pending.length, pendingValue, overdue: overdue.length, overdueValue, payrollCount: thisMonthPayroll.length });
+      } catch {/* silent */} finally { setLoading(false); }
+    }
+    load();
+  }, []);
+
+  const cards = [
+    { label: 'Pending Invoices', value: loading ? '—' : summary?.pending ?? 0, sub: loading ? '' : `₹${(summary?.pendingValue ?? 0).toLocaleString('en-IN')}`, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', href: '/admin/invoice' },
+    { label: 'Overdue Invoices', value: loading ? '—' : summary?.overdue ?? 0, sub: loading ? '' : `₹${(summary?.overdueValue ?? 0).toLocaleString('en-IN')} overdue`, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200', href: '/admin/invoice' },
+    { label: 'Payroll Processed', value: loading ? '—' : summary?.payrollCount ?? 0, sub: 'This month', color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', href: '/admin/accounting' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-black text-gray-500 uppercase tracking-widest">Financial Overview</h2>
+        <a href="/admin/accounting" className="text-[11px] font-bold text-[#E05A1E] hover:underline">Open Accounting →</a>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {cards.map(c => (
+          <a key={c.label} href={c.href} className={`card ${c.bg} border ${c.border} hover:shadow-md transition-all group cursor-pointer`}>
+            <p className="text-xs font-medium text-muted mb-2">{c.label}</p>
+            <p className={`text-3xl font-bold ${c.color}`}>{c.value}</p>
+            {c.sub && <p className={`text-xs font-bold ${c.color} mt-1 opacity-70`}>{c.sub}</p>}
+          </a>
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-3 mt-2">
+        {[
+          { label: 'Invoices', href: '/admin/invoice', color: 'text-blue-600 bg-blue-50 border-blue-200' },
+          { label: 'Accounting', href: '/admin/accounting', color: 'text-orange-600 bg-orange-50 border-orange-200' },
+          { label: 'Reports', href: '/admin/reports', color: 'text-purple-600 bg-purple-50 border-purple-200' },
+        ].map(l => (
+          <a key={l.label} href={l.href} className={`text-center py-3 rounded-xl border text-xs font-black uppercase tracking-wider transition-all hover:shadow-sm ${l.color}`}>
+            {l.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
+  const { isAdmin, isAccounts } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [financialModal, setFinancialModal] = useState({ isOpen: false, type: '', label: '' });
@@ -487,7 +553,9 @@ export default function AdminDashboard() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-black text-[#1A1A1A] tracking-tight">Admin Dashboard</h1>
+            <h1 className="text-2xl font-black text-[#1A1A1A] tracking-tight">
+              {isAccounts && !isAdmin ? 'Accounts Dashboard' : 'Admin Dashboard'}
+            </h1>
             <p className="text-muted text-sm font-medium mt-0.5">{todayIST()}</p>
           </div>
           <button
@@ -542,49 +610,69 @@ export default function AdminDashboard() {
         />
 
 
-        {/* Main content grid */}
-        <div className="space-y-6">
-          <div className="w-full">
-            {loading ? (
-              <div className="card skeleton h-96 rounded" />
-            ) : (
-              <KanbanBoard kanban={data?.kanban} />
-            )}
-          </div>
-
-          <div className="w-full">
-            <TaskKanbanBoard />
-          </div>
-
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            {loading ? (
-              <>
+        {/* Accounts: financial command center; Admin: task boards */}
+        {isAccounts && !isAdmin ? (
+          <AccountsCommandCenter />
+        ) : (
+          <div className="space-y-6">
+            <div className="w-full">
+              {loading ? (
                 <div className="card skeleton h-96 rounded" />
-                <div className="card skeleton h-96 rounded" />
-              </>
-            ) : (
-              <>
-                <TeamAttendanceTable records={data?.team_attendance || []} />
-                <TodaysTasks tasks={data?.todays_tasks} />
-              </>
-            )}
-          </div>
-        </div>
+              ) : (
+                <KanbanBoard kanban={data?.kanban} />
+              )}
+            </div>
 
-        {/* Quick links */}
+            <div className="w-full">
+              <TaskKanbanBoard />
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              {loading ? (
+                <>
+                  <div className="card skeleton h-96 rounded" />
+                  <div className="card skeleton h-96 rounded" />
+                </>
+              ) : (
+                <>
+                  <TeamAttendanceTable records={data?.team_attendance || []} />
+                  <TodaysTasks tasks={data?.todays_tasks} />
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Quick links — accounts sees financial shortcuts, admin sees project overview */}
         <div className="grid grid-cols-2 gap-4">
-          <a href="/projects"
-            className="card flex items-center gap-4 hover:border-[rgba(224,90,30,0.4)] transition-all group cursor-pointer">
-            <div className="w-10 h-10 rounded-lg bg-[rgba(224,90,30,0.08)] border border-[rgba(224,90,30,0.18)] flex items-center justify-center flex-shrink-0">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E05A1E" strokeWidth="2">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-              </svg>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-[#1A1A1A] group-hover:text-[#E05A1E] transition-colors">All Projects</p>
-              <p className="text-xs text-muted font-medium">{data?.total_projects ?? 0} total projects</p>
-            </div>
-          </a>
+          {isAccounts && !isAdmin ? (
+            <a href="/admin/invoice"
+              className="card flex items-center gap-4 hover:border-blue-400 transition-all group cursor-pointer">
+              <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center flex-shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="2">
+                  <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1z" />
+                  <path d="M16 14H8" /><path d="M16 18H8" /><path d="M16 10h-2" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-[#1A1A1A] group-hover:text-blue-600 transition-colors">Invoices</p>
+                <p className="text-xs text-muted font-medium">Manage &amp; track all invoices</p>
+              </div>
+            </a>
+          ) : (
+            <a href="/projects"
+              className="card flex items-center gap-4 hover:border-[rgba(224,90,30,0.4)] transition-all group cursor-pointer">
+              <div className="w-10 h-10 rounded-lg bg-[rgba(224,90,30,0.08)] border border-[rgba(224,90,30,0.18)] flex items-center justify-center flex-shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E05A1E" strokeWidth="2">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-[#1A1A1A] group-hover:text-[#E05A1E] transition-colors">All Projects</p>
+                <p className="text-xs text-muted font-medium">{data?.total_projects ?? 0} total projects</p>
+              </div>
+            </a>
+          )}
           <a href="/attendance"
             className="card flex items-center gap-4 hover:border-emerald-400 transition-all group cursor-pointer">
             <div className="w-10 h-10 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center flex-shrink-0">

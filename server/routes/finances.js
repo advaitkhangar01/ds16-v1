@@ -327,6 +327,19 @@ router.get('/summary', authenticate, async (req, res) => {
   const executeSummary = async (projectId) => {
     try {
       const { start_date, end_date } = req.query;
+
+      // Determine active open period boundary if no explicit start_date is provided
+      let effectiveStartDate = start_date;
+      if (!projectId && !effectiveStartDate) {
+        const { rows: latestClosed } = await pool.query(
+          'SELECT month, year FROM monthly_closing_log ORDER BY year DESC, month DESC LIMIT 1'
+        );
+        if (latestClosed.length > 0) {
+          const { month, year } = latestClosed[0];
+          // boundary starts on the first day of the month following the latest closed period
+          effectiveStartDate = new Date(year, month, 1).toISOString().split('T')[0];
+        }
+      }
       
       // 1. Income from document amounts (Total Potential) - Only for active stages: Design Proposal, Sanction, Execution (when global)
       let incomeQuery;
@@ -382,9 +395,9 @@ router.get('/summary', authenticate, async (req, res) => {
         invoiceQuery += ` AND project_id = $${iIdx++}`;
         invoiceParams.push(projectId);
       }
-      if (start_date) {
+      if (effectiveStartDate) {
         invoiceQuery += ` AND date >= $${iIdx++}`;
-        invoiceParams.push(start_date);
+        invoiceParams.push(effectiveStartDate);
       }
       if (end_date) {
         invoiceQuery += ` AND date <= $${iIdx++}`;
@@ -408,9 +421,9 @@ router.get('/summary', authenticate, async (req, res) => {
         expenseQuery += ` AND project_id = $${eIdx++}`;
         expParams.push(projectId);
       }
-      if (start_date) {
+      if (effectiveStartDate) {
         expenseQuery += ` AND date >= $${eIdx++}`;
-        expParams.push(start_date);
+        expParams.push(effectiveStartDate);
       }
       if (end_date) {
         expenseQuery += ` AND date <= $${eIdx++}`;
@@ -427,9 +440,9 @@ router.get('/summary', authenticate, async (req, res) => {
         let payrollQuery = `SELECT COALESCE(SUM(net_paid), 0) as total_payroll, COALESCE(SUM(incentives), 0) as total_incentives FROM payroll WHERE status = 'paid'`;
         const payrollParams = [];
         let pIdx = 1;
-        if (start_date) {
+        if (effectiveStartDate) {
           payrollQuery += ` AND payment_date >= $${pIdx++}`;
-          payrollParams.push(start_date);
+          payrollParams.push(effectiveStartDate);
         }
         if (end_date) {
           payrollQuery += ` AND payment_date <= $${pIdx++}`;
@@ -443,6 +456,10 @@ router.get('/summary', authenticate, async (req, res) => {
       const totalExpense = transactionExpense + totalPayroll;
       const unbilled = totalValue - billed;
 
+      // 5. Total Company Capital (sum of profit of all closed months)
+      const capitalRes = await pool.query('SELECT COALESCE(SUM(amount), 0) as total_capital FROM company_capital');
+      const totalCapital = parseFloat(capitalRes.rows[0].total_capital);
+
       res.json({
         total_income: totalValue,
         current_project_value: totalValue - received,
@@ -453,7 +470,8 @@ router.get('/summary', authenticate, async (req, res) => {
         total_expense: totalExpense,
         total_payroll: totalPayroll,
         total_incentives: totalIncentives,
-        net_profit: totalValue - totalExpense
+        net_profit: totalValue - totalExpense,
+        total_capital: totalCapital
       });
     } catch (err) {
       console.error('Execute summary error:', err);
