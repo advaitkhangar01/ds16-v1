@@ -112,9 +112,9 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
     );
     const attendance = attendanceRows[0];
     const userId = req.user.id;
-    const now = new Date();
-    const month = now.getMonth() + 1;
-    const year = now.getFullYear();
+    // Derive month/year from IST date string (not new Date() which is UTC on VPS)
+    // e.g. today = '2026-06-01' → year = 2026, month = 6
+    const [year, month] = today.split('-').map(Number);
 
     // 2. Today's tasks (grouped by project)
     const { rows: taskRows } = await pool.query(
