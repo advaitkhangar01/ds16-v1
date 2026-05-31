@@ -228,46 +228,21 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
     `);
     const totalValue = parseFloat(incomeRows[0].total_value);
 
-    // 5b. Billed/Received/Pending from payment stages - Only for active stages: Design Proposal, Sanction, Execution
-    const { rows: stagesRows } = await pool.query(`
-      WITH active_stages AS (
-        SELECT DISTINCT ON (project_id) project_id, stage_name, status
-        FROM project_stages
-        WHERE status != 'completed'
-        ORDER BY project_id, id ASC
-      ),
-      project_categories AS (
-        SELECT p.id as project_id,
-          CASE 
-            WHEN a.project_id IS NULL THEN 'completed'
-            WHEN a.status = 'pending' THEN 'pending'
-            WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
-            WHEN a.stage_name = 'Submission' THEN 'sanction'
-            WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
-            ELSE 'pending'
-          END as stage_category
-        FROM projects p
-        LEFT JOIN active_stages a ON p.id = a.project_id
-      )
-      SELECT 
-        COALESCE(SUM(CASE WHEN LOWER(pps.status) = 'paid' THEN pps.amount ELSE 0 END), 0) as received,
-        COALESCE(SUM(CASE WHEN LOWER(pps.status) IN ('bill generated', 'bill delivered') THEN pps.amount ELSE 0 END), 0) as pending
-      FROM project_payment_stages pps
-      JOIN project_categories pc ON pps.project_id = pc.project_id
-      WHERE LOWER(pps.status) != 'cancelled'
-        AND pc.stage_category IN ('design_proposal', 'sanction', 'execution')
+    // 5b. Billed/Received/Pending — driven entirely by the invoices table
+    //   billed   = total amount of all non-cancelled invoices (invoice generated amount)
+    //   received = sum of received_amount already collected across those invoices
+    //   pending  = sum of outstanding balance (amount - received_amount) for non-paid, non-cancelled invoices
+    const { rows: invoiceRows } = await pool.query(`
+      SELECT
+        COALESCE(SUM(amount), 0)                                                        AS billed,
+        COALESCE(SUM(received_amount), 0)                                               AS received,
+        COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
+      FROM invoices
+      WHERE LOWER(status) != 'cancelled'
     `);
-    const stageReceived = parseFloat(stagesRows[0].received);
-    const pending = parseFloat(stagesRows[0].pending);
-
-    // Query manual income transactions — add to received so summary matches transaction timeline
-    const { rows: manualRes } = await pool.query(
-      `SELECT COALESCE(SUM(amount), 0) as mi FROM transactions WHERE type = 'income'`
-    );
-    const manualIncome = parseFloat(manualRes[0]?.mi || 0);
-
-    const received = manualIncome > 0 ? manualIncome : stageReceived;
-    const billed = received + pending;
+    const billed   = parseFloat(invoiceRows[0].billed);
+    const received = parseFloat(invoiceRows[0].received);
+    const pending  = parseFloat(invoiceRows[0].pending);
 
     // 5c. Expenses from transactions and payroll (Unified logic with finances.js)
     const { rows: expRows } = await pool.query(
@@ -327,11 +302,6 @@ router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, 
     const { type } = req.query;
     let items = [];
 
-    const { rows: manualRes } = await pool.query(
-      `SELECT COALESCE(SUM(amount), 0) as mi FROM transactions WHERE type = 'income'`
-    );
-    const manualIncome = parseFloat(manualRes[0]?.mi || 0);
-
     if (type === 'total') {
       const { rows } = await pool.query(`
         WITH active_stages AS (
@@ -363,6 +333,11 @@ router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, 
       `);
       items = rows;
     } else if (type === 'current') {
+      const { rows: manualRes } = await pool.query(
+        "SELECT COALESCE(SUM(amount), 0) as mi FROM transactions WHERE type = 'income'"
+      );
+      const manualIncome = parseFloat(manualRes[0].mi) || 0;
+
       const { rows } = await pool.query(
         manualIncome > 0
           ? `
@@ -452,164 +427,42 @@ router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, 
       );
       items = rows;
     } else if (type === 'billed') {
-      const { rows } = await pool.query(
-        manualIncome > 0
-          ? `
-            WITH project_received AS (
-              SELECT project_id, SUM(amount) as rec_val
-              FROM transactions
-              WHERE type = 'income'
-              GROUP BY project_id
-            ),
-            project_pending AS (
-              SELECT pps.project_id, SUM(pps.amount) as pen_val
-              FROM project_payment_stages pps
-              WHERE LOWER(pps.status) IN ('bill generated', 'bill delivered') AND LOWER(pps.status) != 'cancelled'
-              GROUP BY pps.project_id
-            ),
-            active_stages AS (
-              SELECT DISTINCT ON (project_id) project_id, stage_name, status
-              FROM project_stages
-              WHERE status != 'completed'
-              ORDER BY project_id, id ASC
-            ),
-            project_categories AS (
-              SELECT p.id as project_id,
-                CASE 
-                  WHEN a.project_id IS NULL THEN 'completed'
-                  WHEN a.status = 'pending' THEN 'pending'
-                  WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
-                  WHEN a.stage_name = 'Submission' THEN 'sanction'
-                  WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
-                  ELSE 'pending'
-                END as stage_category
-              FROM projects p
-              LEFT JOIN active_stages a ON p.id = a.project_id
-            )
-            SELECT p.id, p.name, 
-              (COALESCE(pr.rec_val, 0) + COALESCE(pp.pen_val, 0)) as amount
-            FROM projects p
-            JOIN project_categories pc ON p.id = pc.project_id
-            LEFT JOIN project_received pr ON p.id = pr.project_id
-            LEFT JOIN project_pending pp ON p.id = pp.project_id
-            WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
-              AND (COALESCE(pr.rec_val, 0) + COALESCE(pp.pen_val, 0)) > 0
-            ORDER BY amount DESC
-          `
-          : `
-            WITH project_received AS (
-              SELECT project_id, SUM(amount) as rec_val
-              FROM project_payment_stages
-              WHERE LOWER(status) = 'paid' AND LOWER(status) != 'cancelled'
-              GROUP BY project_id
-            ),
-            project_pending AS (
-              SELECT project_id, SUM(amount) as pen_val
-              FROM project_payment_stages
-              WHERE LOWER(status) IN ('bill generated', 'bill delivered') AND LOWER(status) != 'cancelled'
-              GROUP BY project_id
-            ),
-            active_stages AS (
-              SELECT DISTINCT ON (project_id) project_id, stage_name, status
-              FROM project_stages
-              WHERE status != 'completed'
-              ORDER BY project_id, id ASC
-            ),
-            project_categories AS (
-              SELECT p.id as project_id,
-                CASE 
-                  WHEN a.project_id IS NULL THEN 'completed'
-                  WHEN a.status = 'pending' THEN 'pending'
-                  WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
-                  WHEN a.stage_name = 'Submission' THEN 'sanction'
-                  WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
-                  ELSE 'pending'
-                END as stage_category
-              FROM projects p
-              LEFT JOIN active_stages a ON p.id = a.project_id
-            )
-            SELECT p.id, p.name, 
-              (COALESCE(pr.rec_val, 0) + COALESCE(pp.pen_val, 0)) as amount
-            FROM projects p
-            JOIN project_categories pc ON p.id = pc.project_id
-            LEFT JOIN project_received pr ON p.id = pr.project_id
-            LEFT JOIN project_pending pp ON p.id = pp.project_id
-            WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
-              AND (COALESCE(pr.rec_val, 0) + COALESCE(pp.pen_val, 0)) > 0
-            ORDER BY amount DESC
-          `
-      );
+      // Billed = all non-cancelled invoices, grouped by project
+      const { rows } = await pool.query(`
+        SELECT p.id, p.name, SUM(i.amount) as amount
+        FROM invoices i
+        JOIN projects p ON p.id = i.project_id
+        WHERE LOWER(i.status) != 'cancelled'
+          AND i.project_id IS NOT NULL
+        GROUP BY p.id, p.name
+        HAVING SUM(i.amount) > 0
+        ORDER BY amount DESC
+      `);
       items = rows;
     } else if (type === 'received') {
-      const { rows } = await pool.query(
-        manualIncome > 0
-          ? `
-            SELECT p.id, p.name, SUM(t.amount) as amount
-            FROM projects p
-            JOIN transactions t ON p.id = t.project_id
-            WHERE t.type = 'income'
-            GROUP BY p.id, p.name
-            ORDER BY amount DESC
-          `
-          : `
-            WITH active_stages AS (
-              SELECT DISTINCT ON (project_id) project_id, stage_name, status
-              FROM project_stages
-              WHERE status != 'completed'
-              ORDER BY project_id, id ASC
-            ),
-            project_categories AS (
-              SELECT p.id as project_id,
-                CASE 
-                  WHEN a.project_id IS NULL THEN 'completed'
-                  WHEN a.status = 'pending' THEN 'pending'
-                  WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
-                  WHEN a.stage_name = 'Submission' THEN 'sanction'
-                  WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
-                  ELSE 'pending'
-                END as stage_category
-              FROM projects p
-              LEFT JOIN active_stages a ON p.id = a.project_id
-            )
-            SELECT p.id, p.name, SUM(pps.amount) as amount
-            FROM projects p
-            JOIN project_payment_stages pps ON p.id = pps.project_id
-            JOIN project_categories pc ON p.id = pc.project_id
-            WHERE LOWER(pps.status) = 'paid' AND LOWER(pps.status) != 'cancelled'
-              AND pc.stage_category IN ('design_proposal', 'sanction', 'execution')
-            GROUP BY p.id, p.name
-            ORDER BY amount DESC
-          `
-      );
+      // Received = sum of received_amount per project across all non-cancelled invoices
+      const { rows } = await pool.query(`
+        SELECT p.id, p.name, SUM(i.received_amount) as amount
+        FROM invoices i
+        JOIN projects p ON p.id = i.project_id
+        WHERE LOWER(i.status) != 'cancelled'
+          AND i.project_id IS NOT NULL
+        GROUP BY p.id, p.name
+        HAVING SUM(i.received_amount) > 0
+        ORDER BY amount DESC
+      `);
       items = rows;
     } else if (type === 'pending') {
+      // Pending = outstanding balance per project (invoice amount - received), for unpaid invoices
       const { rows } = await pool.query(`
-        WITH active_stages AS (
-          SELECT DISTINCT ON (project_id) project_id, stage_name, status
-          FROM project_stages
-          WHERE status != 'completed'
-          ORDER BY project_id, id ASC
-        ),
-        project_categories AS (
-          SELECT p.id as project_id,
-            CASE 
-              WHEN a.project_id IS NULL THEN 'completed'
-              WHEN a.status = 'pending' THEN 'pending'
-              WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
-              WHEN a.stage_name = 'Submission' THEN 'sanction'
-              WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
-              ELSE 'pending'
-            END as stage_category
-          FROM projects p
-          LEFT JOIN active_stages a ON p.id = a.project_id
-        )
-        SELECT p.id, p.name, SUM(pps.amount) as amount
-        FROM projects p
-        JOIN project_payment_stages pps ON p.id = pps.project_id
-        JOIN project_categories pc ON p.id = pc.project_id
-        WHERE LOWER(pps.status) IN ('bill generated', 'bill delivered') AND LOWER(pps.status) != 'cancelled'
-          AND pc.stage_category IN ('design_proposal', 'sanction', 'execution')
+        SELECT p.id, p.name,
+          SUM(GREATEST(i.amount - i.received_amount, 0)) as amount
+        FROM invoices i
+        JOIN projects p ON p.id = i.project_id
+        WHERE LOWER(i.status) NOT IN ('cancelled', 'paid')
+          AND i.project_id IS NOT NULL
         GROUP BY p.id, p.name
+        HAVING SUM(GREATEST(i.amount - i.received_amount, 0)) > 0
         ORDER BY amount DESC
       `);
       items = rows;

@@ -247,7 +247,9 @@ export default function InvoiceHistoryTab({ projectId, project }) {
             <tr className="bg-gray-50 border-b border-[#F0F0F0] text-muted font-bold uppercase tracking-tighter">
               <th className="px-4 py-3">Date</th>
               <th className="px-4 py-3">Invoice #</th>
-              <th className="px-4 py-3">Amount</th>
+              <th className="px-4 py-3 text-right">Principal</th>
+              <th className="px-4 py-3 text-right">GST</th>
+              <th className="px-4 py-3 text-right">Total Amount</th>
               <th className="px-4 py-3">Received</th>
               <th className="px-4 py-3">Pending</th>
               <th className="px-4 py-3">Status</th>
@@ -257,30 +259,59 @@ export default function InvoiceHistoryTab({ projectId, project }) {
           <tbody className="divide-y divide-[#F0F0F0]">
             {filteredInvoicesList.length === 0 ? (
               <tr>
-                <td colSpan="7" className="px-4 py-10 text-center text-muted italic">
+                <td colSpan="9" className="px-4 py-10 text-center text-muted italic">
                   {invoiceFilter === 'generated' ? 'No generated invoices found for this project.' :
                    invoiceFilter === 'draft' ? 'No draft invoices found for this project.' :
                    'No invoices found for this project.'}
                 </td>
               </tr>
             ) : (
-              filteredInvoicesList.map((inv) => (
-                <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="px-4 py-4 text-[#1A1A1A] font-medium">
-                    {new Date(inv.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                  </td>
-                  <td className="px-4 py-4 font-mono text-[#E05A1E] font-bold">
-                    {inv.invoice_no}
-                  </td>
-                  <td className="px-4 py-4 text-[#1A1A1A] font-bold">
-                    ₹{parseFloat(inv.amount).toLocaleString('en-IN')}
-                  </td>
-                  <td className="px-4 py-4 text-emerald-600 font-mono font-bold">
-                    ₹{parseFloat(inv.received_amount || 0).toLocaleString('en-IN')}
-                  </td>
-                  <td className="px-4 py-4 text-orange-600 font-mono font-bold">
-                    ₹{parseFloat(inv.pending_amount || 0).toLocaleString('en-IN')}
-                  </td>
+              filteredInvoicesList.map((inv) => {
+                const amount = parseFloat(inv.amount || 0);
+                    let principal = amount;
+                    let gst = 0;
+
+                    if (!inv.is_payment_stage) {
+                      const taxDetails = inv.tax_details || {};
+                      const isGstEnabled = taxDetails.isGstEnabled !== false;
+
+                      if (isGstEnabled) {
+                        const cgstPercent = parseFloat(taxDetails.cgstPercent ?? 9);
+                        const sgstPercent = parseFloat(taxDetails.sgstPercent ?? 9);
+                        const igstPercent = parseFloat(taxDetails.igstPercent ?? 18);
+                        const isIgst = !!taxDetails.isIgst;
+                        const totalTaxPercent = isIgst ? igstPercent : (cgstPercent + sgstPercent);
+
+                        if (totalTaxPercent > 0) {
+                          principal = amount / (1 + totalTaxPercent / 100);
+                          gst = amount - principal;
+                        }
+                    }
+                  }
+
+                  return (
+                      <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
+                        <td className="px-4 py-4 text-[#1A1A1A] font-medium">
+                          {new Date(inv.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="px-4 py-4 font-mono text-[#E05A1E] font-bold">
+                          {inv.invoice_no}
+                        </td>
+                        <td className="px-4 py-4 text-[#1A1A1A] text-right font-mono font-semibold">
+                          ₹{principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-4 py-4 text-gray-500 text-right font-mono font-semibold">
+                          ₹{gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-4 py-4 text-[#1A1A1A] font-bold text-right font-mono">
+                          ₹{amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-4 py-4 text-emerald-600 font-mono font-bold">
+                          ₹{parseFloat(inv.received_amount || 0).toLocaleString('en-IN')}
+                        </td>
+                        <td className="px-4 py-4 text-orange-600 font-mono font-bold">
+                          ₹{parseFloat(inv.pending_amount || 0).toLocaleString('en-IN')}
+                        </td>
                   <td className="px-4 py-4">
                     <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
                       inv.is_payment_stage ? 'bg-amber-50 text-amber-600 border-amber-100' :
@@ -347,7 +378,7 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                     )}
                   </td>
                 </tr>
-              ))
+              )})
             )}
           </tbody>
           {filteredInvoicesList.length > 0 && (
@@ -356,8 +387,14 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                 <td className="px-4 py-2 text-gray-500 uppercase font-bold" colSpan={2}>
                   Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}
                 </td>
-                <td className="px-4 py-2 text-gray-600 font-semibold">
-                  Principal: ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <td className="px-4 py-2 text-right font-mono font-semibold text-gray-700">
+                  ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+                <td className="px-4 py-2 text-right font-mono font-semibold text-gray-500">
+                  ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+                <td className="px-4 py-2 text-right font-mono text-[#E05A1E] font-bold">
+                  ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
                 <td className="px-4 py-2 text-emerald-600 font-mono font-bold">
                   ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
@@ -366,20 +403,6 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                   ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </td>
                 <td colSpan={2}></td>
-              </tr>
-              <tr className="border-b border-[#F0F0F0]/50">
-                <td colSpan={2} className="px-4 py-1.5"></td>
-                <td className="px-4 py-1.5 text-gray-600 font-semibold">
-                  GST Amount: ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </td>
-                <td colSpan={4}></td>
-              </tr>
-              <tr className="bg-gray-100/20">
-                <td colSpan={2} className="px-4 py-2.5"></td>
-                <td className="px-4 py-2.5 text-[#E05A1E] font-black text-xs">
-                  Total Value: ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </td>
-                <td colSpan={4}></td>
               </tr>
             </tfoot>
           )}

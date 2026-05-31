@@ -786,7 +786,7 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
 
     // 1. Fetch the invoice to see if it's linked to a payment stage
     const { rows: invoiceRows } = await client.query(
-      'SELECT payment_stage_id FROM invoices WHERE id = $1',
+      'SELECT payment_stage_id, invoice_no, project_id FROM invoices WHERE id = $1',
       [req.params.id]
     );
 
@@ -795,13 +795,21 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Invoice not found' });
     }
 
-    const { payment_stage_id } = invoiceRows[0];
+    const { payment_stage_id, invoice_no, project_id } = invoiceRows[0];
 
     // Fetch junction stages before deleting the invoice
     const { rows: junctionRows } = await client.query(
       'SELECT payment_stage_id FROM invoice_payment_stages WHERE invoice_id = $1',
       [req.params.id]
     );
+
+    // Delete associated ledger transaction entries from transactions
+    if (invoice_no) {
+      await client.query(
+        'DELETE FROM transactions WHERE reference_id = $1',
+        [invoice_no]
+      );
+    }
 
     // 2. Delete the invoice (will cascade delete junction rows)
     await client.query('DELETE FROM invoices WHERE id = $1', [req.params.id]);

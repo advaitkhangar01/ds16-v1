@@ -1911,7 +1911,9 @@ export default function AccountingPage() {
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Client</th>
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Project</th>
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date / Due Date</th>
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Amount</th>
+                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Principal</th>
+                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">GST</th>
+                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Total Amount</th>
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Received</th>
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Pending</th>
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Status</th>
@@ -1921,7 +1923,7 @@ export default function AccountingPage() {
                 <tbody className="divide-y divide-gray-100">
                   {loadingInvoices ? (
                     <tr>
-                      <td colSpan="9" className="px-6 py-12 text-center">
+                      <td colSpan="11" className="px-6 py-12 text-center">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <div className="w-8 h-8 border-2 border-[#E05A1E] border-t-transparent rounded-full animate-spin" />
                           <p className="text-gray-400 text-xs italic">Loading invoice history...</p>
@@ -1939,40 +1941,68 @@ export default function AccountingPage() {
                     const statusColor = inv.is_payment_stage
                       ? 'bg-amber-50 text-amber-700 border-amber-200'
                       : (statusColors[inv.status] || 'bg-gray-50 text-gray-600 border-gray-200');
-                    return (
-                      <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <span className="font-mono font-bold text-sm text-[#E05A1E]">
-                            {inv.invoice_no}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-xs font-semibold text-gray-700">
-                          {inv.client_name_full || inv.client_name || '-'}
-                        </td>
-                        <td className="px-6 py-4">
-                          {inv.project_name ? (
-                            <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-[10px] font-black uppercase tracking-wider rounded">
-                               {inv.project_name}
+                    const amount = parseFloat(inv.amount || 0);
+                    let principal = amount;
+                    let gst = 0;
+
+                      if (!inv.is_payment_stage) {
+                        const taxDetails = inv.tax_details || {};
+                        const isGstEnabled = taxDetails.isGstEnabled !== false;
+
+                        if (isGstEnabled) {
+                          const cgstPercent = parseFloat(taxDetails.cgstPercent ?? 9);
+                          const sgstPercent = parseFloat(taxDetails.sgstPercent ?? 9);
+                          const igstPercent = parseFloat(taxDetails.igstPercent ?? 18);
+                          const isIgst = !!taxDetails.isIgst;
+                          const totalTaxPercent = isIgst ? igstPercent : (cgstPercent + sgstPercent);
+
+                          if (totalTaxPercent > 0) {
+                            principal = amount / (1 + totalTaxPercent / 100);
+                            gst = amount - principal;
+                          }
+                        }
+                      }
+
+                      return (
+                        <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <span className="font-mono font-bold text-sm text-[#E05A1E]">
+                              {inv.invoice_no}
                             </span>
-                          ) : (
-                            <span className="text-gray-400 text-xs italic">No Project</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-xs text-gray-500">
-                          <div className="flex flex-col gap-0.5">
-                            <span>{inv.is_payment_stage ? 'Initiated' : 'Issued'}: {new Date(inv.date).toLocaleDateString()}</span>
-                            {!inv.is_payment_stage && inv.due_date && <span className="text-[10px] text-gray-400">Due: {new Date(inv.due_date).toLocaleDateString()}</span>}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right font-mono text-sm font-black text-gray-900">
-                          ₹{parseFloat(inv.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-6 py-4 text-right font-mono text-xs font-bold text-emerald-600">
-                          ₹{parseFloat(inv.received_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-6 py-4 text-right font-mono text-xs font-bold text-orange-600">
-                          ₹{parseFloat(inv.pending_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </td>
+                          </td>
+                          <td className="px-6 py-4 text-xs font-semibold text-gray-700">
+                            {inv.client_name_full || inv.client_name || '-'}
+                          </td>
+                          <td className="px-6 py-4">
+                            {inv.project_name ? (
+                              <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-[10px] font-black uppercase tracking-wider rounded">
+                                 {inv.project_name}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400 text-xs italic">No Project</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-xs text-gray-500">
+                            <div className="flex flex-col gap-0.5">
+                              <span>{inv.is_payment_stage ? 'Initiated' : 'Issued'}: {new Date(inv.date).toLocaleDateString()}</span>
+                              {!inv.is_payment_stage && inv.due_date && <span className="text-[10px] text-gray-400">Due: {new Date(inv.due_date).toLocaleDateString()}</span>}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right font-mono text-xs font-semibold text-gray-600">
+                            ₹{principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-6 py-4 text-right font-mono text-xs font-semibold text-gray-500">
+                            ₹{gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-6 py-4 text-right font-mono text-sm font-black text-gray-900">
+                            ₹{amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-6 py-4 text-right font-mono text-xs font-bold text-emerald-600">
+                            ₹{parseFloat(inv.received_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-6 py-4 text-right font-mono text-xs font-bold text-orange-600">
+                            ₹{parseFloat(inv.pending_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </td>
                         <td className="px-6 py-4 text-center">
                           <span className={`inline-block px-2.5 py-0.5 border rounded-full text-[10px] font-black uppercase tracking-wider ${statusColor}`}>
                             {inv.is_payment_stage ? 'Payment Stage' : inv.status}
@@ -2050,7 +2080,7 @@ export default function AccountingPage() {
                   })}
                   {!loadingInvoices && filteredInvoicesList.length === 0 && (
                     <tr>
-                      <td colSpan="9" className="px-6 py-12 text-center text-gray-400 italic text-sm">
+                      <td colSpan="11" className="px-6 py-12 text-center text-gray-400 italic text-sm">
                         {invoiceFilter === 'generated' ? 'No generated invoices found.' : 
                          invoiceFilter === 'draft' ? 'No draft invoices found.' : 
                          'No invoice history available. Use the Invoice Editor to create new invoices.'}
@@ -2061,35 +2091,27 @@ export default function AccountingPage() {
                 {filteredInvoicesList.length > 0 && (
                   <tfoot className="bg-gray-50/85 font-bold border-t-2 border-gray-200">
                     <tr className="border-b border-gray-100/50">
-                      <td className="px-6 py-2.5 text-xs font-bold text-gray-500 uppercase" colSpan={4}>
+                      <td className="px-6 py-3 text-xs font-bold text-gray-500 uppercase" colSpan={4}>
                         <div className="flex items-center gap-4">
                           <span>Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-2.5 text-right font-semibold text-gray-500 text-xs">
-                        Principal: ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <td className="px-6 py-3 text-right font-mono text-xs font-bold text-gray-700">
+                        ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-6 py-2.5 text-right font-mono text-xs font-bold text-emerald-600">
+                      <td className="px-6 py-3 text-right font-mono text-xs font-bold text-gray-600">
+                        ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-6 py-3 text-right font-mono text-sm font-black text-[#E05A1E]">
+                        ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-6 py-3 text-right font-mono text-xs font-bold text-emerald-600">
                         ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-6 py-2.5 text-right font-mono text-xs font-bold text-orange-600">
+                      <td className="px-6 py-3 text-right font-mono text-xs font-bold text-orange-600">
                         ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td colSpan={2}></td>
-                    </tr>
-                    <tr className="border-b border-gray-100/50">
-                      <td colSpan={4} className="px-6 py-2"></td>
-                      <td className="px-6 py-2 text-right font-semibold text-gray-500 text-xs">
-                        GST Amount: ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td colSpan={4}></td>
-                    </tr>
-                    <tr className="bg-gray-100/30">
-                      <td colSpan={4} className="px-6 py-3"></td>
-                      <td className="px-6 py-3 text-right font-mono text-sm font-black text-[#E05A1E]">
-                        Total Value: ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td colSpan={4}></td>
                     </tr>
                   </tfoot>
                 )}
