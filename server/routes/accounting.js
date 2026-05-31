@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
+const checkPeriodLock = require('../middleware/periodLock');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -32,11 +33,16 @@ router.use(requireAccounting);
 router.get('/expenses', async (req, res) => {
   try {
     const query = `
-      SELECT id, category, amount, date, description, receipt_url, 'office' as source FROM office_expenses
+      SELECT oe.id, oe.category, oe.amount, oe.date, oe.description, oe.receipt_url, 'office' as source, oe.period_unlock_id, pul.reason as unlock_reason, pul.unlocked_at as unlock_date, pul_user.name as unlock_user 
+      FROM office_expenses oe
+      LEFT JOIN period_unlock_log pul ON pul.id = oe.period_unlock_id
+      LEFT JOIN users pul_user ON pul_user.id = pul.unlocked_by
       UNION ALL
-      SELECT id, 'Salaries' as category, (net_paid - incentives) as amount, payment_date as date, 'Monthly salary payment' as description, NULL as receipt_url, 'payroll' as source FROM payroll WHERE status = 'paid'
+      SELECT id, 'Salaries' as category, (net_paid - incentives) as amount, payment_date as date, 'Monthly salary payment' as description, NULL as receipt_url, 'payroll' as source, NULL as period_unlock_id, NULL as unlock_reason, NULL as unlock_date, NULL as unlock_user 
+      FROM payroll WHERE status = 'paid'
       UNION ALL
-      SELECT id, 'Incentives' as category, incentives as amount, payment_date as date, 'Performance incentive' as description, NULL as receipt_url, 'payroll' as source FROM payroll WHERE status = 'paid' AND incentives > 0
+      SELECT id, 'Incentives' as category, incentives as amount, payment_date as date, 'Performance incentive' as description, NULL as receipt_url, 'payroll' as source, NULL as period_unlock_id, NULL as unlock_reason, NULL as unlock_date, NULL as unlock_user 
+      FROM payroll WHERE status = 'paid' AND incentives > 0
       ORDER BY date DESC, id DESC
     `;
     const { rows } = await pool.query(query);
@@ -47,14 +53,15 @@ router.get('/expenses', async (req, res) => {
 });
 
 // Add new expense with receipt
-router.post('/expenses', upload.single('receipt'), async (req, res) => {
+router.post('/expenses', upload.single('receipt'), checkPeriodLock, async (req, res) => {
   const { category, amount, date, description } = req.body;
   const receipt_url = req.file ? `/uploads/expenses/${req.file.filename}` : null;
+  const unlockId = req.period_unlock_id || null;
   
   try {
     const { rows } = await pool.query(
-      'INSERT INTO office_expenses (category, amount, date, description, receipt_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [category, amount, date || new Date(), description, receipt_url]
+      'INSERT INTO office_expenses (category, amount, date, description, receipt_url, period_unlock_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [category, amount, date || new Date(), description, receipt_url, unlockId]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -259,7 +266,7 @@ router.get('/payroll/history', async (req, res) => {
 });
 
 // Process payroll (add/update)
-router.post('/payroll', requireAdmin, async (req, res) => {
+router.post('/payroll', requireAdmin, checkPeriodLock, async (req, res) => {
   const { user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status } = req.body;
   try {
     const { rows } = await pool.query(

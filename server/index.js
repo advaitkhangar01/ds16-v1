@@ -20,6 +20,7 @@ const settingsRoutes = require('./routes/settings');
 const financeRoutes = require('./routes/finances');
 const accountingRoutes = require('./routes/accounting');
 const invoiceRoutes = require('./routes/invoices');
+const monthlyCloseRoutes = require('./routes/monthlyClose');
 
 const leaveRoutes = require('./routes/leaves');
 const reportsRoutes = require('./routes/reports');
@@ -77,6 +78,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/finances', financeRoutes);
 app.use('/api/accounting', accountingRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/monthly-close', monthlyCloseRoutes);
 
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/reports', reportsRoutes);

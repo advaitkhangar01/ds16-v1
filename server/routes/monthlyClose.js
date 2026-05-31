@@ -1,0 +1,618 @@
+// server/routes/monthlyClose.js
+const express = require('express');
+const router = express.Router();
+const pool = require('../db');
+const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
+
+// All closing endpoints require authentication and admin/accounts privileges
+router.use(authenticate);
+
+/**
+ * Helper: robust overlap calculator for approved leaves inside a month
+ */
+async function calculateLeavesTaken(userId, month, year, client = pool) {
+  const startOfMonth = new Date(year, month - 1, 1);
+  const endOfMonth = new Date(year, month, 0); // last day of month
+  
+  // Format dates for SQL comparison
+  const startStr = startOfMonth.toISOString().split('T')[0];
+  const endStr = endOfMonth.toISOString().split('T')[0];
+
+  const { rows } = await client.query(
+    `SELECT start_date, end_date FROM leave_requests 
+     WHERE user_id = $1 AND status = 'approved' 
+       AND NOT (end_date < $2 OR start_date > $3)`,
+    [userId, startStr, endStr]
+  );
+
+  let totalDays = 0;
+  for (const row of rows) {
+    const leaveStart = new Date(row.start_date);
+    const leaveEnd = new Date(row.end_date);
+    
+    // Find overlap range
+    const overlapStart = new Date(Math.max(leaveStart.getTime(), startOfMonth.getTime()));
+    const overlapEnd = new Date(Math.min(leaveEnd.getTime(), endOfMonth.getTime()));
+    
+    const diffMs = overlapEnd.getTime() - overlapStart.getTime();
+    if (diffMs >= 0) {
+      const days = Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1;
+      totalDays += days;
+    }
+  }
+  return totalDays;
+}
+
+/**
+ * Helper: generates the complete historical snapshot object for a month
+ */
+async function generateSnapshot(month, year, client = pool) {
+  const monthStart = new Date(year, month - 1, 1).toISOString().split('T')[0];
+  const monthEnd = new Date(year, month, 0).toISOString().split('T')[0];
+
+  // 1. Revenue aggregations
+  const projValueRes = await client.query('SELECT COALESCE(SUM(amount), 0) as val FROM project_document_amounts');
+  const totalProjectValue = parseFloat(projValueRes.rows[0].val);
+
+  const receivedRes = await client.query(
+    "SELECT COALESCE(SUM(amount), 0) as val FROM transactions WHERE type = 'income' AND date >= $1 AND date <= $2",
+    [monthStart, monthEnd]
+  );
+  const received = parseFloat(receivedRes.rows[0].val);
+
+  const pendingRes = await client.query(
+    `SELECT COALESCE(SUM(amount), 0) as val FROM project_payment_stages 
+     WHERE LOWER(status) IN ('bill generated', 'bill delivered') AND created_at >= $1 AND created_at <= $2`,
+    [monthStart, monthEnd]
+  );
+  const pending = parseFloat(pendingRes.rows[0].val);
+  const billed = received + pending;
+  const unbilled = Math.max(0, totalProjectValue - billed);
+
+  // 2. Expenses aggregations
+  const overheadRes = await client.query(
+    "SELECT COALESCE(SUM(amount), 0) as val FROM office_expenses WHERE date >= $1 AND date <= $2",
+    [monthStart, monthEnd]
+  );
+  const officeOverhead = parseFloat(overheadRes.rows[0].val);
+
+  const payrollRes = await client.query(
+    "SELECT COALESCE(SUM(net_paid), 0) as val FROM payroll WHERE month = $1 AND year = $2 AND status = 'paid'",
+    [month, year]
+  );
+  const payroll = parseFloat(payrollRes.rows[0].val);
+
+  const vendorRes = await client.query(
+    "SELECT COALESCE(SUM(amount), 0) as val FROM transactions WHERE type = 'expense' AND LOWER(category) = 'vendor_payment' AND date >= $1 AND date <= $2",
+    [monthStart, monthEnd]
+  );
+  const vendorPayments = parseFloat(vendorRes.rows[0].val);
+
+  // All other transactions expenses
+  const otherExpRes = await client.query(
+    `SELECT COALESCE(SUM(amount), 0) as val FROM transactions 
+     WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives') 
+       AND date >= $1 AND date <= $2`,
+    [monthStart, monthEnd]
+  );
+  const otherExpenses = parseFloat(otherExpRes.rows[0].val);
+  const totalExpenses = officeOverhead + payroll + vendorPayments + otherExpenses;
+
+  // Breakdown by category
+  const breakdownRes = await client.query(
+    `SELECT category, SUM(amount) as amount FROM (
+       SELECT category, amount FROM office_expenses WHERE date >= $1 AND date <= $2
+       UNION ALL
+       SELECT category, amount FROM transactions WHERE type = 'expense' AND date >= $1 AND date <= $2
+     ) sub
+     GROUP BY category`,
+    [monthStart, monthEnd]
+  );
+  const byCategory = {};
+  breakdownRes.rows.forEach(r => {
+    byCategory[r.category] = parseFloat(r.amount);
+  });
+  // Inject payroll net paid as salaries, incentives if not already categorized
+  if (payroll > 0) {
+    const incentivesRes = await client.query(
+      "SELECT COALESCE(SUM(incentives), 0) as val FROM payroll WHERE month = $1 AND year = $2 AND status = 'paid'",
+      [month, year]
+    );
+    const incentives = parseFloat(incentivesRes.rows[0].val) || 0;
+    byCategory['Salaries'] = (byCategory['Salaries'] || 0) + (payroll - incentives);
+    if (incentives > 0) {
+      byCategory['Incentives'] = (byCategory['Incentives'] || 0) + incentives;
+    }
+  }
+
+  // 3. HR details
+  const empRes = await client.query("SELECT COUNT(*) as count FROM users WHERE role IN ('employee', 'admin', 'accounts', 'design_head')");
+  const totalEmployees = parseInt(empRes.rows[0].count);
+
+  const processedRes = await client.query("SELECT COUNT(*) as count FROM payroll WHERE month = $1 AND year = $2 AND status = 'paid'", [month, year]);
+  const payrollProcessed = parseInt(processedRes.rows[0].count);
+
+  const totalLeavesRes = await client.query(
+    `SELECT COALESCE(SUM(amount), 0) as val FROM leave_requests 
+     WHERE status = 'approved' AND start_date >= $1 AND end_date <= $2`,
+    [monthStart, monthEnd]
+  );
+  const totalLeaveDaysTaken = parseFloat(totalLeavesRes.rows[0].val);
+
+  // 4. Projects & Clients & Vendors
+  const activeProjRes = await client.query("SELECT COUNT(*) as count FROM projects WHERE status != 'Completed'");
+  const compProjRes = await client.query(
+    "SELECT COUNT(*) as count FROM projects WHERE status = 'Completed' AND start_date >= $1 AND start_date <= $2",
+    [monthStart, monthEnd]
+  );
+  const newProjRes = await client.query(
+    "SELECT COUNT(*) as count FROM projects WHERE created_at >= $1 AND created_at <= $2",
+    [monthStart, monthEnd]
+  );
+
+  return {
+    revenue: {
+      total_project_value: totalProjectValue,
+      billed: billed,
+      received: received,
+      pending: pending,
+      unbilled: unbilled
+    },
+    expenses: {
+      total: totalExpenses,
+      office_overhead: officeOverhead,
+      payroll: payroll,
+      vendor_payments: vendorPayments,
+      by_category: byCategory
+    },
+    profit_loss: {
+      realized: received - totalExpenses,
+      projected: billed - totalExpenses
+    },
+    hr: {
+      total_employees: totalEmployees,
+      payroll_processed: payrollProcessed,
+      payroll_pending: Math.max(0, totalEmployees - payrollProcessed),
+      total_leave_days_taken: totalLeaveDaysTaken
+    },
+    projects: {
+      total_active: parseInt(activeProjRes.rows[0].count),
+      completed_this_month: parseInt(compProjRes.rows[0].count),
+      new_this_month: parseInt(newProjRes.rows[0].count)
+    }
+  };
+}
+
+/**
+ * GET /api/monthly-close/preview
+ * Returns preflight details & diagnostics for a month before closing.
+ */
+router.get('/preview', requireAccounting, async (req, res) => {
+  const month = parseInt(req.query.month);
+  const year = parseInt(req.query.year);
+
+  if (!month || !year || month < 1 || month > 12 || year < 2020) {
+    return res.status(400).json({ error: 'Valid month (1-12) and year are required' });
+  }
+
+  try {
+    const monthLabel = new Date(year, month - 1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+
+    // 1. Already closed check
+    const { rows: closedRows } = await pool.query(
+      'SELECT id FROM monthly_closing_log WHERE month = $1 AND year = $2',
+      [month, year]
+    );
+    const alreadyClosed = closedRows.length > 0;
+
+    // 2. Payroll pending count & details
+    const empRes = await pool.query(
+      "SELECT id, name, base_salary, hourly_rate FROM users WHERE role IN ('employee', 'admin', 'accounts', 'design_head')"
+    );
+    const payrollProcessedRes = await pool.query(
+      "SELECT user_id, status FROM payroll WHERE month = $1 AND year = $2",
+      [month, year]
+    );
+    const processedIds = new Set(payrollProcessedRes.rows.filter(r => r.status === 'paid').map(r => r.user_id));
+
+    const pendingEmployees = empRes.rows.filter(emp => !processedIds.has(emp.id));
+    const pendingCount = pendingEmployees.length;
+    const pendingAmount = pendingEmployees.reduce((sum, emp) => sum + (parseFloat(emp.base_salary) || 0), 0);
+    const pendingNames = pendingEmployees.map(emp => emp.name);
+
+    // 3. Expense auditing category counts
+    // Find all unique expense categories recorded in transactions or office expenses this month
+    const monthStart = new Date(year, month - 1, 1).toISOString().split('T')[0];
+    const monthEnd = new Date(year, month, 0).toISOString().split('T')[0];
+    
+    const catRes = await pool.query(
+      `WITH active_categories AS (
+         SELECT DISTINCT category FROM transactions 
+         WHERE type = 'expense' AND date >= $1 AND date <= $2
+         UNION
+         SELECT DISTINCT category FROM office_expenses 
+         WHERE date >= $1 AND date <= $2
+       )
+       SELECT ac.category, COALESCE(ea.is_verified, FALSE) as is_verified
+       FROM active_categories ac
+       LEFT JOIN expense_audits ea ON ea.category = ac.category AND ea.month = $3 AND ea.year = $4`,
+      [monthStart, monthEnd, month, year]
+    );
+
+    const categoriesToLock = catRes.rows.filter(r => !r.is_verified).length;
+    const alreadyLocked = catRes.rows.filter(r => r.is_verified).length;
+
+    // 4. Leave request calculations
+    let totalLeaveDays = 0;
+    for (const emp of empRes.rows) {
+      const leaves = await calculateLeavesTaken(emp.id, month, year);
+      totalLeaveDays += leaves;
+    }
+
+    // 5. Aggregate financial data
+    const financials = await generateSnapshot(month, year);
+
+    // 6. Set warning list
+    const warnings = [];
+    if (pendingCount > 0) {
+      warnings.push(`${pendingCount} employee payroll${pendingCount > 1 ? 's' : ''} not yet processed (${pendingNames.join(', ')} — ₹${pendingAmount.toLocaleString()} pending)`);
+    }
+
+    res.json({
+      month,
+      year,
+      month_label: monthLabel,
+      already_closed: alreadyClosed,
+      financials: {
+        received_income: financials.revenue.received,
+        total_expense: financials.expenses.total,
+        net_pl: financials.profit_loss.realized,
+        total_project_value: financials.revenue.total_project_value,
+        pending_income: financials.revenue.pending
+      },
+      payroll: {
+        employees_processed: empRes.rows.length - pendingCount,
+        employees_pending: pendingCount,
+        pending_amount: pendingAmount,
+        pending_names: pendingNames
+      },
+      leave: {
+        entries_to_write: empRes.rows.length,
+        total_leave_days_this_month: totalLeaveDays
+      },
+      expense_audit: {
+        categories_to_lock: categoriesToLock,
+        already_locked: alreadyLocked
+      },
+      warnings
+    });
+  } catch (err) {
+    console.error('Closing preview error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/monthly-close/execute
+ * Executes the month closing inside a database transaction.
+ */
+router.post('/execute', requireAdmin, async (req, res) => {
+  const month = parseInt(req.body.month);
+  const year = parseInt(req.body.year);
+  const closeReason = req.body.reason || '';
+
+  if (!month || !year || month < 1 || month > 12 || year < 2020) {
+    return res.status(400).json({ error: 'Valid month (1-12) and year are required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Guard check: Already closed?
+    const { rows: closedRows } = await client.query(
+      'SELECT id FROM monthly_closing_log WHERE month = $1 AND year = $2',
+      [month, year]
+    );
+    if (closedRows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'This month is already closed' });
+    }
+
+    // 2. Identify employees and compute leave balances
+    const empRes = await client.query("SELECT id, role FROM users WHERE role IN ('employee', 'admin', 'accounts', 'design_head')");
+    
+    // Previous month computation
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+
+    for (const emp of empRes.rows) {
+      // Get previous month's closing leave balance
+      const { rows: prevBalRows } = await client.query(
+        'SELECT closing_balance FROM employee_leave_balance WHERE user_id = $1 AND month = $2 AND year = $3',
+        [emp.id, prevMonth, prevYear]
+      );
+      const openingBalance = prevBalRows[0] ? parseFloat(prevBalRows[0].closing_balance) : 0.00;
+      const earned = 1.50; // standard 1.5 days accumulated per month
+      
+      const leavesTaken = await calculateLeavesTaken(emp.id, month, year, client);
+      
+      // Calculate balances
+      const closingBalance = Math.max(0, openingBalance + earned - leavesTaken);
+      const unpaidLeaves = Math.max(0, leavesTaken - (openingBalance + earned));
+
+      // Upsert into employee_leave_balance
+      await client.query(
+        `INSERT INTO employee_leave_balance (user_id, month, year, opening_balance, earned, leaves_taken, closing_balance, unpaid_leaves)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (user_id, month, year) 
+         DO UPDATE SET
+           opening_balance = EXCLUDED.opening_balance,
+           earned = EXCLUDED.earned,
+           leaves_taken = EXCLUDED.leaves_taken,
+           closing_balance = EXCLUDED.closing_balance,
+           unpaid_leaves = EXCLUDED.unpaid_leaves`,
+        [emp.id, month, year, openingBalance, earned, leavesTaken, closingBalance, unpaidLeaves]
+      );
+
+      // Sync to employee_leave_summary for backward compatibility with payroll calculators
+      await client.query(
+        `INSERT INTO employee_leave_summary (user_id, month, year, unpaid_leaves)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id, month, year) 
+         DO UPDATE SET unpaid_leaves = EXCLUDED.unpaid_leaves`,
+        [emp.id, month, year, unpaidLeaves]
+      );
+    }
+
+    // 3. Lock expense categories
+    const monthStart = new Date(year, month - 1, 1).toISOString().split('T')[0];
+    const monthEnd = new Date(year, month, 0).toISOString().split('T')[0];
+
+    const categoryRes = await client.query(
+      `SELECT DISTINCT category FROM (
+         SELECT category FROM transactions WHERE type = 'expense' AND date >= $1 AND date <= $2
+         UNION
+         SELECT category FROM office_expenses WHERE date >= $1 AND date <= $2
+       ) sub`,
+      [monthStart, monthEnd]
+    );
+
+    for (const catRow of categoryRes.rows) {
+      await client.query(
+        `INSERT INTO expense_audits (category, month, year, is_verified, verified_by, verified_at)
+         VALUES ($1, $2, $3, TRUE, $4, NOW())
+         ON CONFLICT (category, month, year) 
+         DO UPDATE SET is_verified = TRUE, verified_by = EXCLUDED.verified_by, verified_at = NOW()`,
+        [catRow.category, month, year, req.user.id]
+      );
+    }
+
+    // 4. Generate final financial snapshot
+    const snapshot = await generateSnapshot(month, year, client);
+
+    // 5. Soft-blocker auditing
+    // Check if payroll had any pending employees
+    const payrollProcessedRes = await client.query(
+      "SELECT user_id FROM payroll WHERE month = $1 AND year = $2 AND status = 'paid'",
+      [month, year]
+    );
+    const processedIds = new Set(payrollProcessedRes.rows.map(r => r.user_id));
+    const pendingEmployees = empRes.rows.filter(emp => !processedIds.has(emp.id));
+    const pendingCount = pendingEmployees.length;
+
+    let pendingAmount = 0;
+    if (pendingCount > 0) {
+      // Look up base salary to sum pending amount
+      const pendingIds = pendingEmployees.map(emp => emp.id);
+      const salaryRes = await client.query(
+        "SELECT COALESCE(SUM(base_salary), 0) as total FROM users WHERE id = ANY($1)",
+        [pendingIds]
+      );
+      pendingAmount = parseFloat(salaryRes.rows[0].total);
+    }
+
+    const hadPendingPayroll = pendingCount > 0;
+
+    // 6. Write record into monthly_closing_log
+    const { rows: closeLogRows } = await client.query(
+      `INSERT INTO monthly_closing_log 
+       (month, year, closed_by, closed_at, had_pending_payroll, pending_payroll_count, pending_payroll_amount, close_reason, snapshot)
+       VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [month, year, req.user.id, hadPendingPayroll, pendingCount, pendingAmount, closeReason, snapshot]
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json(closeLogRows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Closing execution failed:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * GET /api/monthly-close/history
+ * Returns the timeline list of all closed months, newest first.
+ */
+router.get('/history', requireAccounting, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT mcl.*, u.name as closed_by_name,
+              EXISTS (SELECT 1 FROM period_unlock_log pul WHERE pul.month = mcl.month AND pul.year = mcl.year AND pul.is_active = TRUE) as is_unlocked
+       FROM monthly_closing_log mcl
+       LEFT JOIN users u ON u.id = mcl.closed_by
+       ORDER BY mcl.year DESC, mcl.month DESC`
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/monthly-close/history/:month/:year
+ * Returns detailed drill-down snapshot of a specific closed month.
+ */
+router.get('/history/:month/:year', requireAccounting, async (req, res) => {
+  const month = parseInt(req.params.month);
+  const year = parseInt(req.params.year);
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT mcl.*, u.name as closed_by_name 
+       FROM monthly_closing_log mcl
+       LEFT JOIN users u ON u.id = mcl.closed_by
+       WHERE mcl.month = $1 AND mcl.year = $2`,
+      [month, year]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'No history record found for this month' });
+    }
+
+    // Also fetch the rolling leave balance records of this month
+    const { rows: leaves } = await pool.query(
+      `SELECT elb.*, u.name as employee_name, u.department 
+       FROM employee_leave_balance elb
+       JOIN users u ON u.id = elb.user_id
+       WHERE elb.month = $1 AND elb.year = $2
+       ORDER BY u.name ASC`,
+      [month, year]
+    );
+
+    // Also fetch backdated audit trail logs of this month
+    const { rows: unlocks } = await pool.query(
+      `SELECT pul.*, u1.name as unlocked_by_name, u2.name as relocked_by_name
+       FROM period_unlock_log pul
+       LEFT JOIN users u1 ON u1.id = pul.unlocked_by
+       LEFT JOIN users u2 ON u2.id = pul.relocked_by
+       WHERE pul.month = $1 AND pul.year = $2
+       ORDER BY pul.unlocked_at DESC`,
+      [month, year]
+    );
+
+    res.json({
+      log: rows[0],
+      leaves,
+      unlocks
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/monthly-close/unlock
+ * Admin-only: unlocks a period for backdated entries, capturing a reason.
+ */
+router.post('/unlock', requireAdmin, async (req, res) => {
+  const month = parseInt(req.body.month);
+  const year = parseInt(req.body.year);
+  const reason = req.body.reason;
+
+  if (!month || !year || !reason) {
+    return res.status(400).json({ error: 'Month, year and reason are required' });
+  }
+
+  try {
+    // Check if period is closed first
+    const { rows: closed } = await pool.query(
+      'SELECT id FROM monthly_closing_log WHERE month = $1 AND year = $2',
+      [month, year]
+    );
+    if (closed.length === 0) {
+      return res.status(400).json({ error: 'This period is not closed, so it cannot be unlocked' });
+    }
+
+    // Insert active unlock window
+    const { rows } = await pool.query(
+      `INSERT INTO period_unlock_log (month, year, unlocked_by, reason, is_active)
+       VALUES ($1, $2, $3, $4, TRUE)
+       RETURNING *`,
+      [month, year, req.user.id, reason]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/monthly-close/relock
+ * Admin-only: re-locks an unlocked period.
+ */
+router.post('/relock', requireAdmin, async (req, res) => {
+  const month = parseInt(req.body.month);
+  const year = parseInt(req.body.year);
+
+  if (!month || !year) {
+    return res.status(400).json({ error: 'Month and year are required' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE period_unlock_log 
+       SET is_active = FALSE, relocked_at = NOW(), relocked_by = $1
+       WHERE month = $2 AND year = $3 AND is_active = TRUE
+       RETURNING *`,
+      [req.user.id, month, year]
+    );
+    res.json({ message: 'Period re-locked successfully', logsUpdated: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/monthly-close/:month/:year
+ * Admin-only: reverses a month close entirely.
+ */
+router.delete('/:month/:year', requireAdmin, async (req, res) => {
+  const month = parseInt(req.params.month);
+  const year = parseInt(req.params.year);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Delete closing log
+    const logRes = await client.query(
+      'DELETE FROM monthly_closing_log WHERE month = $1 AND year = $2 RETURNING id',
+      [month, year]
+    );
+    if (logRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No closed record found to reverse' });
+    }
+
+    // 2. Delete rolling leave balances & summaries of this month
+    await client.query('DELETE FROM employee_leave_balance WHERE month = $1 AND year = $2', [month, year]);
+    await client.query('DELETE FROM employee_leave_summary WHERE month = $1 AND year = $2', [month, year]);
+
+    // 3. Unlock expense categories of this month
+    await client.query(
+      'UPDATE expense_audits SET is_verified = FALSE, verified_at = NOW(), verified_by = $1 WHERE month = $2 AND year = $3',
+      [req.user.id, month, year]
+    );
+
+    // 4. Deactivate all unlock windows
+    await client.query(
+      'UPDATE period_unlock_log SET is_active = FALSE, relocked_at = NOW(), relocked_by = $1 WHERE month = $2 AND year = $3',
+      [req.user.id, month, year]
+    );
+
+    await client.query('COMMIT');
+    res.json({ message: `Month closing of May ${year} has been successfully reversed.` });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Month closing reversal failed:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+module.exports = router;

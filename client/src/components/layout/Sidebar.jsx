@@ -16,8 +16,9 @@ const ADMIN_LINKS = [
   { to: '/attendance', label: 'Attendance', icon: 'clock' },
   { to: '/admin/invoice', label: 'Invoice', icon: 'receipt' },
   { to: '/admin/accounting', label: 'Accounting', icon: 'calculator' },
-  { to: '/admin/reports', label: 'Reports', icon: 'file_spreadsheet' },
-  { to: '/admin/settings', label: 'Settings', icon: 'settings' },
+  {to: '/admin/reports', label: 'Reports', icon: 'file_spreadsheet'},
+  {to: '/admin/history', label: 'History', icon: 'archive'},
+  {to: '/admin/settings', label: 'Settings', icon: 'settings'},
 ];
 
 const EMP_LINKS = [
@@ -95,6 +96,13 @@ const ICONS = {
       <line x1="8" y1="13" x2="16" y2="13" />
       <line x1="8" y1="17" x2="16" y2="17" />
       <line x1="10" y1="9" x2="10" y2="9" />
+    </svg>
+  ),
+  archive: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="21 8 21 21 3 21 3 8" />
+      <rect x="1" y="3" width="22" height="5" />
+      <line x1="10" y1="12" x2="14" y2="12" />
     </svg>
   ),
 };

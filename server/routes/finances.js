@@ -2,6 +2,7 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
+const checkPeriodLock = require('../middleware/periodLock');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -31,12 +32,14 @@ router.get('/transactions', authenticate, async (req, res) => {
     if (project_id) {
       return checkProjectAccess()(req, res, async () => {
         let projectQuery = `
-          SELECT t.*, p.name as project_name, v.name as vendor_name, u.name as employee_name, creator.name as creator_name
+          SELECT t.*, p.name as project_name, v.name as vendor_name, u.name as employee_name, creator.name as creator_name, pul.reason as unlock_reason, pul.unlocked_at as unlock_date, pul_user.name as unlock_user
           FROM transactions t
           LEFT JOIN projects p ON p.id = t.project_id
           LEFT JOIN vendors v ON v.id = t.vendor_id
           LEFT JOIN users u ON u.id = t.employee_id
           LEFT JOIN users creator ON creator.id = t.created_by
+          LEFT JOIN period_unlock_log pul ON pul.id = t.period_unlock_id
+          LEFT JOIN users pul_user ON pul_user.id = pul.unlocked_by
           WHERE t.project_id = $1
         `;
         const projectParams = [project_id];
@@ -154,12 +157,14 @@ router.get('/transactions', authenticate, async (req, res) => {
     }
 
     let query = `
-      SELECT t.*, p.name as project_name, v.name as vendor_name, u.name as employee_name, creator.name as creator_name
+      SELECT t.*, p.name as project_name, v.name as vendor_name, u.name as employee_name, creator.name as creator_name, pul.reason as unlock_reason, pul.unlocked_at as unlock_date, pul_user.name as unlock_user
       FROM transactions t
       LEFT JOIN projects p ON p.id = t.project_id
       LEFT JOIN vendors v ON v.id = t.vendor_id
       LEFT JOIN users u ON u.id = t.employee_id
       LEFT JOIN users creator ON creator.id = t.created_by
+      LEFT JOIN period_unlock_log pul ON pul.id = t.period_unlock_id
+      LEFT JOIN users pul_user ON pul_user.id = pul.unlocked_by
     `;
     const params = [];
     let idx = 1;
@@ -272,7 +277,7 @@ router.get('/transactions', authenticate, async (req, res) => {
 });
 
 // POST /api/finances/transactions
-router.post('/transactions', authenticate, upload.single('receipt'), checkProjectAccess(), async (req, res) => {
+router.post('/transactions', authenticate, upload.single('receipt'), checkProjectAccess(), checkPeriodLock, async (req, res) => {
   try {
     console.log('New Transaction:', req.body);
     if (req.file) console.log('Attached Receipt:', req.file.filename);
@@ -298,12 +303,13 @@ router.post('/transactions', authenticate, upload.single('receipt'), checkProjec
     const pid = project_id ? parseInt(project_id) : null;
     const vid = vendor_id ? parseInt(vendor_id) : null;
     const eid = employee_id ? parseInt(employee_id) : null;
+    const unlockId = req.period_unlock_id || null;
 
     const { rows } = await pool.query(
-      `INSERT INTO transactions (type, category, amount, date, description, project_id, vendor_id, employee_id, reference_id, receipt_url, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO transactions (type, category, amount, date, description, project_id, vendor_id, employee_id, reference_id, receipt_url, created_by, period_unlock_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
-      [type, category, numericAmount, date || new Date(), description, pid, vid, eid, reference_id || null, receipt_url, req.user.id]
+      [type, category, numericAmount, date || new Date(), description, pid, vid, eid, reference_id || null, receipt_url, req.user.id, unlockId]
     );
 
     res.status(201).json({ transaction: rows[0] });
@@ -628,7 +634,7 @@ router.get('/charts', authenticate, async (req, res) => {
 });
 
 // DELETE /api/finances/transactions/:id
-router.delete('/transactions/:id', authenticate, requireAdmin, async (req, res) => {
+router.delete('/transactions/:id', authenticate, requireAdmin, checkPeriodLock, async (req, res) => {
   try {
     await pool.query('DELETE FROM transactions WHERE id = $1', [req.params.id]);
     res.json({ message: 'Transaction deleted' });
