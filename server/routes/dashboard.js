@@ -199,8 +199,15 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
       rendering: parseInt(typeCountsRows[0].rendering || 0),
     };
 
-    // 5. Financial Summary (Unified logic with finances.js)
+    // 5. Financial Summary — scoped to current open accounting period
+    // Determine the current period boundary: from 1st of current month to today
+    // After a monthly close, only the current month's data is shown on the dashboard
+    // (Pending amounts span all-time since outstanding invoices carry forward)
+    const currentPeriodStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const currentPeriodEnd   = today; // IST today (yyyy-mm-dd)
+
     // 5a. Total Project Value (Potential) - Only for active stages: Design Proposal, Sanction, Execution
+    // This is pipeline-based (all-time active projects), not period-scoped
     const { rows: incomeRows } = await pool.query(`
       WITH active_stages AS (
         SELECT DISTINCT ON (project_id) project_id, stage_name, status
@@ -228,34 +235,37 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
     `);
     const totalValue = parseFloat(incomeRows[0].total_value);
 
-    // 5b. Billed/Received/Pending — driven entirely by the invoices table
-    //   billed   = total amount of all non-cancelled invoices (invoice generated amount)
-    //   received = sum of received_amount already collected across those invoices
-    //   pending  = sum of outstanding balance (amount - received_amount) for non-paid, non-cancelled invoices
+    // 5b. Billed/Received — scoped to the current month's invoices
+    //   billed   = total invoices raised this month (non-cancelled)
+    //   received = payments collected this month
+    //   pending  = ALL outstanding unpaid invoice balances (ALL-TIME — carries forward between months)
     const { rows: invoiceRows } = await pool.query(`
       SELECT
-        COALESCE(SUM(amount), 0)                                                        AS billed,
-        COALESCE(SUM(received_amount), 0)                                               AS received,
+        COALESCE(SUM(CASE WHEN date >= $1 AND date <= $2 THEN amount ELSE 0 END), 0)          AS billed,
+        COALESCE(SUM(CASE WHEN date >= $1 AND date <= $2 THEN received_amount ELSE 0 END), 0)  AS received,
         COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
       FROM invoices
       WHERE LOWER(status) != 'cancelled'
-    `);
+    `, [currentPeriodStart, currentPeriodEnd]);
     const billed   = parseFloat(invoiceRows[0].billed);
     const received = parseFloat(invoiceRows[0].received);
     const pending  = parseFloat(invoiceRows[0].pending);
 
-    // 5c. Expenses from transactions and payroll (Unified logic with finances.js)
+    // 5c. Expenses — scoped to current period (current month only)
     const { rows: expRows } = await pool.query(
       `SELECT COALESCE(SUM(amount), 0) as total_expense 
        FROM transactions 
-       WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')`
+       WHERE type = 'expense' AND date >= $1 AND date <= $2
+         AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')`,
+      [currentPeriodStart, currentPeriodEnd]
     );
     const transactionExpense = parseFloat(expRows[0].total_expense);
 
     const { rows: payrollRows } = await pool.query(
       `SELECT COALESCE(SUM(net_paid), 0) as total_payroll 
        FROM payroll 
-       WHERE status = 'paid'`
+       WHERE status = 'paid' AND month = $1 AND year = $2`,
+      [month, year]
     );
     const totalPayroll = parseFloat(payrollRows[0].total_payroll);
 

@@ -72,7 +72,8 @@ function FinancialStats({ finances, onOpenBreakdown }) {
   const stats = [
     { 
       id: 'total',
-      label: 'Total Project Value', 
+      label: 'Total Project Value',
+      period: 'Pipeline',
       value: finances?.total_amount ?? 0, 
       color: 'text-gray-900', 
       bg: 'bg-gray-50/50', 
@@ -88,7 +89,8 @@ function FinancialStats({ finances, onOpenBreakdown }) {
     },
     { 
       id: 'current',
-      label: 'Current Project Value', 
+      label: 'Current Project Value',
+      period: 'Pipeline',
       value: finances?.current_amount ?? 0, 
       color: 'text-purple-600', 
       bg: 'bg-purple-50/50', 
@@ -102,7 +104,8 @@ function FinancialStats({ finances, onOpenBreakdown }) {
     },
     { 
       id: 'billed',
-      label: 'Billed Amount', 
+      label: 'Billed Amount',
+      period: 'This Month',
       value: finances?.billed_amount ?? 0, 
       color: 'text-blue-600', 
       bg: 'bg-blue-50/50', 
@@ -118,7 +121,8 @@ function FinancialStats({ finances, onOpenBreakdown }) {
     },
     { 
       id: 'received',
-      label: 'Received Amount', 
+      label: 'Received Amount',
+      period: 'This Month',
       value: finances?.received_amount ?? 0, 
       color: 'text-emerald-600', 
       bg: 'bg-emerald-50/50', 
@@ -132,7 +136,8 @@ function FinancialStats({ finances, onOpenBreakdown }) {
     },
     { 
       id: 'pending',
-      label: 'Pending Amount', 
+      label: 'Pending Amount',
+      period: 'Outstanding',
       value: finances?.pending_amount ?? 0, 
       color: 'text-orange-600', 
       bg: 'bg-orange-50/50', 
@@ -146,7 +151,8 @@ function FinancialStats({ finances, onOpenBreakdown }) {
     },
     { 
       id: 'expenses',
-      label: 'Total Expenses', 
+      label: 'Total Expenses',
+      period: 'This Month',
       value: finances?.expense_amount ?? 0, 
       color: 'text-red-600', 
       bg: 'bg-red-50/50', 
@@ -175,7 +181,7 @@ function FinancialStats({ finances, onOpenBreakdown }) {
             <div className={`p-2.5 rounded-xl ${s.bg} ${s.color}`}>
               {s.icon}
             </div>
-            <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest group-hover:text-slate-400 transition-colors">Real-time</span>
+            <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest group-hover:text-slate-400 transition-colors">{s.period}</span>
           </div>
 
           <div className="relative">
