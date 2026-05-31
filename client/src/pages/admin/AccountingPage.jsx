@@ -2131,7 +2131,7 @@ export default function AccountingPage() {
                   </div>
 
                   <div className="p-6">
-                    {preflightLoading ? (
+                    {preflightLoading || !preflight ? (
                       <div className="flex flex-col items-center justify-center py-12 gap-3">
                         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                         <p className="text-gray-400 text-xs italic">Running diagnostic checks for {new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}...</p>
