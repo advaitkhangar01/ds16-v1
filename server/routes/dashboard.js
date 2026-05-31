@@ -236,20 +236,23 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
     const totalValue = parseFloat(incomeRows[0].total_value);
 
     // 5b. Billed/Received — scoped to the current month's invoices
-    //   billed   = total invoices raised this month (non-cancelled)
-    //   received = payments collected this month
-    //   pending  = ALL outstanding unpaid invoice balances (ALL-TIME — carries forward between months)
+    //   billed            = total invoices raised this month (non-cancelled)
+    //   received          = payments collected this month
+    //   all_time_received = cumulative received across ALL months (for current_amount calc)
+    //   pending           = ALL outstanding unpaid invoice balances (ALL-TIME — carries forward)
     const { rows: invoiceRows } = await pool.query(`
       SELECT
         COALESCE(SUM(CASE WHEN date >= $1 AND date <= $2 THEN amount ELSE 0 END), 0)          AS billed,
         COALESCE(SUM(CASE WHEN date >= $1 AND date <= $2 THEN received_amount ELSE 0 END), 0)  AS received,
+        COALESCE(SUM(received_amount), 0)                                                       AS all_time_received,
         COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
       FROM invoices
       WHERE LOWER(status) != 'cancelled'
     `, [currentPeriodStart, currentPeriodEnd]);
-    const billed   = parseFloat(invoiceRows[0].billed);
-    const received = parseFloat(invoiceRows[0].received);
-    const pending  = parseFloat(invoiceRows[0].pending);
+    const billed          = parseFloat(invoiceRows[0].billed);
+    const received        = parseFloat(invoiceRows[0].received);
+    const allTimeReceived = parseFloat(invoiceRows[0].all_time_received);
+    const pending         = parseFloat(invoiceRows[0].pending);
 
     // 5c. Expenses — scoped to current period (current month only)
     const { rows: expRows } = await pool.query(
@@ -290,12 +293,12 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
       kanban,
       type_counts,
       finances: {
-        total_amount: totalValue,
-        billed_amount: billed,
+        total_amount:    totalValue,
+        billed_amount:   billed,
         received_amount: received,
-        pending_amount: pending,
-        expense_amount: totalExpense,
-        current_amount: totalValue - received
+        pending_amount:  pending,
+        expense_amount:  totalExpense,
+        current_amount:  Math.max(0, totalValue - allTimeReceived)  // remaining uncollected from active pipeline
       },
       salary_stats: salaryStats,
       total_projects: parseInt(countRows[0].count),
