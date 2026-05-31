@@ -312,6 +312,16 @@ pool.query('SELECT NOW()', (err) => {
           CREATE INDEX IF NOT EXISTS idx_ips_stage ON invoice_payment_stages(payment_stage_id);
         `);
 
+        // 18. Add received_amount column to invoices and backfill existing paid records
+        await pool.query(`
+          ALTER TABLE invoices ADD COLUMN IF NOT EXISTS received_amount DECIMAL(15, 2) DEFAULT 0.00;
+        `);
+        await pool.query(`
+          UPDATE invoices 
+          SET received_amount = amount 
+          WHERE LOWER(status) = 'paid' AND (received_amount IS NULL OR received_amount = 0);
+        `);
+
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
         console.error('❌ Migration failed:', mErr.message);

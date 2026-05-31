@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
-import { Lock } from 'lucide-react';
+import { Lock, CreditCard, CheckCircle2, FileText } from 'lucide-react';
+import RecordPaymentModal from './RecordPaymentModal';
 
 export default function InvoiceHistoryTab({ projectId, project }) {
   const [invoices, setInvoices] = useState([]);
@@ -11,6 +12,19 @@ export default function InvoiceHistoryTab({ projectId, project }) {
   const [unbilledStages, setUnbilledStages] = useState([]);
   const unbilledTotal = unbilledStages.reduce((sum, st) => sum + parseFloat(st.amount || 0), 0);
   const navigate = useNavigate();
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+
+  const handleMarkPaid = async (id) => {
+    if (!window.confirm('Are you sure you want to mark this invoice as Paid? This will automatically record a finance income transaction.')) return;
+    try {
+      await api.post(`/invoices/${id}/mark-paid`);
+      toast.success('Invoice marked as paid and income recorded!');
+      fetchInvoices();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to mark invoice as paid');
+    }
+  };
 
   const filteredInvoicesList = useMemo(() => {
     if (invoiceFilter === 'generated') {
@@ -298,12 +312,38 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                         </button>
                       )
                     ) : (
-                      <button 
-                        onClick={() => handleViewInvoice(inv)}
-                        className="bg-[#1A1A1A] text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-[#E05A1E] transition-all"
-                      >
-                        View & Print
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        {inv.status !== 'paid' && (
+                          <>
+                            <button
+                              onClick={() => {
+                                setSelectedInvoiceForPayment(inv);
+                                setShowPaymentModal(true);
+                              }}
+                              className="bg-orange-50 hover:bg-orange-100 text-[#E05A1E] border border-orange-200 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-1"
+                              title="Record Partial Payment"
+                            >
+                              <CreditCard size={10} />
+                              Pay
+                            </button>
+                            <button
+                              onClick={() => handleMarkPaid(inv.id)}
+                              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-1"
+                              title="Mark as Paid"
+                            >
+                              <CheckCircle2 size={10} />
+                              Mark Paid
+                            </button>
+                          </>
+                        )}
+                        <button 
+                          onClick={() => handleViewInvoice(inv)}
+                          className="bg-[#1A1A1A] text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-[#E05A1E] transition-all flex items-center gap-1"
+                        >
+                          <FileText size={10} />
+                          View
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -353,6 +393,17 @@ export default function InvoiceHistoryTab({ projectId, project }) {
           Updating project details later will not affect archived invoices to maintain compliance.
         </p>
       </div>
+
+      {showPaymentModal && selectedInvoiceForPayment && (
+        <RecordPaymentModal
+          invoice={selectedInvoiceForPayment}
+          onClose={() => {
+            setShowPaymentModal(false);
+            setSelectedInvoiceForPayment(null);
+          }}
+          onSave={fetchInvoices}
+        />
+      )}
     </div>
   );
 }

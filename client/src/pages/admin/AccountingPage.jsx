@@ -15,6 +15,7 @@ import {
   LayoutList, LayoutDashboard, CreditCard, Clock, Search
 } from 'lucide-react';
 import FinancialBreakdownModal from '../../components/dashboard/FinancialBreakdownModal';
+import RecordPaymentModal from '../../components/projects/RecordPaymentModal';
 
 const EXPENSE_CATEGORIES = [
   "Mobile Bill",
@@ -126,6 +127,8 @@ export default function AccountingPage() {
   const [unbilledStages, setUnbilledStages] = useState([]);
   const unbilledTotal = unbilledStages.reduce((sum, st) => sum + parseFloat(st.amount || 0), 0);
   const [invoiceFilter, setInvoiceFilter] = useState('all'); // 'all', 'generated', 'draft'
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   const filteredInvoicesList = useMemo(() => {
     if (invoiceFilter === 'generated') {
@@ -1808,14 +1811,27 @@ export default function AccountingPage() {
                             ) : (
                               <>
                                 {inv.status !== 'paid' && inv.project_id && (
-                                  <button
-                                    onClick={() => handleMarkPaid(inv.id)}
-                                    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
-                                    title="Mark as Paid"
-                                  >
-                                    <CheckCircle2 size={12} />
-                                    Mark Paid
-                                  </button>
+                                  <>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedInvoiceForPayment(inv);
+                                        setShowPaymentModal(true);
+                                      }}
+                                      className="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                      title="Record Partial Payment"
+                                    >
+                                      <CreditCard size={12} />
+                                      Record Payment
+                                    </button>
+                                    <button
+                                      onClick={() => handleMarkPaid(inv.id)}
+                                      className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                      title="Mark as Paid"
+                                    >
+                                      <CheckCircle2 size={12} />
+                                      Mark Paid
+                                    </button>
+                                  </>
                                 )}
                                 <a
                                   href={`/admin/invoice?invoice_id=${inv.id}`}
@@ -1898,6 +1914,20 @@ export default function AccountingPage() {
         type={financialModal.type}
         label={financialModal.label}
       />
+
+      {showPaymentModal && selectedInvoiceForPayment && (
+        <RecordPaymentModal
+          invoice={selectedInvoiceForPayment}
+          onClose={() => {
+            setShowPaymentModal(false);
+            setSelectedInvoiceForPayment(null);
+          }}
+          onSave={() => {
+            fetchInvoices();
+            fetchSummary();
+          }}
+        />
+      )}
 
     </AppLayout>
   );

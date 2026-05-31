@@ -59,10 +59,11 @@ router.get('/', authenticate, async (req, res) => {
       const isPaid = (inv.status || '').toLowerCase() === 'paid';
       const isCancelled = (inv.status || '').toLowerCase() === 'cancelled';
       const amt = parseFloat(inv.amount || 0);
+      const received = parseFloat(inv.received_amount || 0);
       return {
         ...inv,
-        received_amount: isPaid ? amt : 0,
-        pending_amount: (!isPaid && !isCancelled) ? amt : 0,
+        received_amount: received,
+        pending_amount: isCancelled ? 0 : Math.max(0, amt - received),
         is_payment_stage: false
       };
     });
@@ -260,7 +261,8 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
       due_date,
       signature_data,
       payment_stage_id,
-      payment_stage_ids = []
+      payment_stage_ids = [],
+      received_amount
     } = req.body;
 
     if (!invoice_no || !client_name || !amount || !items) {
@@ -280,6 +282,17 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }
 
+    // Calculate received_amount
+    let parsedReceivedAmount = 0;
+    if (resolvedStatus === 'paid') {
+      parsedReceivedAmount = parsedAmount;
+    } else if (received_amount !== undefined && received_amount !== null) {
+      parsedReceivedAmount = parseFloat(received_amount);
+      if (isNaN(parsedReceivedAmount) || parsedReceivedAmount < 0) {
+        parsedReceivedAmount = 0;
+      }
+    }
+
     // Begin atomic transaction
     await client.query('BEGIN');
 
@@ -291,9 +304,9 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
     const query = `
       INSERT INTO invoices (
         invoice_no, project_id, client_id, client_name, amount, 
-        date, items, tax_details, status, due_date, signature_data, payment_stage_id, created_by
+        date, items, tax_details, status, due_date, signature_data, payment_stage_id, created_by, received_amount
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING *;
     `;
 
@@ -310,8 +323,28 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
       due_date || null,
       signature_data || null,
       firstPaymentStageId,
-      req.user.id
+      req.user.id,
+      parsedReceivedAmount
     ]);
+
+    // Record income transaction in ledger if explicitly paid on creation
+    if (resolvedStatus === 'paid' && project_id) {
+      await client.query(
+        `INSERT INTO transactions 
+          (type, category, amount, description, project_id, reference_id, date, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          'income',
+          'project_receipt',
+          parsedAmount,
+          `Invoice ${invoice_no} - ${client_name}`,
+          project_id,
+          invoice_no,
+          date || new Date(),
+          req.user.id
+        ]
+      );
+    }
 
     let finalPaymentStageId = firstPaymentStageId;
 
@@ -565,9 +598,12 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, async (req, res) 
       return res.status(400).json({ error: 'Invoice has no linked project. Cannot record income.' });
     }
 
-    const amount = parseFloat(invoice.amount);
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ error: 'Invoice amount must be greater than 0' });
+    const amount = parseFloat(invoice.amount || 0);
+    const received = parseFloat(invoice.received_amount || 0);
+    const remainingAmount = Math.max(0, amount - received);
+
+    if (remainingAmount <= 0) {
+      return res.status(400).json({ error: 'Invoice has no remaining balance to pay.' });
     }
 
     // Begin atomic transaction
@@ -581,18 +617,18 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, async (req, res) 
       [
         'income',
         'project_receipt',
-        amount,
-        `Invoice ${invoice.invoice_no} - ${invoice.client_name}`,
+        remainingAmount,
+        `Invoice ${invoice.invoice_no} - ${invoice.client_name} (Balance Payment)`,
         invoice.project_id,
         invoice.invoice_no,
-        invoice.date,
+        new Date(),
         req.user.id
       ]
     );
 
-    // Step 2: Mark invoice as paid
+    // Step 2: Mark invoice as paid and set received_amount to full amount
     const { rows: updatedRows } = await client.query(
-      `UPDATE invoices SET status = 'paid' WHERE id = $1 RETURNING *`,
+      `UPDATE invoices SET status = 'paid', received_amount = amount WHERE id = $1 RETURNING *`,
       [id]
     );
 
@@ -620,12 +656,123 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, async (req, res) 
 
     res.json({ 
       invoice: updatedRows[0],
-      message: 'Invoice marked as paid and income recorded successfully'
+      message: 'Invoice marked as paid and balance recorded successfully'
     });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Mark paid atomic transaction error:', err);
     res.status(500).json({ error: 'Failed to process payment. All changes have been rolled back.' });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/invoices/:id/record-payment — Atomic: records custom partial payment
+router.post('/:id/record-payment', authenticate, requireAccounting, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const { amount } = req.body;
+
+    const paymentAmount = parseFloat(amount);
+    if (isNaN(paymentAmount) || paymentAmount <= 0) {
+      return res.status(400).json({ error: 'Payment amount must be a positive number' });
+    }
+
+    // 1. Fetch invoice details
+    const { rows: invoiceRows } = await client.query(
+      'SELECT * FROM invoices WHERE id = $1',
+      [id]
+    );
+
+    if (invoiceRows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const invoice = invoiceRows[0];
+
+    if (invoice.status === 'paid') {
+      return res.status(400).json({ error: 'Invoice is already fully paid' });
+    }
+
+    if (!invoice.project_id) {
+      return res.status(400).json({ error: 'Invoice has no linked project. Cannot record income.' });
+    }
+
+    const totalAmount = parseFloat(invoice.amount || 0);
+    const alreadyReceived = parseFloat(invoice.received_amount || 0);
+    const remainingBalance = Math.max(0, totalAmount - alreadyReceived);
+
+    if (paymentAmount > remainingBalance + 0.01) {
+      return res.status(400).json({ 
+        error: `Payment amount (₹${paymentAmount.toLocaleString('en-IN')}) exceeds the remaining balance of ₹${remainingBalance.toLocaleString('en-IN')}` 
+      });
+    }
+
+    // Begin atomic transaction
+    await client.query('BEGIN');
+
+    // Step 1: Insert custom receipt transaction into ledger
+    await client.query(
+      `INSERT INTO transactions 
+        (type, category, amount, description, project_id, reference_id, date, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        'income',
+        'project_receipt',
+        paymentAmount,
+        `Invoice ${invoice.invoice_no} - ${invoice.client_name} (Partial Payment)`,
+        invoice.project_id,
+        invoice.invoice_no,
+        new Date(),
+        req.user.id
+      ]
+    );
+
+    // Step 2: Update received amount on invoice
+    const newReceived = alreadyReceived + paymentAmount;
+    const isFullyPaid = Math.abs(totalAmount - newReceived) < 0.01 || newReceived >= totalAmount;
+    const newStatus = isFullyPaid ? 'paid' : invoice.status;
+    const finalReceived = isFullyPaid ? totalAmount : newReceived;
+
+    const { rows: updatedRows } = await client.query(
+      `UPDATE invoices SET status = $1, received_amount = $2 WHERE id = $3 RETURNING *`,
+      [newStatus, finalReceived, id]
+    );
+
+    // Step 3: Transition milestones/payment stages to 'paid' if fully paid
+    if (isFullyPaid) {
+      if (invoice.payment_stage_id) {
+        await client.query(
+          `UPDATE project_payment_stages 
+           SET status = 'paid', updated_at = NOW() 
+           WHERE id = $1`,
+           [invoice.payment_stage_id]
+        );
+      }
+
+      await client.query(
+        `UPDATE project_payment_stages pps
+         SET status = 'paid', updated_at = NOW()
+         FROM invoice_payment_stages ips
+         WHERE ips.invoice_id = $1 AND ips.payment_stage_id = pps.id`,
+        [id]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    res.json({ 
+      invoice: updatedRows[0],
+      message: isFullyPaid 
+        ? 'Payment recorded successfully! Invoice is now fully paid.' 
+        : `Partial payment of ₹${paymentAmount.toLocaleString('en-IN')} recorded successfully.`,
+      remainingBalance: isFullyPaid ? 0 : Math.max(0, totalAmount - finalReceived)
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Record payment transaction error:', err);
+    res.status(500).json({ error: 'Failed to record payment. All changes rolled back.' });
   } finally {
     client.release();
   }
