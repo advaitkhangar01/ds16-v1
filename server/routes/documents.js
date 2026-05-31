@@ -353,7 +353,16 @@ router.get('/payment-stages', authenticate, checkProjectAccess(), async (req, re
     if (!project_id) return res.status(400).json({ error: 'project_id is required' });
 
     const { rows } = await pool.query(
-      'SELECT * FROM project_payment_stages WHERE project_id = $1 ORDER BY created_at DESC',
+      `SELECT pps.*,
+         CASE WHEN EXISTS (
+           SELECT 1 FROM invoices i 
+           WHERE (i.payment_stage_id = pps.id 
+                  OR EXISTS (SELECT 1 FROM invoice_payment_stages ips WHERE ips.invoice_id = i.id AND ips.payment_stage_id = pps.id))
+             AND i.status NOT IN ('cancelled')
+         ) THEN true ELSE false END as has_active_invoice
+       FROM project_payment_stages pps
+       WHERE pps.project_id = $1
+       ORDER BY pps.created_at DESC`,
       [project_id]
     );
     res.json({ paymentStages: rows });

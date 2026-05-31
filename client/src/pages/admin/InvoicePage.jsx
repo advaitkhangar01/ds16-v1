@@ -71,6 +71,45 @@ export default function InvoicePage() {
   const [showConfirmClear, setShowConfirmClear] = useState(false); // Phase 3.3: inline confirm
   const [savedInvoiceRef, setSavedInvoiceRef] = useState(null); // Phase 1: tracks last saved invoice for mark-paid
   
+  const [projectStages, setProjectStages] = useState([]);
+  const [loadingStages, setLoadingStages] = useState(false);
+  const [selectedStageIds, setSelectedStageIds] = useState([]);
+
+  const fetchProjectStages = async (pid) => {
+    if (!pid) { setProjectStages([]); return; }
+    setLoadingStages(true);
+    try {
+      const { data } = await api.get(`/documents/payment-stages?project_id=${pid}`);
+      setProjectStages(
+        (data.paymentStages || []).filter(s =>
+          ['payment initiated', 'bill generated'].includes(s.status?.toLowerCase())
+        )
+      );
+    } catch (err) {
+      console.error('Failed to fetch project stages:', err);
+      setProjectStages([]);
+    } finally {
+      setLoadingStages(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedStageIds.length === 0) return;
+    const selected = projectStages.filter(s => selectedStageIds.includes(s.id));
+    setFormData(prev => ({
+      ...prev,
+      payment_stage_id: selected.length === 1 ? selected[0].id : (selected[0]?.id || null),
+      items: selected.map(s => ({
+        id: s.id,
+        description: `${s.document_type} - ${getProjectName()}`,
+        quantity: 1,
+        rate: parseFloat(s.amount) || 0,
+        hsn: '',
+        per: 'Flat'
+      }))
+    }));
+  }, [selectedStageIds, projectStages]);
+
   const previewRef = useRef(null);
   const dropdownRef = useRef(null);
   const projectDropdownRef = useRef(null);
@@ -95,6 +134,13 @@ export default function InvoicePage() {
           ? preFill.items.map(item => ({ ...item, id: item.id || Date.now() }))
           : INITIAL_FORM.items
       }));
+      
+      if (preFill.project_id) {
+        fetchProjectStages(preFill.project_id);
+        if (preFill.payment_stage_id) {
+          setSelectedStageIds([preFill.payment_stage_id]);
+        }
+      }
       
       // If invoice number is missing, fetch next one
       if (!preFill.invoiceNo) {
@@ -216,6 +262,14 @@ export default function InvoicePage() {
         sgstPercent: inv.tax_details?.sgstPercent ?? 9,
         igstPercent: inv.tax_details?.igstPercent ?? 18,
       });
+
+      if (inv.project_id) {
+        fetchProjectStages(inv.project_id);
+        if (inv.payment_stage_id) {
+          setSelectedStageIds([inv.payment_stage_id]);
+        }
+      }
+
       setIsGstEnabled(inv.tax_details?.isGstEnabled ?? true);
       setIsIgst(inv.tax_details?.isIgst ?? false);
       // Restore the archived signature onto the canvas
@@ -326,6 +380,7 @@ export default function InvoicePage() {
         invoice_no: formData.invoiceNo,
         project_id: formData.project_id,
         payment_stage_id: formData.payment_stage_id,
+        payment_stage_ids: selectedStageIds,
         client_id: clients.find(c => c.name === formData.billToName)?.id,
         client_name: formData.billToName,
         amount: grandTotal,
@@ -581,6 +636,8 @@ export default function InvoicePage() {
       billToPhone: client?.primary_contact_phone || p.primary_contact_phone || '',
       billToEmail: client?.primary_contact_email || ''
     }));
+    setSelectedStageIds([]);
+    fetchProjectStages(p.id);
     setProjectSearch('');
     setIsProjectDropdownOpen(false);
   };
@@ -677,6 +734,47 @@ export default function InvoicePage() {
                     </div>
                   )}
                 </div>
+
+                {/* Link Milestone(s) */}
+                {projectStages.length > 0 && (
+                  <div className="bg-orange-50/40 border border-orange-100 rounded-xl p-3.5 space-y-2.5">
+                    <div className="flex justify-between items-center">
+                      <label className="label text-[#E05A1E] font-bold">Link Milestone(s)</label>
+                      {loadingStages && <span className="loading loading-spinner loading-xs text-[#E05A1E]"></span>}
+                    </div>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                      {projectStages.map(s => (
+                        <label key={s.id} className="flex items-center gap-3 cursor-pointer p-2 hover:bg-white border border-transparent hover:border-orange-100 transition-all rounded-lg">
+                          <input
+                            type="checkbox"
+                            checked={selectedStageIds.includes(s.id)}
+                            onChange={(e) => {
+                              setSelectedStageIds(prev =>
+                                e.target.checked ? [...prev, s.id] : prev.filter(id => id !== s.id)
+                              );
+                            }}
+                            className="w-4 h-4 rounded text-[#E05A1E] border-gray-300 focus:ring-[#E05A1E] accent-[#E05A1E] cursor-pointer"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-gray-800 truncate">{s.document_type}</p>
+                            <p className="text-[9px] text-gray-400 font-medium">Status: {s.status}</p>
+                          </div>
+                          <span className="font-mono text-xs font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
+                            ₹{Number(s.amount).toLocaleString('en-IN')}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    {selectedStageIds.length > 0 && (
+                      <p className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        {selectedStageIds.length} milestone(s) will be consolidated
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <div className="relative" ref={dropdownRef}>
                   <div className="flex justify-between items-end mb-1">

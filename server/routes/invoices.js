@@ -67,78 +67,83 @@ router.get('/', authenticate, async (req, res) => {
       };
     });
 
-    // 2. Fetch active payment stages matching filters
-    let stagesQuery = `
-      SELECT pps.*, p.name as project_name, c.name as client_name_full, c.id as client_id
-      FROM project_payment_stages pps
-      JOIN projects p ON p.id = pps.project_id
-      LEFT JOIN clients c ON c.id = p.client_id
-      WHERE LOWER(pps.status) IN ('payment initiated', 'bill generated', 'bill delivered')
-        AND NOT EXISTS (
-          SELECT 1 FROM invoices i 
-          WHERE i.payment_stage_id = pps.id 
-            AND i.status != 'cancelled'
-        )
-    `;
-    const stagesParams = [];
-    let sIdx = 1;
-    
+    // 2. Fetch active payment stages matching filters ONLY if project_id is provided
+    // This prevents pending payment stages from polluting the global Invoice History and double-counting totals
+    let virtualInvoices = [];
     if (project_id) {
-      stagesQuery += ` AND pps.project_id = $${sIdx++}`;
-      stagesParams.push(project_id);
-    }
-    if (client_id) {
-      stagesQuery += ` AND p.client_id = $${sIdx++}`;
-      stagesParams.push(client_id);
-    }
-    if (start_date) {
-      stagesQuery += ` AND pps.created_at >= $${sIdx++}`;
-      stagesParams.push(start_date);
-    }
-    if (end_date) {
-      stagesQuery += ` AND pps.created_at <= $${sIdx++}`;
-      stagesParams.push(end_date);
-    }
-
-    if (req.user.role !== 'admin') {
-      stagesQuery += ` AND EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = pps.project_id AND pa.user_id = $${sIdx++})`;
-      stagesParams.push(req.user.id);
-    }
-
-    stagesQuery += ` ORDER BY pps.created_at DESC`;
-    const { rows: stageRows } = await pool.query(stagesQuery, stagesParams);
-
-    const virtualInvoices = stageRows.map(stage => {
-      const lowerStatus = (stage.status || '').toLowerCase();
-      let mappedStatus = 'draft';
-      const amt = parseFloat(stage.amount || 0);
-      let receivedAmount = 0;
-      let pendingAmount = 0;
-
-      if (lowerStatus === 'paid') {
-        mappedStatus = 'paid';
-        receivedAmount = amt;
-      } else if (lowerStatus === 'bill generated' || lowerStatus === 'bill delivered') {
-        mappedStatus = 'generated';
-        pendingAmount = amt;
+      let stagesQuery = `
+        SELECT pps.*, p.name as project_name, c.name as client_name_full, c.id as client_id
+        FROM project_payment_stages pps
+        JOIN projects p ON p.id = pps.project_id
+        LEFT JOIN clients c ON c.id = p.client_id
+        WHERE LOWER(pps.status) IN ('payment initiated', 'bill generated', 'bill delivered')
+          AND pps.project_id = $1
+          AND NOT EXISTS (
+            SELECT 1 FROM invoices i 
+            WHERE (i.payment_stage_id = pps.id
+                   OR EXISTS (
+                     SELECT 1 FROM invoice_payment_stages ips
+                     WHERE ips.invoice_id = i.id AND ips.payment_stage_id = pps.id
+                   ))
+              AND i.status != 'cancelled'
+          )
+      `;
+      const stagesParams = [project_id];
+      let sIdx = 2;
+      
+      if (client_id) {
+        stagesQuery += ` AND p.client_id = $${sIdx++}`;
+        stagesParams.push(client_id);
       }
-      return {
-        id: `stage-${stage.id}`,
-        invoice_no: `${stage.document_type} (Stage)`,
-        project_id: stage.project_id,
-        client_id: stage.client_id,
-        client_name: stage.client_name_full,
-        client_name_full: stage.client_name_full,
-        project_name: stage.project_name,
-        amount: stage.amount,
-        date: stage.created_at,
-        status: mappedStatus,
-        is_payment_stage: true,
-        stage_status: stage.status,
-        received_amount: receivedAmount,
-        pending_amount: pendingAmount
-      };
-    });
+      if (start_date) {
+        stagesQuery += ` AND pps.created_at >= $${sIdx++}`;
+        stagesParams.push(start_date);
+      }
+      if (end_date) {
+        stagesQuery += ` AND pps.created_at <= $${sIdx++}`;
+        stagesParams.push(end_date);
+      }
+
+      if (req.user.role !== 'admin') {
+        stagesQuery += ` AND EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = pps.project_id AND pa.user_id = $${sIdx++})`;
+        stagesParams.push(req.user.id);
+      }
+
+      stagesQuery += ` ORDER BY pps.created_at DESC`;
+      const { rows: stageRows } = await pool.query(stagesQuery, stagesParams);
+
+      virtualInvoices = stageRows.map(stage => {
+        const lowerStatus = (stage.status || '').toLowerCase();
+        let mappedStatus = 'draft';
+        const amt = parseFloat(stage.amount || 0);
+        let receivedAmount = 0;
+        let pendingAmount = 0;
+
+        if (lowerStatus === 'paid') {
+          mappedStatus = 'paid';
+          receivedAmount = amt;
+        } else if (lowerStatus === 'bill generated' || lowerStatus === 'bill delivered') {
+          mappedStatus = 'generated';
+          pendingAmount = amt;
+        }
+        return {
+          id: `stage-${stage.id}`,
+          invoice_no: `${stage.document_type} (Stage)`,
+          project_id: stage.project_id,
+          client_id: stage.client_id,
+          client_name: stage.client_name_full,
+          client_name_full: stage.client_name_full,
+          project_name: stage.project_name,
+          amount: stage.amount,
+          date: stage.created_at,
+          status: mappedStatus,
+          is_payment_stage: true,
+          stage_status: stage.status,
+          received_amount: receivedAmount,
+          pending_amount: pendingAmount
+        };
+      });
+    }
 
     // 3. Merge, sort, and slice
     const allInvoices = [...formattedInvoices, ...virtualInvoices];
@@ -254,7 +259,8 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
       status,
       due_date,
       signature_data,
-      payment_stage_id
+      payment_stage_id,
+      payment_stage_ids = []
     } = req.body;
 
     if (!invoice_no || !client_name || !amount || !items) {
@@ -276,6 +282,10 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
 
     // Begin atomic transaction
     await client.query('BEGIN');
+
+    const firstPaymentStageId = (payment_stage_ids && payment_stage_ids.length > 0)
+      ? payment_stage_ids[0]
+      : (payment_stage_id || null);
 
     // Strict INSERT — will throw a unique_violation (code 23505) if invoice_no already exists
     const query = `
@@ -299,18 +309,57 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
       resolvedStatus,
       due_date || null,
       signature_data || null,
-      payment_stage_id || null,
+      firstPaymentStageId,
       req.user.id
     ]);
 
-    // Automatically update the linked payment stage status to 'bill generated'
-    if (payment_stage_id) {
-      await client.query(
-        `UPDATE project_payment_stages 
-         SET status = 'bill generated', updated_at = NOW() 
-         WHERE id = $1`,
-         [payment_stage_id]
-      );
+    let finalPaymentStageId = firstPaymentStageId;
+
+    // Real-time Auto-healing: If payment_stage_id was not explicitly passed, try to auto-link
+    if (!finalPaymentStageId && !(payment_stage_ids && payment_stage_ids.length > 0) && project_id) {
+      const healQuery = `
+        UPDATE invoices i
+        SET payment_stage_id = pps.id
+        FROM project_payment_stages pps
+        WHERE i.id = $1
+          AND i.payment_stage_id IS NULL
+          AND i.project_id = pps.project_id
+          AND ABS(i.amount - pps.amount) < 0.01
+          AND (
+            pps.document_type IS NULL 
+            OR i.items::text ILIKE '%' || pps.document_type || '%'
+            OR i.invoice_no ILIKE '%' || pps.document_type || '%'
+          )
+        RETURNING pps.id;
+      `;
+      const healRes = await client.query(healQuery, [rows[0].id]);
+      if (healRes.rows.length > 0) {
+        finalPaymentStageId = healRes.rows[0].id;
+        rows[0].payment_stage_id = finalPaymentStageId;
+      }
+    }
+
+    const finalPaymentStageIds = (payment_stage_ids && payment_stage_ids.length > 0)
+      ? payment_stage_ids
+      : (finalPaymentStageId ? [finalPaymentStageId] : []);
+
+    // Save all to junction table and update status of each
+    if (finalPaymentStageIds.length > 0) {
+      for (const sid of finalPaymentStageIds) {
+        await client.query(
+          `INSERT INTO invoice_payment_stages (invoice_id, payment_stage_id)
+           VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [rows[0].id, sid]
+        );
+        
+        const targetStageStatus = resolvedStatus === 'paid' ? 'paid' : 'bill generated';
+        await client.query(
+          `UPDATE project_payment_stages 
+           SET status = $1, updated_at = NOW() 
+           WHERE id = $2`,
+          [targetStageStatus, sid]
+        );
+      }
     }
 
     await client.query('COMMIT');
@@ -375,20 +424,46 @@ router.patch('/:id/status', authenticate, requireAccounting, async (req, res) =>
 
     const invoice = rows[0];
 
+    let finalPaymentStageId = invoice.payment_stage_id || null;
+
+    // Real-time Auto-healing: If payment_stage_id is NULL, try to auto-link
+    if (!finalPaymentStageId && invoice.project_id) {
+      const healQuery = `
+        UPDATE invoices i
+        SET payment_stage_id = pps.id
+        FROM project_payment_stages pps
+        WHERE i.id = $1
+          AND i.payment_stage_id IS NULL
+          AND i.project_id = pps.project_id
+          AND ABS(i.amount - pps.amount) < 0.01
+          AND (
+            pps.document_type IS NULL 
+            OR i.items::text ILIKE '%' || pps.document_type || '%'
+            OR i.invoice_no ILIKE '%' || pps.document_type || '%'
+          )
+        RETURNING pps.id;
+      `;
+      const healRes = await client.query(healQuery, [invoice.id]);
+      if (healRes.rows.length > 0) {
+        finalPaymentStageId = healRes.rows[0].id;
+        invoice.payment_stage_id = finalPaymentStageId;
+      }
+    }
+
     // Automate payment stage status transitions based on new invoice status
-    if (invoice.payment_stage_id) {
+    if (finalPaymentStageId) {
       if (status === 'cancelled') {
         // Only revert to 'payment initiated' if no other active invoices are linked
         const { rows: otherInvoices } = await client.query(
           'SELECT id FROM invoices WHERE payment_stage_id = $1 AND id != $2 AND status != \'cancelled\'',
-          [invoice.payment_stage_id, invoice.id]
+          [finalPaymentStageId, invoice.id]
         );
         if (otherInvoices.length === 0) {
           await client.query(
             `UPDATE project_payment_stages 
              SET status = 'payment initiated', updated_at = NOW() 
              WHERE id = $1`,
-            [invoice.payment_stage_id]
+            [finalPaymentStageId]
           );
         }
       } else if (status === 'paid') {
@@ -396,7 +471,58 @@ router.patch('/:id/status', authenticate, requireAccounting, async (req, res) =>
           `UPDATE project_payment_stages 
            SET status = 'paid', updated_at = NOW() 
            WHERE id = $1`,
-          [invoice.payment_stage_id]
+          [finalPaymentStageId]
+        );
+      } else if (status === 'generated' || status === 'sent') {
+        await client.query(
+          `UPDATE project_payment_stages 
+           SET status = 'bill generated', updated_at = NOW() 
+           WHERE id = $1`,
+          [finalPaymentStageId]
+        );
+      }
+    }
+
+    // Also automate status transitions for all junction-linked stages
+    if (status) {
+      if (status === 'cancelled') {
+        const { rows: junctionRows } = await client.query(
+          'SELECT payment_stage_id FROM invoice_payment_stages WHERE invoice_id = $1',
+          [invoice.id]
+        );
+        for (const { payment_stage_id: sid } of junctionRows) {
+          const { rows: others } = await client.query(
+            `SELECT 1 FROM invoice_payment_stages ips
+             JOIN invoices i ON i.id = ips.invoice_id
+             WHERE ips.payment_stage_id = $1
+               AND ips.invoice_id != $2
+               AND i.status != 'cancelled'`,
+            [sid, invoice.id]
+          );
+          const { rows: othersSingle } = await client.query(
+            `SELECT 1 FROM invoices i
+             WHERE i.payment_stage_id = $1
+               AND i.id != $2
+               AND i.status != 'cancelled'`,
+            [sid, invoice.id]
+          );
+          if (others.length === 0 && othersSingle.length === 0) {
+            await client.query(
+              `UPDATE project_payment_stages 
+               SET status = 'payment initiated', updated_at = NOW() 
+               WHERE id = $1`,
+              [sid]
+            );
+          }
+        }
+      } else {
+        const targetStageStatus = status === 'paid' ? 'paid' : 'bill generated';
+        await client.query(
+          `UPDATE project_payment_stages pps
+           SET status = $1, updated_at = NOW()
+           FROM invoice_payment_stages ips
+           WHERE ips.invoice_id = $2 AND ips.payment_stage_id = pps.id`,
+          [targetStageStatus, invoice.id]
         );
       }
     }
@@ -480,6 +606,15 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, async (req, res) 
       );
     }
 
+    // Mark all junction-linked stages as paid
+    await client.query(
+      `UPDATE project_payment_stages pps
+       SET status = 'paid', updated_at = NOW()
+       FROM invoice_payment_stages ips
+       WHERE ips.invoice_id = $1 AND ips.payment_stage_id = pps.id`,
+      [id]
+    );
+
     // Commit only if both steps succeeded
     await client.query('COMMIT');
 
@@ -515,7 +650,13 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
 
     const { payment_stage_id } = invoiceRows[0];
 
-    // 2. Delete the invoice
+    // Fetch junction stages before deleting the invoice
+    const { rows: junctionRows } = await client.query(
+      'SELECT payment_stage_id FROM invoice_payment_stages WHERE invoice_id = $1',
+      [req.params.id]
+    );
+
+    // 2. Delete the invoice (will cascade delete junction rows)
     await client.query('DELETE FROM invoices WHERE id = $1', [req.params.id]);
 
     // 3. Revert payment stage status to 'payment initiated' if linked and no other active invoices exist
@@ -530,6 +671,33 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
            SET status = 'payment initiated', updated_at = NOW() 
            WHERE id = $1`,
           [payment_stage_id]
+        );
+      }
+    }
+
+    // 4. Revert all junction-linked stages if no other active invoices exist
+    for (const { payment_stage_id: sid } of junctionRows) {
+      const { rows: others } = await client.query(
+        `SELECT 1 FROM invoice_payment_stages ips
+         JOIN invoices i ON i.id = ips.invoice_id
+         WHERE ips.payment_stage_id = $1
+           AND ips.invoice_id != $2
+           AND i.status != 'cancelled'`,
+        [sid, req.params.id]
+      );
+      const { rows: othersSingle } = await client.query(
+        `SELECT 1 FROM invoices i
+         WHERE i.payment_stage_id = $1
+           AND i.id != $2
+           AND i.status != 'cancelled'`,
+        [sid, req.params.id]
+      );
+      if (others.length === 0 && othersSingle.length === 0) {
+        await client.query(
+          `UPDATE project_payment_stages 
+           SET status = 'payment initiated', updated_at = NOW() 
+           WHERE id = $1`,
+          [sid]
         );
       }
     }

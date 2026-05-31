@@ -8,6 +8,8 @@ export default function InvoiceHistoryTab({ projectId, project }) {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [invoiceFilter, setInvoiceFilter] = useState('all'); // 'all', 'generated', 'draft'
+  const [unbilledStages, setUnbilledStages] = useState([]);
+  const unbilledTotal = unbilledStages.reduce((sum, st) => sum + parseFloat(st.amount || 0), 0);
   const navigate = useNavigate();
 
   const filteredInvoicesList = useMemo(() => {
@@ -94,12 +96,20 @@ export default function InvoiceHistoryTab({ projectId, project }) {
 
   const fetchInvoices = useCallback(async () => {
     try {
-      const { data } = await api.get(`/invoices?project_id=${projectId}`);
-      // Phase 3.4: Defensive guard — fall back to empty array if response is malformed
-      setInvoices(Array.isArray(data?.invoices) ? data.invoices : []);
+      const [invoiceRes, stageRes] = await Promise.all([
+        api.get(`/invoices?project_id=${projectId}`),
+        api.get(`/documents/payment-stages?project_id=${projectId}`)
+      ]);
+      setInvoices(Array.isArray(invoiceRes.data?.invoices) ? invoiceRes.data.invoices : []);
+      setUnbilledStages(
+        (stageRes.data?.paymentStages || []).filter(s =>
+          s.status?.toLowerCase() === 'payment initiated' && !s.has_active_invoice
+        )
+      );
     } catch (err) {
       toast.error('Failed to load invoice history');
       setInvoices([]); // Ensure empty state renders cleanly
+      setUnbilledStages([]);
     } finally {
       setLoading(false);
     }
@@ -201,6 +211,21 @@ export default function InvoiceHistoryTab({ projectId, project }) {
           + Generate New
         </button>
       </div>
+
+      {unbilledStages.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+          <span className="text-amber-500 mt-0.5">⚠️</span>
+          <div>
+            <p className="text-xs font-bold text-amber-800">
+              {unbilledStages.length} milestone(s) are initiated but not yet billed
+            </p>
+            <p className="text-[10px] text-amber-700 mt-0.5">
+              Unbilled value: ₹{unbilledTotal.toLocaleString('en-IN')} —
+              Click "+ Generate New" to select and bill them, or use the "Payment Stages" tab.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="overflow-hidden border border-[#EBEBEB] rounded-xl bg-white shadow-sm">
         <table className="w-full text-left text-xs border-collapse">

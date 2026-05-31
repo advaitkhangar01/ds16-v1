@@ -123,6 +123,8 @@ export default function AccountingPage() {
   // Invoices Data
   const [invoices, setInvoices] = useState([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [unbilledStages, setUnbilledStages] = useState([]);
+  const unbilledTotal = unbilledStages.reduce((sum, st) => sum + parseFloat(st.amount || 0), 0);
   const [invoiceFilter, setInvoiceFilter] = useState('all'); // 'all', 'generated', 'draft'
 
   const filteredInvoicesList = useMemo(() => {
@@ -379,6 +381,17 @@ export default function AccountingPage() {
         }
       });
       setInvoices(data.invoices || []);
+
+      if (filters.projectId) {
+        const stageRes = await api.get(`/documents/payment-stages?project_id=${filters.projectId}`);
+        setUnbilledStages(
+          (stageRes.data.paymentStages || []).filter(s =>
+            s.status?.toLowerCase() === 'payment initiated' && !s.has_active_invoice
+          )
+        );
+      } else {
+        setUnbilledStages([]);
+      }
     } catch (err) {
       console.error('Failed to load invoices', err);
       toast.error('Failed to load invoices');
@@ -1679,6 +1692,21 @@ export default function AccountingPage() {
                 <span className="badge badge-in-progress bg-gray-100 text-gray-700">{filteredInvoicesList.length} Invoices</span>
               </div>
             </div>
+
+            {unbilledStages.length > 0 && (
+              <div className="bg-amber-50 border-b border-amber-200 p-4 flex items-start gap-3">
+                <span className="text-amber-500 text-lg mt-0.5">⚠️</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-amber-800">
+                    {unbilledStages.length} milestone(s) are initiated but not yet billed
+                  </p>
+                  <p className="text-[10px] text-amber-700 mt-0.5">
+                    Unbilled value: ₹{unbilledTotal.toLocaleString('en-IN')} —
+                    Navigate to the project's details or select it to generate invoices for them.
+                  </p>
+                </div>
+              </div>
+            )}
             
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">

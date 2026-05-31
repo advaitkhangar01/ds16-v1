@@ -16,7 +16,7 @@ async function main() {
       console.table(rows);
     }
     
-    const { rows: stages } = await pool.query("SELECT id, name, amount, status FROM project_payment_stages WHERE LOWER(status) IN ('payment initiated', 'bill generated', 'bill delivered', 'paid') ORDER BY id DESC LIMIT 20");
+    const { rows: stages } = await pool.query("SELECT id, document_type, amount, status FROM project_payment_stages WHERE LOWER(status) IN ('payment initiated', 'bill generated', 'bill delivered', 'paid') ORDER BY id DESC LIMIT 20");
     console.log('\n📊 --- CURRENT PAYMENT STAGES (LAST 20) ---');
     if (stages.length === 0) {
       console.log('No active payment stages found.');
