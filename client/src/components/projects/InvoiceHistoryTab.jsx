@@ -245,6 +245,7 @@ export default function InvoiceHistoryTab({ projectId, project }) {
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="bg-gray-50 border-b border-[#F0F0F0] text-muted font-bold uppercase tracking-tighter">
+              <th className="px-4 py-3">S.No.</th>
               <th className="px-4 py-3">Date</th>
               <th className="px-4 py-3">Invoice #</th>
               <th className="px-4 py-3 text-right">Principal</th>
@@ -259,14 +260,14 @@ export default function InvoiceHistoryTab({ projectId, project }) {
           <tbody className="divide-y divide-[#F0F0F0]">
             {filteredInvoicesList.length === 0 ? (
               <tr>
-                <td colSpan="9" className="px-4 py-10 text-center text-muted italic">
+                <td colSpan="10" className="px-4 py-10 text-center text-muted italic">
                   {invoiceFilter === 'generated' ? 'No generated invoices found for this project.' :
                    invoiceFilter === 'draft' ? 'No draft invoices found for this project.' :
                    'No invoices found for this project.'}
                 </td>
               </tr>
             ) : (
-              filteredInvoicesList.map((inv) => {
+              filteredInvoicesList.map((inv, index) => {
                 const amount = parseFloat(inv.amount || 0);
                     let principal = amount;
                     let gst = 0;
@@ -291,6 +292,9 @@ export default function InvoiceHistoryTab({ projectId, project }) {
 
                   return (
                       <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
+                        <td className="px-4 py-4 text-gray-500 font-medium">
+                          {index + 1}
+                        </td>
                         <td className="px-4 py-4 text-[#1A1A1A] font-medium">
                           {new Date(inv.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </td>
@@ -384,7 +388,7 @@ export default function InvoiceHistoryTab({ projectId, project }) {
           {filteredInvoicesList.length > 0 && (
             <tfoot className="bg-gray-50 font-bold border-t border-[#F0F0F0] text-[10px]">
               <tr className="border-b border-[#F0F0F0]/50">
-                <td className="px-4 py-2 text-gray-500 uppercase font-bold" colSpan={2}>
+                <td className="px-4 py-2 text-gray-500 uppercase font-bold" colSpan={3}>
                   Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}
                 </td>
                 <td className="px-4 py-2 text-right font-mono font-semibold text-gray-700">

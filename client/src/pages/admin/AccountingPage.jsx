@@ -1934,6 +1934,7 @@ export default function AccountingPage() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-50/30">
+                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">S.No.</th>
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Invoice No</th>
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Client</th>
                     <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Project</th>
@@ -1950,14 +1951,14 @@ export default function AccountingPage() {
                 <tbody className="divide-y divide-gray-100">
                   {loadingInvoices ? (
                     <tr>
-                      <td colSpan="11" className="px-6 py-12 text-center">
+                      <td colSpan="12" className="px-6 py-12 text-center">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <div className="w-8 h-8 border-2 border-[#E05A1E] border-t-transparent rounded-full animate-spin" />
                           <p className="text-gray-400 text-xs italic">Loading invoice history...</p>
                         </div>
                       </td>
                     </tr>
-                  ) : filteredInvoicesList.map(inv => {
+                  ) : filteredInvoicesList.map((inv, index) => {
                     const statusColors = {
                       paid: 'bg-emerald-50 text-emerald-700 border-emerald-200',
                       generated: 'bg-sky-50 text-sky-700 border-sky-200',
@@ -1992,6 +1993,9 @@ export default function AccountingPage() {
 
                       return (
                         <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
+                          <td className="px-6 py-4 text-xs font-semibold text-gray-500">
+                            {index + 1}
+                          </td>
                           <td className="px-6 py-4">
                             <span className="font-mono font-bold text-sm text-[#E05A1E]">
                               {inv.invoice_no}
@@ -2109,7 +2113,7 @@ export default function AccountingPage() {
                   })}
                   {!loadingInvoices && filteredInvoicesList.length === 0 && (
                     <tr>
-                      <td colSpan="11" className="px-6 py-12 text-center text-gray-400 italic text-sm">
+                      <td colSpan="12" className="px-6 py-12 text-center text-gray-400 italic text-sm">
                         {invoiceFilter === 'generated' ? 'No generated invoices found.' : 
                          invoiceFilter === 'draft' ? 'No draft invoices found.' : 
                          'No invoice history available. Use the Invoice Editor to create new invoices.'}
@@ -2120,7 +2124,7 @@ export default function AccountingPage() {
                 {filteredInvoicesList.length > 0 && (
                   <tfoot className="bg-gray-50/85 font-bold border-t-2 border-gray-200">
                     <tr className="border-b border-gray-100/50">
-                      <td className="px-6 py-3 text-xs font-bold text-gray-500 uppercase" colSpan={4}>
+                      <td className="px-6 py-3 text-xs font-bold text-gray-500 uppercase" colSpan={5}>
                         <div className="flex items-center gap-4">
                           <span>Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}</span>
                         </div>

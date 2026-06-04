@@ -32,7 +32,7 @@ router.get('/', async (req, res) => {
         u.hourly_rate, 
         u.created_at,
         (SELECT COUNT(*) FROM project_assignments pa WHERE pa.user_id = u.id) as active_projects_count,
-        (SELECT status FROM attendance a WHERE a.user_id = u.id AND a.date = CURRENT_DATE LIMIT 1) as attendance_status_today,
+        (SELECT LOWER(status) FROM attendance a WHERE a.user_id = u.id AND a.date = CURRENT_DATE LIMIT 1) as attendance_status_today,
         (SELECT check_in FROM attendance a WHERE a.user_id = u.id AND a.date = CURRENT_DATE LIMIT 1) as check_in_today
       FROM users u
       ORDER BY u.name ASC
@@ -77,7 +77,7 @@ router.get('/:id', async (req, res) => {
     // 4. Attendance History & Stats
     const { rows: attStats } = await pool.query(`
       SELECT 
-        COUNT(*) FILTER (WHERE status = 'working' OR status = 'completed') as total_present,
+        COUNT(*) FILTER (WHERE LOWER(status) = 'working' OR LOWER(status) = 'completed' OR LOWER(status) = 'present') as total_present,
         COUNT(*) FILTER (WHERE is_late = true) as total_late,
         AVG(hours_worked) FILTER (WHERE hours_worked > 0) as avg_hours
       FROM attendance
@@ -85,7 +85,7 @@ router.get('/:id', async (req, res) => {
     `, [id]);
 
     const { rows: attendance } = await pool.query(`
-      SELECT id, date, check_in, check_out, status, is_late, late_minutes, hours_worked, checkin_distance, checkin_zone
+      SELECT id, date, check_in, check_out, LOWER(status) AS status, is_late, late_minutes, hours_worked, checkin_distance, checkin_zone
       FROM attendance
       WHERE user_id = $1
       ORDER BY date DESC

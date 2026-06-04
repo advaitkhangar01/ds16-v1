@@ -178,7 +178,7 @@ router.get('/payroll/employees', async (req, res) => {
     const result = employees.map(emp => {
       const myRecords = attendanceRecords.filter(r => r.user_id === emp.id);
       
-      const fullDays = myRecords.filter(r => r.status === 'present').length;
+      const fullDays = myRecords.filter(r => r.status === 'present' || r.status === 'working' || r.status === 'completed').length;
       const halfDays = myRecords.filter(r => r.status === 'half_day').length;
       const lateCount = myRecords.filter(r => r.is_late).length;
       const unpaidLeaves = parseFloat(leaveSummaries[emp.id]) || 0;
