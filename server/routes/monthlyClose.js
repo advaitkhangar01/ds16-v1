@@ -11,13 +11,11 @@ router.use(authenticate);
  * Helper: robust overlap calculator for approved leaves inside a month
  */
 async function calculateLeavesTaken(userId, month, year, client = pool) {
-  const startOfMonth = new Date(year, month - 1, 1);
-  const endOfMonth = new Date(year, month, 0); // last day of month
+  const startStr = `${year}-${String(month).padStart(2, '0')}-01`;
+  const endStr = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
+  const startOfMonth = new Date(startStr);
+  const endOfMonth = new Date(endStr);
   
-  // Format dates for SQL comparison
-  const startStr = startOfMonth.toISOString().split('T')[0];
-  const endStr = endOfMonth.toISOString().split('T')[0];
-
   const { rows } = await client.query(
     `SELECT start_date, end_date FROM leave_requests 
      WHERE user_id = $1 AND status = 'approved' 
@@ -47,8 +45,8 @@ async function calculateLeavesTaken(userId, month, year, client = pool) {
  * Helper: generates the complete historical snapshot object for a month
  */
 async function generateSnapshot(month, year, client = pool) {
-  const monthStart = new Date(year, month - 1, 1).toISOString().split('T')[0];
-  const monthEnd = new Date(year, month, 0).toISOString().split('T')[0];
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
 
   // 1. Revenue aggregations
   const projValueRes = await client.query('SELECT COALESCE(SUM(amount), 0) as val FROM project_document_amounts');
@@ -222,8 +220,8 @@ router.get('/preview', requireAccounting, async (req, res) => {
 
     // 3. Expense auditing category counts
     // Find all unique expense categories recorded in transactions or office expenses this month
-    const monthStart = new Date(year, month - 1, 1).toISOString().split('T')[0];
-    const monthEnd = new Date(year, month, 0).toISOString().split('T')[0];
+    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const monthEnd = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
     
     const catRes = await pool.query(
       `WITH active_categories AS (
@@ -362,8 +360,8 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
     }
 
     // 3. Lock expense categories
-    const monthStart = new Date(year, month - 1, 1).toISOString().split('T')[0];
-    const monthEnd = new Date(year, month, 0).toISOString().split('T')[0];
+    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const monthEnd = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
 
     const categoryRes = await client.query(
       `SELECT DISTINCT category FROM (
@@ -636,7 +634,8 @@ router.delete('/:month/:year', requireAdmin, async (req, res) => {
     );
 
     await client.query('COMMIT');
-    res.json({ message: `Month closing of May ${year} has been successfully reversed.` });
+    const monthName = new Date(year, month - 1, 1).toLocaleString('default', { month: 'long' });
+    res.json({ message: `Month closing of ${monthName} ${year} has been successfully reversed.` });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Month closing reversal failed:', err);

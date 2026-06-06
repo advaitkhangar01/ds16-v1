@@ -337,7 +337,13 @@ router.get('/summary', authenticate, async (req, res) => {
         if (latestClosed.length > 0) {
           const { month, year } = latestClosed[0];
           // boundary starts on the first day of the month following the latest closed period
-          effectiveStartDate = new Date(year, month, 1).toISOString().split('T')[0];
+          let nextMonth = month + 1;
+          let nextYear = year;
+          if (nextMonth > 12) {
+            nextMonth = 1;
+            nextYear += 1;
+          }
+          effectiveStartDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
         }
       }
       

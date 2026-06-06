@@ -315,6 +315,11 @@ router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, 
     const { type } = req.query;
     let items = [];
 
+    const today = getISTDate();
+    const [year, month] = today.split('-').map(Number);
+    const currentPeriodStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const currentPeriodEnd   = today;
+
     if (type === 'total') {
       const { rows } = await pool.query(`
         WITH active_stages AS (
@@ -440,30 +445,32 @@ router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, 
       );
       items = rows;
     } else if (type === 'billed') {
-      // Billed = all non-cancelled invoices, grouped by project
+      // Billed = non-cancelled invoices in the current period, grouped by project
       const { rows } = await pool.query(`
         SELECT p.id, p.name, SUM(i.amount) as amount
         FROM invoices i
         JOIN projects p ON p.id = i.project_id
         WHERE LOWER(i.status) != 'cancelled'
           AND i.project_id IS NOT NULL
+          AND i.date >= $1 AND i.date <= $2
         GROUP BY p.id, p.name
         HAVING SUM(i.amount) > 0
         ORDER BY amount DESC
-      `);
+      `, [currentPeriodStart, currentPeriodEnd]);
       items = rows;
     } else if (type === 'received') {
-      // Received = sum of received_amount per project across all non-cancelled invoices
+      // Received = payments collected in the current period, grouped by project
       const { rows } = await pool.query(`
         SELECT p.id, p.name, SUM(i.received_amount) as amount
         FROM invoices i
         JOIN projects p ON p.id = i.project_id
         WHERE LOWER(i.status) != 'cancelled'
           AND i.project_id IS NOT NULL
+          AND i.date >= $1 AND i.date <= $2
         GROUP BY p.id, p.name
         HAVING SUM(i.received_amount) > 0
         ORDER BY amount DESC
-      `);
+      `, [currentPeriodStart, currentPeriodEnd]);
       items = rows;
     } else if (type === 'pending') {
       // Pending = outstanding balance per project (invoice amount - received), for unpaid invoices
@@ -480,12 +487,14 @@ router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, 
       `);
       items = rows;
     } else if (type === 'expenses') {
+      // Expenses = transactions and payroll scoped to the current month/period
       const { rows } = await pool.query(`
         SELECT * FROM (
           SELECT t.id, t.description, t.category, t.amount, t.date, p.name as project_name
           FROM transactions t
           LEFT JOIN projects p ON p.id = t.project_id
           WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+            AND t.date >= $1 AND t.date <= $2
           
           UNION ALL
           
@@ -498,6 +507,7 @@ router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, 
             NULL as project_name
           FROM payroll 
           WHERE status = 'paid'
+            AND month = $3 AND year = $4
           
           UNION ALL
           
@@ -510,9 +520,10 @@ router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, 
             NULL as project_name
           FROM payroll 
           WHERE status = 'paid' AND incentives > 0
+            AND month = $3 AND year = $4
         ) combined_expenses
         ORDER BY date DESC
-      `);
+      `, [currentPeriodStart, currentPeriodEnd, month, year]);
       items = rows;
     }
 
