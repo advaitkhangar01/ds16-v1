@@ -136,11 +136,11 @@ export default function Sidebar({ collapsed = false, onClose }) {
   }
 
   return (
-    <aside className="w-full min-h-screen bg-white border-r border-[#E0E0E0] flex flex-col overflow-hidden transition-all duration-300">
+    <aside className="w-full min-h-screen bg-white/70 backdrop-blur-md border-r border-[#E2E8F0]/60 flex flex-col overflow-hidden transition-all duration-300 shadow-lg shadow-slate-100/50">
       {/* Logo Section */}
-      <div className="p-5 border-b border-[#E0E0E0] bg-white relative z-10 flex-shrink-0">
+      <div className="p-5 border-b border-[#E2E8F0]/60 bg-transparent relative z-10 flex-shrink-0">
         <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
-          <div className="h-10 w-10 flex-shrink-0 bg-white rounded-xl overflow-hidden border border-[#F0F0F0] flex items-center justify-center p-1">
+          <div className="h-10 w-10 flex-shrink-0 bg-white/80 backdrop-blur-sm rounded-xl overflow-hidden border border-[#E2E8F0]/80 flex items-center justify-center p-1 shadow-sm">
             <img src="/logo.jpg" alt="Design Studio 16" className="max-h-full max-w-full object-contain" />
           </div>
           <div className={`min-w-0 transition-all duration-300 ${collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100 w-auto'}`}>
@@ -167,7 +167,7 @@ export default function Sidebar({ collapsed = false, onClose }) {
             onClick={onClose}
             title={collapsed ? link.label : undefined}
             className={({ isActive }) =>
-              `sidebar-link ${collapsed ? 'justify-center !px-0 mx-1 rounded-lg' : ''} ${isActive ? 'active' : ''} ${collapsed && isActive ? '!pl-0 !border-l-0 bg-[#FFF4EE]' : ''}`
+              `sidebar-link hover:bg-white/60 transition-all duration-200 ${collapsed ? 'justify-center !px-0 mx-1 rounded-lg' : ''} ${isActive ? 'active' : ''} ${collapsed && isActive ? '!pl-0 !border-l-0 bg-[#FFF4EE]/70 backdrop-blur-sm' : ''}`
             }
           >
             <div className="flex-shrink-0 flex items-center justify-center">
@@ -181,12 +181,12 @@ export default function Sidebar({ collapsed = false, onClose }) {
       </nav>
 
       {/* User footer */}
-      <div className="p-3 border-t border-[#E0E0E0] bg-gray-50/30 flex-shrink-0">
+      <div className="p-3 border-t border-[#E2E8F0]/60 bg-white/30 backdrop-blur-sm flex-shrink-0">
         <div 
           className={`flex items-center ${collapsed ? 'justify-center !px-0' : 'gap-3 px-3'} py-2 mb-2`}
           title={collapsed ? `${user?.name} (${user?.department || user?.role})` : undefined}
         >
-          <div className="w-8 h-8 rounded-full bg-orange-100 border border-orange-200 flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 rounded-full bg-orange-50/80 border border-orange-200/60 flex items-center justify-center flex-shrink-0 shadow-sm">
             <span className="text-[#E05A1E] text-xs font-black">
               {user?.name?.charAt(0).toUpperCase()}
             </span>
@@ -199,7 +199,7 @@ export default function Sidebar({ collapsed = false, onClose }) {
         <button
           onClick={handleLogout}
           title={collapsed ? "Sign Out" : undefined}
-          className={`w-full flex items-center ${collapsed ? 'justify-center !px-0' : 'gap-3 px-3'} py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-red-500 hover:bg-red-50 hover:text-red-600 transition-all duration-200`}
+          className={`w-full flex items-center ${collapsed ? 'justify-center !px-0' : 'gap-3 px-3'} py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-red-500 hover:bg-red-50/60 hover:text-red-600 transition-all duration-200`}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
