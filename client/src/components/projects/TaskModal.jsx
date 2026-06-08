@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { formatTimeIST, formatIST, timeAgo } from '../../utils/time';
+import { formatTimeIST, formatIST, formatDateIST, getISODateIST, timeAgo } from '../../utils/time';
 import toast from 'react-hot-toast';
 
 export default function TaskModal({ taskId, isOpen, onClose }) {
@@ -93,6 +93,16 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
     }
   }
 
+  async function handleStartDateChange(newDate) {
+    try {
+      const { data } = await api.patch(`/tasks/${taskId}`, { start_date: newDate || null });
+      setTask(prev => ({ ...prev, start_date: data.task.start_date }));
+      toast.success('Start date updated');
+    } catch {
+      toast.error('Failed to update start date');
+    }
+  }
+
   async function handleDeleteTask() {
     if (!window.confirm(`Are you sure you want to delete this task?`)) return;
     try {
@@ -174,6 +184,23 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
                   {task?.status === 'done' && <option value="done">Done</option>}
                   {task?.status === 'passed' && <option value="passed">Passed</option>}
                 </select>
+              </div>
+
+              {/* Start Date Control */}
+              <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-muted font-bold uppercase tracking-tight">Start Date:</span>
+                {user?.role === 'admin' || task?.created_by === user?.id ? (
+                  <input
+                    type="date"
+                    className="bg-transparent text-xs font-bold text-[#1A1A1A] focus:outline-none border-none p-0 w-[110px]"
+                    value={task?.start_date ? task.start_date.substring(0, 10) : ''}
+                    onChange={(e) => handleStartDateChange(e.target.value)}
+                  />
+                ) : (
+                  <span className="text-xs font-bold text-[#1A1A1A]">
+                    {formatDateIST(task?.start_date)}
+                  </span>
+                )}
               </div>
 
               {/* Admin Actions */}

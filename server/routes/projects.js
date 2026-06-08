@@ -3,7 +3,7 @@
 
 const router = require('express').Router();
 const pool = require('../db');
-const { authenticate, requireAdmin } = require('../middleware/auth');
+const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
 
 // Default stages
@@ -70,8 +70,8 @@ router.get('/', authenticate, async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const limitInt = parseInt(limit);
 
-    // Admins, accounts, and design heads see all projects; employees only see assigned projects
-    if (req.user.role === 'admin' || req.user.role === 'accounts' || req.user.role === 'design_head') {
+    // Admins, accounts, design heads, and back office see all projects; others only see assigned projects
+    if (req.user.role === 'admin' || req.user.role === 'accounts' || req.user.role === 'back_office' || req.user.role === 'design_head') {
       query = `
         SELECT p.*, 
           u.name as created_by_name,
@@ -216,7 +216,7 @@ router.patch('/:id', authenticate, async (req, res) => {
 });
 
 // GET /api/projects/search (admin: search projects for linking)
-router.get('/search/linkable', authenticate, requireAdmin, async (req, res) => {
+router.get('/search/linkable', authenticate, requireAccounting, async (req, res) => {
   try {
     const { q, exclude_client_id } = req.query;
     let query = `
@@ -251,7 +251,7 @@ router.get('/search/linkable', authenticate, requireAdmin, async (req, res) => {
 });
 
 // GET /api/projects/suggestions/:client_id (admin: get smart suggestions)
-router.get('/suggestions/:client_id', authenticate, requireAdmin, async (req, res) => {
+router.get('/suggestions/:client_id', authenticate, requireAccounting, async (req, res) => {
   try {
     const { client_id } = req.params;
     const { rows: clientRows } = await pool.query('SELECT name FROM clients WHERE id = $1', [client_id]);

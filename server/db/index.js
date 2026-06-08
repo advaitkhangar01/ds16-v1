@@ -211,12 +211,16 @@ pool.query('SELECT NOW()', (err) => {
         await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_rate DECIMAL(15, 2) DEFAULT 0");
         await pool.query("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS hours_worked DECIMAL(10, 2) DEFAULT 0");
 
-        // 11. Allow 'accounts' and 'design_head' role in check constraint
+        // 11. Update users check constraint and migrate accounts role to back_office
         await pool.query(`
           DO $$ 
           BEGIN 
+            -- Migrate any existing accounts users to back_office
+            UPDATE users SET role = 'back_office' WHERE role = 'accounts';
+
+            -- Drop old constraint and recreate with new roles list
             ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
-            ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'employee', 'accounts', 'design_head'));
+            ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'design_head', 'design', 'liasoning', 'civil_engineer', 'employee', 'back_office'));
           END $$;
         `);
 
@@ -388,6 +392,9 @@ pool.query('SELECT NOW()', (err) => {
             UNIQUE(month, year)
           );
         `);
+
+        // 20. Ensure tasks table has start_date column
+        await pool.query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS start_date DATE DEFAULT CURRENT_DATE");
 
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {

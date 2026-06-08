@@ -15,7 +15,8 @@ export default function LoginPage() {
 
   // Redirect if already logged in
   if (user) {
-    navigate(user.role === 'admin' ? '/admin/dashboard' : '/employee/dashboard', { replace: true });
+    const isAdminOrAccounts = user.role === 'admin' || user.role === 'back_office' || user.role === 'accounts' || user.department?.toLowerCase() === 'accounts';
+    navigate(isAdminOrAccounts ? '/admin/dashboard' : '/employee/dashboard', { replace: true });
     return null;
   }
 
@@ -29,7 +30,8 @@ export default function LoginPage() {
     try {
       const loggedUser = await login(form.username.trim(), form.password);
       toast.success(`Welcome back, ${loggedUser.name.split(' ')[0]}!`);
-      navigate(loggedUser.role === 'admin' ? '/admin/dashboard' : '/employee/dashboard', { replace: true });
+      const isAdminOrAccounts = loggedUser.role === 'admin' || loggedUser.role === 'back_office' || loggedUser.role === 'accounts' || loggedUser.department?.toLowerCase() === 'accounts';
+      navigate(isAdminOrAccounts ? '/admin/dashboard' : '/employee/dashboard', { replace: true });
     } catch (err) {
       toast.error(err.response?.data?.error || 'Login failed');
     } finally {

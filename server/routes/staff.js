@@ -7,7 +7,7 @@ const { authenticate } = require('../middleware/auth');
 
 // Access Control: Admin or Accounts role/department
 function requireAdminOrAccounts(req, res, next) {
-  const isAccounts = req.user.role === 'accounts' || req.user.department?.toLowerCase() === 'accounts';
+  const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts' || req.user.department?.toLowerCase() === 'accounts';
   if (req.user.role !== 'admin' && !isAccounts) {
     return res.status(403).json({ error: 'Access denied: Administrative privileges required' });
   }

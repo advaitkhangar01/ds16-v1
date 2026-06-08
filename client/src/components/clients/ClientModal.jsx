@@ -32,7 +32,7 @@ export default function ClientModal({ client: initialClient, onClose, onSave }) 
             addresses: data.addresses?.length ? data.addresses : [{ type: 'Office', address: '', city: '', state: '', pincode: '' }],
             banking: data.banking?.length ? data.banking : [{ account_name: '', account_number: '', ifsc: '', bank_name: '', branch: '', upi_id: '', is_primary: true }]
           });
-        } catch (err) {
+        } catch {
           toast.error('Failed to load client details');
         }
       };

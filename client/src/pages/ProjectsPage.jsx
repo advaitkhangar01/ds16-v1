@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect, no-unused-vars */
 // client/src/pages/ProjectsPage.jsx
 // Project list + create project modal (admin only)
 
@@ -269,11 +270,11 @@ function AssignProjectModal({ project, onClose }) {
           </div>
         ) : (
           <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-1">
-            {users.filter(u => u.role === 'employee').map(user => (
+            {users.filter(u => ['employee', 'design', 'civil_engineer', 'liasoning'].includes(u.role)).map(user => (
               <div key={user.id} className="flex items-center justify-between p-3 rounded-xl border border-[#F0F0F0] hover:bg-[#F9F9F9] transition-colors">
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-[#1A1A1A]">{user.name}</p>
-                  <p className="text-[10px] text-muted">{user.department || 'No Department'} • {user.username}</p>
+                  <p className="text-[10px] text-muted">{user.department || 'No Department'} • {user.username} • {user.role}</p>
                 </div>
                 <button
                   onClick={() => toggleAssignment(user.id)}
@@ -288,7 +289,7 @@ function AssignProjectModal({ project, onClose }) {
                 </button>
               </div>
             ))}
-            {users.filter(u => u.role === 'employee').length === 0 && (
+            {users.filter(u => ['employee', 'design', 'civil_engineer', 'liasoning'].includes(u.role)).length === 0 && (
               <p className="text-center py-8 text-muted text-sm">No employees found.</p>
             )}
           </div>

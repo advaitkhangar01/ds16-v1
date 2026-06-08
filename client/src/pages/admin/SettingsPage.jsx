@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars, react-hooks/immutability, react-hooks/exhaustive-deps */
 import React, { useState, useEffect, useMemo } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import api from '../../api/client';
@@ -366,11 +367,20 @@ export default function SettingsPage() {
                         <td className="px-6 py-4">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
                             u.role === 'admin' ? 'bg-purple-100 text-purple-700' :
-                            u.role === 'accounts' ? 'bg-emerald-100 text-emerald-700' :
+                            u.role === 'back_office' || u.role === 'accounts' ? 'bg-emerald-100 text-emerald-700' :
                             u.role === 'design_head' ? 'bg-amber-100 text-amber-700' :
+                            u.role === 'design' ? 'bg-orange-100 text-orange-700' :
+                            u.role === 'liasoning' ? 'bg-teal-100 text-teal-700' :
+                            u.role === 'civil_engineer' ? 'bg-indigo-100 text-indigo-700' :
                             'bg-blue-100 text-blue-700'
                           }`}>
-                            {u.role === 'design_head' ? 'Design Head' : u.role === 'accounts' ? 'Accounts' : u.role === 'admin' ? 'Admin' : u.role === 'employee' ? 'Employee' : u.role}
+                            {u.role === 'design_head' ? 'Design Head' : 
+                             u.role === 'design' ? 'Design' : 
+                             u.role === 'back_office' ? 'Back Office' : 
+                             u.role === 'accounts' ? 'Accounts' : 
+                             u.role === 'liasoning' ? 'Liasoning' : 
+                             u.role === 'civil_engineer' ? 'Civil Engineer' : 
+                             u.role === 'employee' ? 'Employee' : u.role}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-gray-600 font-medium">{u.department || '—'}</td>
@@ -1015,11 +1025,14 @@ export default function SettingsPage() {
                     <select 
                       value={newUser.role}
                       onChange={(e) => setNewUser({...newUser, role: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                      className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
                     >
                       <option value="employee">Employee</option>
-                      <option value="accounts">Accounts</option>
+                      <option value="civil_engineer">Civil Engineer</option>
+                      <option value="liasoning">Liasoning</option>
+                      <option value="design">Design</option>
                       <option value="design_head">Design Head</option>
+                      <option value="back_office">Back Office</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>
@@ -1113,8 +1126,11 @@ export default function SettingsPage() {
                       className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
                     >
                       <option value="employee">Employee</option>
-                      <option value="accounts">Accounts</option>
+                      <option value="civil_engineer">Civil Engineer</option>
+                      <option value="liasoning">Liasoning</option>
+                      <option value="design">Design</option>
                       <option value="design_head">Design Head</option>
+                      <option value="back_office">Back Office</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>

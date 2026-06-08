@@ -52,7 +52,7 @@ const requireAdmin = (req, res, next) => {
  * Require admin or accounts department
  */
 const requireAccounting = (req, res, next) => {
-  if (req.user?.role === 'admin' || req.user?.role === 'accounts' || req.user?.department?.toLowerCase() === 'accounts') {
+  if (req.user?.role === 'admin' || req.user?.role === 'back_office' || req.user?.role === 'accounts' || req.user?.department?.toLowerCase() === 'accounts') {
     return next();
   }
   return res.status(403).json({ error: 'Accounting or Admin access required' });

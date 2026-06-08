@@ -23,17 +23,17 @@ router.post('/', authenticate, checkProjectAccess(), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { project_id, stage, title, description, assigned_to, participants } = req.body;
+    const { project_id, stage, title, description, assigned_to, participants, start_date } = req.body;
 
     if (!project_id || !title?.trim()) {
       return res.status(400).json({ error: 'project_id and title are required' });
     }
 
     const { rows: [task] } = await client.query(`
-      INSERT INTO tasks (project_id, stage, title, description, assigned_to, created_by, status, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), NOW())
+      INSERT INTO tasks (project_id, stage, title, description, assigned_to, created_by, status, created_at, updated_at, start_date)
+      VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), NOW(), COALESCE($7, CURRENT_DATE))
       RETURNING *
-    `, [project_id, stage || 'general', title.trim(), description || null, assigned_to || null, req.user.id]);
+    `, [project_id, stage || 'general', title.trim(), description || null, assigned_to || null, req.user.id, start_date || null]);
 
     // Ensure assigned_to and creator are participants
     const uniqueParticipants = new Set(participants || []);
@@ -79,7 +79,7 @@ router.get('/', authenticate, async (req, res) => {
       // We fetch all employees
       const { rows: employees } = await pool.query(`
         SELECT id, name, username, role, department FROM users 
-        WHERE role IN ('employee', 'admin', 'accounts', 'design_head')
+        WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer')
         ORDER BY name ASC
       `);
 
@@ -101,11 +101,13 @@ router.get('/', authenticate, async (req, res) => {
       const tasksParams = [];
       if (view === 'history') {
         tasksQuery += ` WHERE t.status = 'passed' `;
+      } else if (view === 'scheduled') {
+        tasksQuery += ` WHERE t.status != 'passed' AND t.start_date > CURRENT_DATE `;
       } else {
-        tasksQuery += ` WHERE t.status != 'passed' `;
+        tasksQuery += ` WHERE t.status != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE) `;
       }
 
-      if (req.user.role !== 'admin' && req.user.role !== 'design_head' && req.user.role !== 'accounts') {
+      if (req.user.role !== 'admin' && req.user.role !== 'design_head' && req.user.role !== 'accounts' && req.user.role !== 'back_office') {
         tasksQuery += ` AND (t.assigned_to = $1 OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $1)) `;
         tasksParams.push(req.user.id);
       }
@@ -146,9 +148,9 @@ router.get('/', authenticate, async (req, res) => {
         }
       });
 
-      // Filter out empty columns for History view to keep it "simply written"
+      // Filter out empty columns for History/Scheduled views to keep it clean and focused
       let result = Object.values(kanban);
-      if (view === 'history') {
+      if (view === 'history' || view === 'scheduled') {
         result = result.filter(col => col.tasks.length > 0);
       }
 
@@ -196,11 +198,13 @@ router.get('/', authenticate, async (req, res) => {
 
     if (view === 'history') {
       query += ` WHERE t.status = 'passed' `;
+    } else if (view === 'scheduled') {
+      query += ` WHERE t.status != 'passed' AND t.start_date > CURRENT_DATE `;
     } else {
-      query += ` WHERE t.status != 'passed' `;
+      query += ` WHERE t.status != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE) `;
     }
 
-    if (req.user.role !== 'admin' && req.user.role !== 'design_head' && req.user.role !== 'accounts') {
+    if (req.user.role !== 'admin' && req.user.role !== 'design_head' && req.user.role !== 'accounts' && req.user.role !== 'back_office') {
       query += ` AND (t.assigned_to = $1 OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $1)) `;
       params.push(req.user.id);
     }
@@ -355,6 +359,11 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
       params.push(assigned_to || null);
     }
 
+    if (req.body.start_date !== undefined) {
+      updates.push(`start_date = $${count++}`);
+      params.push(req.body.start_date || null);
+    }
+
     if (!updates.length) {
       return res.status(400).json({ error: 'Nothing to update' });
     }
@@ -371,6 +380,15 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
 
     const { rows } = await pool.query(query, params);
     if (!rows.length) return res.status(404).json({ error: 'Task not found' });
+
+    // Ensure the new assignee is added as a participant
+    if (assigned_to) {
+      await pool.query(`
+        INSERT INTO task_participants (task_id, user_id, added_by)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (task_id, user_id) DO NOTHING
+      `, [task_id, assigned_to, req.user.id]);
+    }
 
     res.json({ task: rows[0] });
   } catch (err) {

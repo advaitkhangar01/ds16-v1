@@ -7,7 +7,7 @@ import AppLayout from '../components/layout/AppLayout';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { toast } from 'react-hot-toast';
-import { formatIST } from '../utils/time';
+import { formatIST, formatDateIST, getISODateIST } from '../utils/time';
 import DocumentsTab from '../components/projects/DocumentsTab';
 import SitePhotographsTab from '../components/projects/SitePhotographsTab';
 import ChangeClientModal from '../components/projects/ChangeClientModal';
@@ -65,6 +65,7 @@ export default function ProjectDetail() {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskAssignedTo, setNewTaskAssignedTo] = useState('');
   const [newTaskStage, setNewTaskStage] = useState('general');
+  const [newTaskStartDate, setNewTaskStartDate] = useState(getISODateIST());
 
   const fetchProject = useCallback(async () => {
     try {
@@ -97,10 +98,12 @@ export default function ProjectDetail() {
         stage: newTaskStage,
         title: newTaskTitle.trim(),
         assigned_to: newTaskAssignedTo ? parseInt(newTaskAssignedTo) : null,
-        participants: newTaskAssignedTo ? [parseInt(newTaskAssignedTo)] : []
+        participants: newTaskAssignedTo ? [parseInt(newTaskAssignedTo)] : [],
+        start_date: newTaskStartDate
       });
       setNewTaskTitle('');
       setNewTaskAssignedTo('');
+      setNewTaskStartDate(getISODateIST());
       await fetchProject();
       toast.success('Task created!');
     } catch (err) {
@@ -467,7 +470,15 @@ export default function ProjectDetail() {
                       ))}
                     </select>
                   </div>
-                  {/* Stage selection removed as requested */}
+                  <div>
+                    <label className="text-[10px] font-bold text-muted uppercase">Start Date</label>
+                    <input 
+                      type="date"
+                      className="input mt-1"
+                      value={newTaskStartDate}
+                      onChange={(e) => setNewTaskStartDate(e.target.value)}
+                    />
+                  </div>
                 </div>
 
                 <div className="flex justify-end pt-2">
@@ -503,15 +514,21 @@ export default function ProjectDetail() {
                         {formatIST(t.created_at)}
                       </p>
                     </div>
-                      <span className={`badge ${
-                        t.status === 'passed' ? 'badge-completed' :
-                        t.status === 'done' ? 'badge-completed' :
-                        t.status === 'in_progress' ? 'badge-in-progress' :
-                        t.status === 'review' ? 'badge-pending bg-purple-50 text-purple-600 border-purple-200' :
-                        'badge-pending'
-                      }`}>
-                        {t.status}
-                      </span>
+                      {t.start_date && t.start_date.substring(0, 10) > getISODateIST() ? (
+                        <span className="badge bg-amber-50 border-amber-200 text-amber-600 font-bold uppercase tracking-tight">
+                          Scheduled ({formatDateIST(t.start_date)})
+                        </span>
+                      ) : (
+                        <span className={`badge ${
+                          t.status === 'passed' ? 'badge-completed' :
+                          t.status === 'done' ? 'badge-completed' :
+                          t.status === 'in_progress' ? 'badge-in-progress' :
+                          t.status === 'review' ? 'badge-pending bg-purple-50 text-purple-600 border-purple-200' :
+                          'badge-pending'
+                        }`}>
+                          {t.status}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 mt-4 text-xs text-muted flex-wrap">

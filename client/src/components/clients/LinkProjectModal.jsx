@@ -1,5 +1,5 @@
 // client/src/components/clients/LinkProjectModal.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
 
@@ -9,23 +9,24 @@ export default function LinkProjectModal({ clientId, onClose, onLinked }) {
   const [loading, setLoading] = useState(false);
   const [linkingId, setLinkingId] = useState(null);
 
-  const fetchProjects = async (query = '') => {
+  const fetchProjects = useCallback(async (query = '') => {
     setLoading(true);
     try {
       const { data } = await api.get(`/projects/search/linkable`, {
         params: { q: query, exclude_client_id: clientId }
       });
       setProjects(data.projects);
-    } catch (err) {
+    } catch {
       toast.error('Failed to search projects');
     } finally {
       setLoading(false);
     }
-  };
+  }, [clientId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchProjects();
-  }, [clientId]);
+  }, [fetchProjects]);
 
   const handleSearch = (e) => {
     e.preventDefault();

@@ -124,7 +124,7 @@ async function generateSnapshot(month, year, client = pool) {
   }
 
   // 3. HR details
-  const empRes = await client.query("SELECT COUNT(*) as count FROM users WHERE role IN ('employee', 'admin', 'accounts', 'design_head')");
+  const empRes = await client.query("SELECT COUNT(*) as count FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer')");
   const totalEmployees = parseInt(empRes.rows[0].count);
 
   const processedRes = await client.query("SELECT COUNT(*) as count FROM payroll WHERE month = $1 AND year = $2 AND status = 'paid'", [month, year]);
@@ -205,7 +205,7 @@ router.get('/preview', requireAccounting, async (req, res) => {
 
     // 2. Payroll pending count & details
     const empRes = await pool.query(
-      "SELECT id, name, base_salary, hourly_rate FROM users WHERE role IN ('employee', 'admin', 'accounts', 'design_head')"
+      "SELECT id, name, base_salary, hourly_rate FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer')"
     );
     const payrollProcessedRes = await pool.query(
       "SELECT user_id, status FROM payroll WHERE month = $1 AND year = $2",
@@ -314,7 +314,7 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
     }
 
     // 2. Identify employees and compute leave balances
-    const empRes = await client.query("SELECT id, role FROM users WHERE role IN ('employee', 'admin', 'accounts', 'design_head')");
+    const empRes = await client.query("SELECT id, role FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer')");
     
     // Previous month computation
     const prevMonth = month === 1 ? 12 : month - 1;

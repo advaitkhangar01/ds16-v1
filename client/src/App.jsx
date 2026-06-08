@@ -30,7 +30,7 @@ function ProtectedRoute({ children, adminOnly = false, allowAccounts = false, bl
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   
-  const isAccounts = user.role === 'accounts' || user.department?.toLowerCase() === 'accounts';
+  const isAccounts = user.role === 'back_office' || user.role === 'accounts' || user.department?.toLowerCase() === 'accounts';
   
   // Explicitly block accounts from certain routes (e.g. projects list)
   if (blockAccounts && isAccounts && user.role !== 'admin') {
@@ -57,7 +57,7 @@ function RoleRouter() {
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   
-  const isAccounts = user.role === 'accounts' || user.department?.toLowerCase() === 'accounts';
+  const isAccounts = user.role === 'back_office' || user.role === 'accounts' || user.department?.toLowerCase() === 'accounts';
   
   return (user.role === 'admin' || isAccounts)
     ? <Navigate to="/admin/dashboard" replace />

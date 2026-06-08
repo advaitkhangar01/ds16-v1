@@ -40,7 +40,7 @@ router.get('/:id', authenticate, async (req, res) => {
 
     const { rows: contacts } = await pool.query('SELECT * FROM client_contacts WHERE client_id = $1 ORDER BY is_primary DESC, id ASC', [id]);
     const { rows: addresses } = await pool.query('SELECT * FROM client_addresses WHERE client_id = $1 ORDER BY id ASC', [id]);
-    const { rows: banking } = (req.user.role === 'admin') 
+    const { rows: banking } = (req.user.role === 'admin' || req.user.role === 'back_office' || req.user.role === 'accounts') 
       ? await pool.query('SELECT * FROM client_banking WHERE client_id = $1 ORDER BY is_primary DESC, id ASC', [id])
       : { rows: [] };
       
@@ -70,6 +70,12 @@ router.post('/', authenticate, async (req, res) => {
   const primaryPhone = contacts[0]?.phone;
   if (!primaryPhone) return res.status(400).json({ error: 'Phone number is required' });
 
+  // Sanitize empty strings to NULL to avoid duplicate key/unique constraint conflicts
+  const companyNameDb = (typeof company_name === 'string' && company_name.trim() !== '') ? company_name.trim() : null;
+  const gstNumberDb = (typeof gst_number === 'string' && gst_number.trim() !== '') ? gst_number.trim() : null;
+  const panNumberDb = (typeof pan_number === 'string' && pan_number.trim() !== '') ? pan_number.trim() : null;
+  const notesDb = (typeof notes === 'string' && notes.trim() !== '') ? notes.trim() : null;
+
   const client_db = await pool.connect();
   try {
     await client_db.query('BEGIN');
@@ -79,7 +85,7 @@ router.post('/', authenticate, async (req, res) => {
       `INSERT INTO clients (name, company_name, gst_number, pan_number, notes, phone)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id`,
-      [name, company_name, gst_number, pan_number, notes, primaryPhone]
+      [name, companyNameDb, gstNumberDb, panNumberDb, notesDb, primaryPhone]
     );
     const clientId = clientRows[0].id;
 
@@ -103,11 +109,14 @@ router.post('/', authenticate, async (req, res) => {
 
     // 4. Insert Banking
     for (const b of banking) {
-      await client_db.query(
-        `INSERT INTO client_banking (client_id, account_name, account_number, ifsc, bank_name, branch, upi_id, is_primary)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [clientId, b.account_name, b.account_number, b.ifsc, b.bank_name, b.branch, b.upi_id, !!b.is_primary]
-      );
+      // Only insert if banking details are actually filled out
+      if (b.account_name?.trim() || b.account_number?.trim() || b.upi_id?.trim()) {
+        await client_db.query(
+          `INSERT INTO client_banking (client_id, account_name, account_number, ifsc, bank_name, branch, upi_id, is_primary)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [clientId, b.account_name, b.account_number, b.ifsc, b.bank_name, b.branch, b.upi_id, !!b.is_primary]
+        );
+      }
     }
 
     await client_db.query('COMMIT');
@@ -129,23 +138,50 @@ router.patch('/:id', authenticate, async (req, res) => {
     contacts, addresses, banking
   } = req.body;
 
+  const hasAccountingAccess = req.user.role === 'admin' || req.user.role === 'accounts' || req.user.role === 'back_office' || req.user.department?.toLowerCase() === 'accounts';
+
   const client_db = await pool.connect();
   try {
     await client_db.query('BEGIN');
 
-    // 1. Update Basic Info
+    // 1. Update Basic Info (convert empty strings to NULL to prevent UNIQUE constraint violation)
     const primaryPhone = contacts?.[0]?.phone;
-    await client_db.query(
-      `UPDATE clients 
-       SET name = COALESCE($1, name),
-           company_name = COALESCE($2, company_name),
-           gst_number = COALESCE($3, gst_number),
-           pan_number = COALESCE($4, pan_number),
-           notes = COALESCE($5, notes),
-           phone = COALESCE($6, phone)
-       WHERE id = $7`,
-      [name, company_name, gst_number, pan_number, notes, primaryPhone, id]
-    );
+    const companyNameDb = (company_name !== undefined) ? ((typeof company_name === 'string' && company_name.trim() !== '') ? company_name.trim() : null) : undefined;
+    const gstNumberDb = (gst_number !== undefined) ? ((typeof gst_number === 'string' && gst_number.trim() !== '') ? gst_number.trim() : null) : undefined;
+    const panNumberDb = (pan_number !== undefined) ? ((typeof pan_number === 'string' && pan_number.trim() !== '') ? pan_number.trim() : null) : undefined;
+    const notesDb = (notes !== undefined) ? ((typeof notes === 'string' && notes.trim() !== '') ? notes.trim() : null) : undefined;
+
+    // Dynamically build client update query to support clearing fields safely
+    const updates = [];
+    const values = [];
+    let paramIdx = 1;
+
+    if (name !== undefined) { updates.push(`name = $${paramIdx++}`); values.push(name); }
+    if (companyNameDb !== undefined) { updates.push(`company_name = $${paramIdx++}`); values.push(companyNameDb); }
+    if (gstNumberDb !== undefined) { updates.push(`gst_number = $${paramIdx++}`); values.push(gstNumberDb); }
+    if (panNumberDb !== undefined) { updates.push(`pan_number = $${paramIdx++}`); values.push(panNumberDb); }
+    if (notesDb !== undefined) { updates.push(`notes = $${paramIdx++}`); values.push(notesDb); }
+    if (primaryPhone !== undefined) { updates.push(`phone = $${paramIdx++}`); values.push(primaryPhone); }
+
+    if (updates.length > 0) {
+      values.push(id);
+      await client_db.query(
+        `UPDATE clients SET ${updates.join(', ')} WHERE id = $${paramIdx}`,
+        values
+      );
+    }
+
+    // Sync denormalized name columns if client name was changed
+    if (name) {
+      await client_db.query(
+        `UPDATE projects SET client_name = $1 WHERE client_id = $2`,
+        [name, id]
+      );
+      await client_db.query(
+        `UPDATE invoices SET client_name = $1 WHERE client_id = $2`,
+        [name, id]
+      );
+    }
 
     // 2. Update Contacts (Simple strategy: Delete and Re-insert)
     if (contacts) {
@@ -171,15 +207,18 @@ router.patch('/:id', authenticate, async (req, res) => {
       }
     }
 
-    // 4. Update Banking
-    if (banking) {
-      await client_db.query('DELETE FROM client_banking WHERE client_id = $1', [id]);
-      for (const b of banking) {
-        await client_db.query(
-          `INSERT INTO client_banking (client_id, account_name, account_number, ifsc, bank_name, branch, upi_id, is_primary)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [id, b.account_name, b.account_number, b.ifsc, b.bank_name, b.branch, b.upi_id, !!b.is_primary]
-        );
+    // 4. Update Banking (Only if user is authorized, and the array has valid/new records)
+    if (banking && hasAccountingAccess) {
+      const hasValidBankingData = banking.some(b => b.account_name?.trim() || b.account_number?.trim() || b.upi_id?.trim());
+      if (hasValidBankingData) {
+        await client_db.query('DELETE FROM client_banking WHERE client_id = $1', [id]);
+        for (const b of banking) {
+          await client_db.query(
+            `INSERT INTO client_banking (client_id, account_name, account_number, ifsc, bank_name, branch, upi_id, is_primary)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [id, b.account_name, b.account_number, b.ifsc, b.bank_name, b.branch, b.upi_id, !!b.is_primary]
+          );
+        }
       }
     }
 

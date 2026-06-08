@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect, react-refresh/only-export-components */
 // client/src/context/AuthContext.jsx
 // Global auth state - JWT stored in localStorage + memory
 
@@ -44,9 +45,9 @@ export function AuthProvider({ children }) {
   }, []);
 
   const isAdmin = user?.role === 'admin';
-  const isEmployee = user?.role === 'employee';
-  const isAccounts = user?.role === 'accounts' || user?.department?.toLowerCase() === 'accounts';
-  const isDesignHead = user?.role === 'design_head';
+  const isEmployee = user?.role === 'employee' || user?.role === 'civil_engineer' || user?.role === 'liasoning';
+  const isAccounts = user?.role === 'back_office' || user?.role === 'accounts' || user?.department?.toLowerCase() === 'accounts';
+  const isDesignHead = user?.role === 'design_head' || user?.role === 'design';
 
   return (
     <AuthContext.Provider value={{ user, token, loading, login, logout, isAdmin, isEmployee, isAccounts, isDesignHead }}>

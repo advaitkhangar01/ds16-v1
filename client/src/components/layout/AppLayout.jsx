@@ -6,6 +6,26 @@ import Sidebar from './Sidebar';
 
 export default function AppLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sidebar-collapsed');
+      return saved ? JSON.parse(saved) : false;
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleCollapse = () => {
+    setCollapsed((prev) => {
+      const newVal = !prev;
+      try {
+        localStorage.setItem('sidebar-collapsed', JSON.stringify(newVal));
+      } catch (e) {
+        console.error(e);
+      }
+      return newVal;
+    });
+  };
 
   return (
     <div className="flex min-h-screen bg-base">
@@ -19,10 +39,26 @@ export default function AppLayout({ children }) {
 
       {/* Sidebar - desktop always visible, mobile slide-in */}
       <div className={`
-        fixed lg:sticky top-0 z-30 h-screen transition-transform duration-300
+        fixed lg:sticky top-0 z-30 h-screen transition-all duration-300
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        w-60 ${collapsed ? 'lg:w-20' : 'lg:w-60'}
       `}>
-        <Sidebar onClose={() => setSidebarOpen(false)} />
+        <Sidebar collapsed={collapsed} onClose={() => setSidebarOpen(false)} />
+        
+        {/* Collapse Toggle Button (Desktop Only) */}
+        <button
+          onClick={handleToggleCollapse}
+          className="hidden lg:flex absolute top-6 -right-3.5 z-40 w-7 h-7 items-center justify-center bg-white border border-[#E0E0E0] rounded-full shadow-sm text-slate-500 hover:text-slate-900 hover:scale-110 active:scale-95 transition-all duration-200"
+          title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            {collapsed ? (
+              <path d="M9 18l6-6-6-6" />
+            ) : (
+              <path d="M15 18l-6-6 6-6" />
+            )}
+          </svg>
+        </button>
       </div>
 
       {/* Content */}

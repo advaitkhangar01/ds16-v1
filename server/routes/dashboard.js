@@ -1,7 +1,7 @@
 // server/routes/dashboard.js
 const router = require('express').Router();
 const pool = require('../db');
-const { authenticate, requireAdmin } = require('../middleware/auth');
+const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { getISTDate, getISTTime } = require('../utils/date');
 const { autoCheckoutPendingRecords } = require('./attendance');
 
@@ -94,7 +94,7 @@ async function calculateSalaryStats(userId, month, year, todayStr, settings) {
 // Helper: get IST date string removed in favor of shared util
 
 // GET /api/dashboard/admin
-router.get('/admin', authenticate, requireAdmin, async (req, res) => {
+router.get('/admin', authenticate, requireAccounting, async (req, res) => {
   try {
     await autoCheckoutPendingRecords();
     const today = getISTDate();
@@ -130,6 +130,7 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
        WHERE t.assigned_to IS NOT NULL
          AND DATE(t.created_at AT TIME ZONE 'Asia/Kolkata') = $1::date
          AND t.status != 'passed'
+         AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE)
        ORDER BY p.name, t.created_at DESC`,
       [today]
     );
@@ -310,7 +311,7 @@ router.get('/admin', authenticate, requireAdmin, async (req, res) => {
 });
 
 // GET /api/dashboard/admin/finances/breakdown
-router.get('/admin/finances/breakdown', authenticate, requireAdmin, async (req, res) => {
+router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (req, res) => {
   try {
     const { type } = req.query;
     let items = [];
@@ -575,6 +576,7 @@ router.get('/employee', authenticate, async (req, res) => {
        JOIN projects p ON p.id = t.project_id
        JOIN users au ON au.id = t.created_by
        WHERE t.assigned_to = $1 AND t.status != 'passed'
+         AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE)
        ORDER BY t.created_at DESC`,
       [userId]
     );

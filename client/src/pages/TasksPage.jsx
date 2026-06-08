@@ -5,7 +5,7 @@ import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import TaskModal from '../components/projects/TaskModal';
-import { formatIST } from '../utils/time';
+import { formatIST, formatDateIST, getISODateIST } from '../utils/time';
 
 export default function TasksPage() {
   const { user } = useAuth();
@@ -18,7 +18,8 @@ export default function TasksPage() {
   const [title, setTitle] = useState('');
   const [projectId, setProjectId] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
-  const [viewMode, setViewMode] = useState('active'); // 'active' or 'history'
+  const [viewMode, setViewMode] = useState('active'); // 'active', 'scheduled', or 'history'
+  const [startDate, setStartDate] = useState(getISODateIST());
   const [submitting, setSubmitting] = useState(false);
 
   // Discussion Modal State
@@ -31,7 +32,7 @@ export default function TasksPage() {
       const [projRes, usersRes, kanbanRes] = await Promise.all([
         api.get('/projects'),
         api.get('/auth/users'),
-        api.get(`/tasks?view=${viewMode === 'history' ? 'history' : 'kanban'}`)
+        api.get(`/tasks?view=${viewMode === 'history' ? 'history' : viewMode === 'scheduled' ? 'scheduled' : 'kanban'}`)
       ]);
       setProjects(projRes.data.projects || []);
       setUsers(usersRes.data.users || []);
@@ -60,11 +61,13 @@ export default function TasksPage() {
         project_id: parseInt(projectId),
         title: title.trim(),
         assigned_to: assignedTo ? parseInt(assignedTo) : null,
-        participants: assignedTo ? [parseInt(assignedTo)] : []
+        participants: assignedTo ? [parseInt(assignedTo)] : [],
+        start_date: startDate
       });
       setTitle('');
       setProjectId('');
       setAssignedTo('');
+      setStartDate(getISODateIST());
       toast.success('Task successfully assigned');
       // Refresh board
       fetchData();
@@ -98,7 +101,7 @@ export default function TasksPage() {
             <h2 className="text-base font-black text-[#1A1A1A]">Create Separate Task</h2>
           </div>
 
-          <form onSubmit={handleCreateTask} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          <form onSubmit={handleCreateTask} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div className="md:col-span-1">
               <label className="text-[10px] font-black text-muted uppercase tracking-wider">Task Title</label>
               <input
@@ -138,9 +141,19 @@ export default function TasksPage() {
               </select>
             </div>
 
+            <div>
+              <label className="text-[10px] font-black text-muted uppercase tracking-wider">Start Date</label>
+              <input
+                type="date"
+                className="input mt-1"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </div>
+
             {/* Removed Project Stage selection as requested */}
 
-            <div className="md:col-span-3 flex justify-end">
+            <div className="md:col-span-4 flex justify-end">
               <button
                 type="submit"
                 disabled={submitting || !title.trim() || !projectId}
@@ -159,7 +172,7 @@ export default function TasksPage() {
           <div className="card w-full">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
               <h3 className="text-lg font-black text-[#1A1A1A]">
-                {viewMode === 'history' ? 'Task History (Passed)' : 'Task Board (All Employees)'}
+                {viewMode === 'history' ? 'Task History (Passed)' : viewMode === 'scheduled' ? 'Scheduled Tasks (Upcoming)' : 'Task Board (All Employees)'}
               </h3>
               
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 self-start">
@@ -170,6 +183,14 @@ export default function TasksPage() {
                   }`}
                 >
                   Active
+                </button>
+                <button 
+                  onClick={() => setViewMode('scheduled')}
+                  className={`px-4 py-1.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
+                    viewMode === 'scheduled' ? 'bg-white text-[#1A1A1A] shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  Scheduled
                 </button>
                 <button 
                   onClick={() => setViewMode('history')}
@@ -209,6 +230,11 @@ export default function TasksPage() {
                       >
                         <div className="absolute top-0 left-0 w-1 h-full bg-[#E05A1E] opacity-0 group-hover:opacity-100 transition-opacity" />
                         <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-1 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
+                        {t.start_date && t.start_date.substring(0, 10) > getISODateIST() && (
+                          <div className="text-[10px] text-amber-600 font-bold mb-1 flex items-center gap-1">
+                            📅 Starts: {formatDateIST(t.start_date)}
+                          </div>
+                        )}
                         <p className="text-[10px] text-muted mb-2 font-medium flex items-center gap-1.5">
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                           {formatIST(t.created_at)}

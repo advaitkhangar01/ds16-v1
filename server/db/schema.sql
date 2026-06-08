@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
-  role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'employee', 'accounts', 'design_head')),
+  role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'design_head', 'design', 'liasoning', 'civil_engineer', 'employee', 'back_office')),
   department VARCHAR(100),
   phone VARCHAR(20),
   username VARCHAR(50) UNIQUE NOT NULL,
@@ -328,6 +328,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   status VARCHAR(30) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'review', 'done', 'passed')),
+  start_date DATE DEFAULT CURRENT_DATE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

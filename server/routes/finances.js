@@ -23,8 +23,8 @@ const upload = multer({ storage });
 
 // GET /api/finances/transactions
 router.get('/transactions', authenticate, async (req, res) => {
-  if (req.user?.role === 'design_head') {
-    return res.status(403).json({ error: 'Design Head is not permitted to view financial details' });
+  if (req.user?.role === 'design_head' || req.user?.role === 'design') {
+    return res.status(403).json({ error: 'Design department is not permitted to view financial details' });
   }
   try {
     const { type, project_id, start_date, end_date, category } = req.query;
@@ -169,14 +169,14 @@ router.get('/transactions', authenticate, async (req, res) => {
     const params = [];
     let idx = 1;
 
-    if (req.user.role !== 'admin' && req.user.role !== 'accounts') {
+    if (req.user.role !== 'admin' && req.user.role !== 'accounts' && req.user.role !== 'back_office') {
       // Employees and other roles only see transactions for projects they are assigned to
       query += ` JOIN project_assignments pa ON pa.project_id = t.project_id `;
     }
 
     query += ` WHERE 1=1 `;
 
-    if (req.user.role !== 'admin' && req.user.role !== 'accounts') {
+    if (req.user.role !== 'admin' && req.user.role !== 'accounts' && req.user.role !== 'back_office') {
       query += ` AND pa.user_id = $${idx++} `;
       params.push(req.user.id);
     }
@@ -285,9 +285,9 @@ router.post('/transactions', authenticate, upload.single('receipt'), checkProjec
     const { type, category, amount, date, description, project_id, vendor_id, employee_id, reference_id } = req.body;
     const receipt_url = req.file ? `/uploads/expenses/${req.file.filename}` : null;
     
-    if (req.user?.role === 'design_head') {
+    if (req.user?.role === 'design_head' || req.user?.role === 'design') {
       if (type !== 'expense' || category !== 'vendor_payment') {
-        return res.status(403).json({ error: 'Design Head is only permitted to record vendor payments' });
+        return res.status(403).json({ error: 'Design department is only permitted to record vendor payments' });
       }
     }
     
@@ -321,8 +321,8 @@ router.post('/transactions', authenticate, upload.single('receipt'), checkProjec
 
 // GET /api/finances/summary
 router.get('/summary', authenticate, async (req, res) => {
-  if (req.user?.role === 'design_head') {
-    return res.status(403).json({ error: 'Design Head is not permitted to view financial summaries' });
+  if (req.user?.role === 'design_head' || req.user?.role === 'design') {
+    return res.status(403).json({ error: 'Design department is not permitted to view financial summaries' });
   }
   const executeSummary = async (projectId) => {
     try {
@@ -510,7 +510,7 @@ router.get('/summary', authenticate, async (req, res) => {
     return checkProjectAccess()(req, res, () => executeSummary(project_id));
   }
   
-  const isAccounting = req.user.role === 'admin' || req.user.role === 'accounts' || req.user.department?.toLowerCase() === 'accounts';
+  const isAccounting = req.user.role === 'admin' || req.user.role === 'accounts' || req.user.role === 'back_office' || req.user.department?.toLowerCase() === 'accounts';
   if (!isAccounting) {
     return res.status(403).json({ error: 'Admin or Accounting access required for global summary' });
   }
@@ -520,15 +520,15 @@ router.get('/summary', authenticate, async (req, res) => {
 
 // GET /api/finances/charts
 router.get('/charts', authenticate, async (req, res) => {
-  if (req.user?.role === 'design_head') {
-    return res.status(403).json({ error: 'Design Head is not permitted to view financial charts' });
+  if (req.user?.role === 'design_head' || req.user?.role === 'design') {
+    return res.status(403).json({ error: 'Design department is not permitted to view financial charts' });
   }
   const { project_id } = req.query;
   if (project_id) {
     return checkProjectAccess()(req, res, () => executeCharts(project_id));
   }
 
-  const isAccounting = req.user.role === 'admin' || req.user.role === 'accounts' || req.user.department?.toLowerCase() === 'accounts';
+  const isAccounting = req.user.role === 'admin' || req.user.role === 'accounts' || req.user.role === 'back_office' || req.user.department?.toLowerCase() === 'accounts';
   if (!isAccounting) {
     return res.status(403).json({ error: 'Admin or Accounting access required for global charts' });
   }

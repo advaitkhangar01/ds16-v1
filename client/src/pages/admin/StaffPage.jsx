@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect, no-unused-vars */
 // client/src/pages/admin/StaffPage.jsx
 // Premium Staff Directory & Telemetry Hub for Administrators
 
@@ -195,9 +196,21 @@ export default function StaffPage() {
                 className="bg-transparent text-xs font-bold text-gray-700 outline-none cursor-pointer"
               >
                 <option value="all">All Roles</option>
-                {rolesList.filter(r => r !== 'all').map(role => (
-                  <option key={role} value={role}>{role === 'design_head' ? 'Design Head' : role.toUpperCase()}</option>
-                ))}
+                {rolesList.filter(r => r !== 'all').map(role => {
+                  const roleLabels = {
+                    admin: 'Admin',
+                    design_head: 'Design Head',
+                    design: 'Design',
+                    liasoning: 'Liasoning',
+                    civil_engineer: 'Civil Engineer',
+                    employee: 'Employee',
+                    back_office: 'Back Office',
+                    accounts: 'Accounts'
+                  };
+                  return (
+                    <option key={role} value={role}>{roleLabels[role] || role.toUpperCase()}</option>
+                  );
+                })}
               </select>
             </div>
 
@@ -239,8 +252,11 @@ export default function StaffPage() {
                   const isPresent = member.attendance_status_today === 'working' || member.attendance_status_today === 'completed';
                   const roleColors = 
                     member.role === 'admin' ? 'bg-purple-50 text-purple-700 border-purple-100' :
-                    member.role === 'accounts' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                    member.role === 'back_office' || member.role === 'accounts' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
                     member.role === 'design_head' ? 'bg-amber-50 text-amber-700 border-amber-100' :
+                    member.role === 'design' ? 'bg-orange-50 text-orange-700 border-orange-100' :
+                    member.role === 'liasoning' ? 'bg-teal-50 text-teal-700 border-teal-100' :
+                    member.role === 'civil_engineer' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
                     'bg-blue-50 text-blue-700 border-blue-100';
 
                   return (
@@ -259,7 +275,13 @@ export default function StaffPage() {
                           <p className="text-xs font-semibold text-gray-400">@{member.username}</p>
                           <div className="flex gap-2 mt-2 items-center flex-wrap">
                             <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border ${roleColors}`}>
-                              {member.role === 'design_head' ? 'Design Head' : member.role}
+                              {member.role === 'design_head' ? 'Design Head' : 
+                               member.role === 'design' ? 'Design' : 
+                               member.role === 'back_office' ? 'Back Office' : 
+                               member.role === 'accounts' ? 'Accounts' : 
+                               member.role === 'liasoning' ? 'Liasoning' : 
+                               member.role === 'civil_engineer' ? 'Civil Engineer' : 
+                               member.role === 'employee' ? 'Employee' : member.role}
                             </span>
                             {member.department && (
                               <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200">

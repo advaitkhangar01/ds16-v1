@@ -30,7 +30,7 @@ export default function ClientDetail() {
       ]);
       setData(clientRes.data);
       setSuggestions(suggestionsRes.data.suggestions || []);
-    } catch (err) {
+    } catch {
       toast.error('Failed to load client details');
       navigate('/clients');
     } finally {
@@ -38,6 +38,7 @@ export default function ClientDetail() {
     }
   }, [id, navigate, isAdmin]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchClientData(); }, [fetchClientData]);
 
   if (loading) return (
@@ -130,13 +131,15 @@ export default function ClientDetail() {
                 Delete
               </button>
             )}
+            {isAdmin && (
+              <button 
+                onClick={() => setShowLinkModal(true)}
+                className="btn-secondary px-4 py-2 text-xs hover:border-[#E05A1E]/50"
+              >
+                Link Existing Project
+              </button>
+            )}
             <div className="h-8 w-px bg-[#E0E0E0] mx-1" />
-            <button 
-              onClick={() => setShowLinkModal(true)}
-              className="btn-secondary px-4 py-2 text-xs hover:border-[#E05A1E]/50"
-            >
-              Link Existing Project
-            </button>
             <button 
               onClick={() => navigate('/projects', { state: { preSelectClientId: client.id } })}
               className="btn-primary px-4 py-2 text-xs shadow-lg shadow-orange-100"

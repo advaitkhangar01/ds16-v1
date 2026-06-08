@@ -4,7 +4,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
-import { useState } from 'react';
+import { useState } from 'react'; // eslint-disable-line no-unused-vars
 
 const ADMIN_LINKS = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: 'grid' },
@@ -119,7 +119,7 @@ const ICONS = {
   ),
 };
 
-export default function Sidebar({ onClose }) {
+export default function Sidebar({ collapsed = false, onClose }) {
   const { user, logout, isAdmin, isAccounts } = useAuth();
   const navigate = useNavigate();
   
@@ -136,18 +136,22 @@ export default function Sidebar({ onClose }) {
   }
 
   return (
-    <aside className="w-60 min-h-screen bg-white border-r border-[#E0E0E0] flex flex-col overflow-hidden">
+    <aside className="w-full min-h-screen bg-white border-r border-[#E0E0E0] flex flex-col overflow-hidden transition-all duration-300">
       {/* Logo Section */}
-      <div className="p-5 border-b border-[#E0E0E0] bg-white relative z-10">
-        <div className="flex items-center gap-3">
+      <div className="p-5 border-b border-[#E0E0E0] bg-white relative z-10 flex-shrink-0">
+        <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
           <div className="h-10 w-10 flex-shrink-0 bg-white rounded-xl overflow-hidden border border-[#F0F0F0] flex items-center justify-center p-1">
             <img src="/logo.jpg" alt="Design Studio 16" className="max-h-full max-w-full object-contain" />
           </div>
-          <div className="min-w-0">
-            <div className="text-sm font-black text-[#1A1A1A] leading-tight truncate uppercase tracking-tight">Design Studio 16</div>
-            <div className="text-[10px] font-bold text-[#E05A1E] uppercase tracking-widest">
+          <div className={`min-w-0 transition-all duration-300 ${collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100 w-auto'}`}>
+            <div className="text-sm font-black text-[#1A1A1A] leading-tight truncate uppercase tracking-tight whitespace-nowrap">Design Studio 16</div>
+            <div className="text-[10px] font-bold text-[#E05A1E] uppercase tracking-widest whitespace-nowrap">
               {user?.role === 'design_head' ? 'Design Head' :
+               user?.role === 'design' ? 'Design' :
+               user?.role === 'back_office' ? 'Back Office' :
                user?.role === 'accounts' ? 'Accounts Dept.' :
+               user?.role === 'liasoning' ? 'Liasoning' :
+               user?.role === 'civil_engineer' ? 'Civil Engineer' :
                user?.role}
             </div>
           </div>
@@ -161,38 +165,49 @@ export default function Sidebar({ onClose }) {
             key={link.to}
             to={link.to}
             onClick={onClose}
+            title={collapsed ? link.label : undefined}
             className={({ isActive }) =>
-              `sidebar-link ${isActive ? 'active' : ''}`
+              `sidebar-link ${collapsed ? 'justify-center !px-0 mx-1 rounded-lg' : ''} ${isActive ? 'active' : ''} ${collapsed && isActive ? '!pl-0 !border-l-0 bg-[#FFF4EE]' : ''}`
             }
           >
-            {ICONS[link.icon]}
-            <span className="font-bold tracking-tight">{link.label}</span>
+            <div className="flex-shrink-0 flex items-center justify-center">
+              {ICONS[link.icon]}
+            </div>
+            <span className={`font-bold tracking-tight whitespace-nowrap transition-all duration-300 ${collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100 w-auto'}`}>
+              {link.label}
+            </span>
           </NavLink>
         ))}
       </nav>
 
       {/* User footer */}
-      <div className="p-3 border-t border-[#E0E0E0] bg-gray-50/30">
-        <div className="flex items-center gap-3 px-3 py-2 mb-2">
+      <div className="p-3 border-t border-[#E0E0E0] bg-gray-50/30 flex-shrink-0">
+        <div 
+          className={`flex items-center ${collapsed ? 'justify-center !px-0' : 'gap-3 px-3'} py-2 mb-2`}
+          title={collapsed ? `${user?.name} (${user?.department || user?.role})` : undefined}
+        >
           <div className="w-8 h-8 rounded-full bg-orange-100 border border-orange-200 flex items-center justify-center flex-shrink-0">
             <span className="text-[#E05A1E] text-xs font-black">
               {user?.name?.charAt(0).toUpperCase()}
             </span>
           </div>
-          <div className="overflow-hidden">
-            <div className="text-sm font-bold text-[#1A1A1A] truncate">{user?.name?.split(' ')[0]}</div>
-            <div className="text-[10px] font-bold text-gray-400 uppercase truncate">{user?.department || user?.role}</div>
+          <div className={`overflow-hidden transition-all duration-300 ${collapsed ? 'opacity-0 w-0 h-0 overflow-hidden' : 'opacity-100 w-auto'}`}>
+            <div className="text-sm font-bold text-[#1A1A1A] truncate whitespace-nowrap">{user?.name?.split(' ')[0]}</div>
+            <div className="text-[10px] font-bold text-gray-400 uppercase truncate whitespace-nowrap">{user?.department || user?.role}</div>
           </div>
         </div>
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-red-500 hover:bg-red-50 hover:text-red-600 transition-all duration-200"
+          title={collapsed ? "Sign Out" : undefined}
+          className={`w-full flex items-center ${collapsed ? 'justify-center !px-0' : 'gap-3 px-3'} py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-red-500 hover:bg-red-50 hover:text-red-600 transition-all duration-200`}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
             <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
           </svg>
-          Sign Out
+          <span className={`whitespace-nowrap transition-all duration-300 ${collapsed ? 'opacity-0 w-0 h-0 overflow-hidden' : 'opacity-100 w-auto'}`}>
+            Sign Out
+          </span>
         </button>
       </div>
     </aside>

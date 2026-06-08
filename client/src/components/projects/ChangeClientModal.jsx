@@ -14,7 +14,7 @@ export default function ChangeClientModal({ projectId, currentClientId, onClose,
       try {
         const { data } = await api.get('/clients');
         setClients(data.clients || []);
-      } catch (err) {
+      } catch {
         toast.error('Failed to load clients');
       } finally {
         setLoading(false);

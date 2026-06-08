@@ -2,7 +2,7 @@
 // Advanced Client Management - Multi-entity (Contacts, Addresses, Banking)
 
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import AppLayout from '../components/layout/AppLayout';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +28,7 @@ export default function ClientsPage() {
     }
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchClients(); }, [fetchClients]);
 
   const handleDelete = async (e, id, name) => {
@@ -38,7 +39,7 @@ export default function ClientsPage() {
       await api.delete(`/clients/${id}`);
       toast.success('Client deleted');
       fetchClients();
-    } catch (err) {
+    } catch {
       toast.error('Failed to delete client');
     }
   };

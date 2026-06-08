@@ -439,7 +439,7 @@ router.get('/today', authenticate, async (req, res) => {
 
     // Mask GPS for non-admins (except their own record)
     const sanitizedRows = rows.map(r => {
-      if (req.user.role === 'admin' || r.user_id === req.user.id) return r;
+      if (req.user.role === 'admin' || req.user.role === 'back_office' || req.user.role === 'accounts' || r.user_id === req.user.id) return r;
       const { lat, lng, checkin_distance, checkin_zone, checkin_accuracy, ...rest } = r;
       return { ...rest, lat: null, lng: null, checkin_distance: null, checkin_zone: null, checkin_accuracy: null };
     });
@@ -500,7 +500,7 @@ router.get('/all', authenticate, async (req, res) => {
 
     // Mask GPS for non-admins
     const sanitizedRows = rows.map(r => {
-      if (req.user.role === 'admin' || r.user_id === req.user.id) return r;
+      if (req.user.role === 'admin' || req.user.role === 'back_office' || req.user.role === 'accounts' || r.user_id === req.user.id) return r;
       const { lat, lng, checkin_distance, checkin_zone, checkin_accuracy, ...rest } = r;
       return { ...rest, lat: null, lng: null, checkin_distance: null, checkin_zone: null, checkin_accuracy: null };
     });

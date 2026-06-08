@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect, no-unused-vars */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import AppLayout from '../../components/layout/AppLayout';
@@ -68,8 +69,11 @@ export default function StaffDetailPage() {
 
   const roleColors = 
     employee.role === 'admin' ? 'bg-purple-50 text-purple-700 border-purple-100' :
-    employee.role === 'accounts' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+    employee.role === 'back_office' || employee.role === 'accounts' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
     employee.role === 'design_head' ? 'bg-amber-50 text-amber-700 border-amber-100' :
+    employee.role === 'design' ? 'bg-orange-50 text-orange-700 border-orange-100' :
+    employee.role === 'liasoning' ? 'bg-teal-50 text-teal-700 border-teal-100' :
+    employee.role === 'civil_engineer' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
     'bg-blue-50 text-blue-700 border-blue-100';
 
   return (
@@ -97,7 +101,13 @@ export default function StaffDetailPage() {
               <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
                 <span className="text-xs font-semibold text-gray-400">@{employee.username}</span>
                 <span className={`px-2.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border ${roleColors}`}>
-                  {employee.role === 'design_head' ? 'Design Head' : employee.role}
+                  {employee.role === 'design_head' ? 'Design Head' : 
+                   employee.role === 'design' ? 'Design' : 
+                   employee.role === 'back_office' ? 'Back Office' : 
+                   employee.role === 'accounts' ? 'Accounts' : 
+                   employee.role === 'liasoning' ? 'Liasoning' : 
+                   employee.role === 'civil_engineer' ? 'Civil Engineer' : 
+                   employee.role === 'employee' ? 'Employee' : employee.role}
                 </span>
                 {employee.department && (
                   <span className="px-2.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200">

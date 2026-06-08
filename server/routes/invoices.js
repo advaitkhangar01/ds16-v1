@@ -5,8 +5,8 @@ const { checkProjectAccess } = require('../middleware/accessControl');
 
 // GET /api/invoices - List all invoices
 router.get('/', authenticate, async (req, res) => {
-  if (req.user?.role === 'design_head') {
-    return res.status(403).json({ error: 'Design Head is not permitted to view invoices' });
+  if (req.user?.role === 'design_head' || req.user?.role === 'design') {
+    return res.status(403).json({ error: 'Design department is not permitted to view invoices' });
   }
   try {
     const { project_id, client_id, start_date, end_date, page = 1, limit = 50 } = req.query;
@@ -41,8 +41,8 @@ router.get('/', authenticate, async (req, res) => {
       params.push(end_date);
     }
 
-    if (req.user.role !== 'admin') {
-      // Employees only see invoices for projects they are assigned to
+    if (req.user.role !== 'admin' && req.user.role !== 'accounts' && req.user.role !== 'back_office') {
+      // Standard employees only see invoices for projects they are assigned to
       query += ` JOIN project_assignments pa ON pa.project_id = i.project_id `;
       conditions.push(`pa.user_id = $${idx++}`);
       params.push(req.user.id);
@@ -105,7 +105,7 @@ router.get('/', authenticate, async (req, res) => {
         stagesParams.push(end_date);
       }
 
-      if (req.user.role !== 'admin') {
+      if (req.user.role !== 'admin' && req.user.role !== 'accounts' && req.user.role !== 'back_office') {
         stagesQuery += ` AND EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = pps.project_id AND pa.user_id = $${sIdx++})`;
         stagesParams.push(req.user.id);
       }
@@ -219,8 +219,8 @@ router.get('/latest/number', authenticate, requireAccounting, async (req, res) =
 
 // GET /api/invoices/:id - Get specific invoice details
 router.get('/:id', authenticate, checkProjectAccess({ idIsResource: 'invoice' }), async (req, res) => {
-  if (req.user?.role === 'design_head') {
-    return res.status(403).json({ error: 'Design Head is not permitted to view invoices' });
+  if (req.user?.role === 'design_head' || req.user?.role === 'design') {
+    return res.status(403).json({ error: 'Design department is not permitted to view invoices' });
   }
   try {
     const { rows } = await pool.query(

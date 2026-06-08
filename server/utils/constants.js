@@ -25,7 +25,12 @@ const LEAVE_TYPE = {
 
 const USER_ROLES = {
   ADMIN: 'admin',
-  EMPLOYEE: 'employee'
+  DESIGN_HEAD: 'design_head',
+  DESIGN: 'design',
+  LIASONING: 'liasoning',
+  CIVIL_ENGINEER: 'civil_engineer',
+  EMPLOYEE: 'employee',
+  BACK_OFFICE: 'back_office'
 };
 
 const DOCUMENT_TAGS = [

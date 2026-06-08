@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 // client/src/components/staff/UserModal.jsx
 import { useState, useEffect } from 'react';
 import api from '../../api/client';
@@ -166,10 +167,13 @@ export default function UserModal({ user: initialUser, onClose, onSave }) {
                   onChange={(e) => setForm({ ...form, role: e.target.value })}
                   className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-primary font-bold text-gray-700 outline-none"
                 >
-                  <option value="employee">Employee — Attendance, assigned projects &amp; tasks</option>
-                  <option value="accounts">Accounts — Full financial access: invoices, expenses, payroll</option>
-                  <option value="design_head">Design Head — Project oversight, vendors &amp; documents</option>
-                  <option value="admin">Admin — Full system access &amp; settings</option>
+                  <option value="employee">Employee</option>
+                  <option value="civil_engineer">Civil Engineer</option>
+                  <option value="liasoning">Liasoning</option>
+                  <option value="design">Design</option>
+                  <option value="design_head">Design Head</option>
+                  <option value="back_office">Back Office</option>
+                  <option value="admin">Admin</option>
                 </select>
               </div>
 
