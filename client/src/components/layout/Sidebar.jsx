@@ -136,7 +136,7 @@ export default function Sidebar({ collapsed = false, onClose }) {
   }
 
   return (
-    <aside className="w-full min-h-screen bg-white/70 backdrop-blur-md border-r border-[#E2E8F0]/60 flex flex-col overflow-hidden transition-all duration-300 shadow-lg shadow-slate-100/50">
+    <aside className="w-full h-full bg-white/70 backdrop-blur-md border-r border-[#E2E8F0]/60 flex flex-col overflow-hidden transition-all duration-300 shadow-lg shadow-slate-100/50">
       {/* Logo Section */}
       <div className="p-5 border-b border-[#E2E8F0]/60 bg-transparent relative z-10 flex-shrink-0">
         <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
