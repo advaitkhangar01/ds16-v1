@@ -50,10 +50,8 @@ async function autoCheckoutPendingRecords() {
     
     // Find all attendance records from previous days that have a check_in but no check_out
     const { rows } = await pool.query(
-      `SELECT a.id, a.user_id, a.check_in, a.date, a.status,
-              s_min.value as min_hours
+      `SELECT a.id, a.user_id, a.check_in, a.date, a.status
        FROM attendance a
-       LEFT JOIN app_settings s_min ON s_min.key = 'min_working_hours'
        WHERE a.check_in IS NOT NULL 
          AND a.check_out IS NULL 
          AND a.date < $1::date
@@ -63,17 +61,52 @@ async function autoCheckoutPendingRecords() {
 
     if (rows.length === 0) return;
 
-    console.log(`[Auto-Checkout] Found ${rows.length} pending records from previous days to automatically check out.`);
+    // Fetch required settings for default checkout time calculation
+    const settings = await getSettings(['office_start_time', 'min_working_hours']);
+    let officeStartTime = settings.office_start_time || '10:00';
+    let minWorkingHours = parseFloat(settings.min_working_hours || '4');
+
+    // Validate officeStartTime format (HH:mm)
+    if (!/^\d{2}:\d{2}$/.test(officeStartTime)) {
+      console.warn(`[Auto-Checkout] Invalid office_start_time format: "${officeStartTime}". Falling back to "10:00".`);
+      officeStartTime = '10:00';
+    }
+
+    // Validate minWorkingHours
+    if (isNaN(minWorkingHours) || minWorkingHours < 0 || minWorkingHours > 24) {
+      console.warn(`[Auto-Checkout] Invalid min_working_hours: "${settings.min_working_hours}". Falling back to 4.`);
+      minWorkingHours = 4.0;
+    }
+
+    console.log(`[Auto-Checkout] Found ${rows.length} pending records from previous days to automatically check out. Using office_start_time=${officeStartTime}, min_working_hours=${minWorkingHours}`);
 
     for (const r of rows) {
-      const minHours = parseFloat(r.min_hours || '4');
-      const shiftHours = 9.0; // Standard 9-hour work shift
+      const dateStr = getISTDate(r.date);
+      const [startH, startM] = officeStartTime.split(':').map(Number);
+      const startMinutes = startH * 60 + startM;
+      const checkoutMinutes = startMinutes + Math.round(minWorkingHours * 60);
+      const checkoutH = Math.floor(checkoutMinutes / 60) % 24;
+      const checkoutM = checkoutMinutes % 60;
+
+      const checkoutTimeStr = `${String(checkoutH).padStart(2, '0')}:${String(checkoutM).padStart(2, '0')}:00`;
+      const checkoutTimeISO = `${dateStr}T${checkoutTimeStr}+05:30`;
+      let checkOutTime = new Date(checkoutTimeISO);
       
       const checkInTime = new Date(r.check_in);
-      const checkOutTime = new Date(checkInTime.getTime() + shiftHours * 60 * 60 * 1000);
+      
+      // If the calculated checkout time is before or equal to check-in, set checkout to check-in time
+      if (checkOutTime <= checkInTime) {
+        checkOutTime = checkInTime;
+      }
+      
+      let hoursWorked = (checkOutTime.getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
+      if (isNaN(hoursWorked) || hoursWorked < 0) {
+        hoursWorked = 0;
+      }
+      hoursWorked = parseFloat(hoursWorked.toFixed(2));
       
       let newStatus = r.status ? r.status.toLowerCase() : 'completed';
-      if (shiftHours < minHours) {
+      if (hoursWorked < minWorkingHours) {
         newStatus = 'half_day';
       } else if (newStatus === 'working' || newStatus === 'present') {
         newStatus = 'completed';
@@ -85,9 +118,9 @@ async function autoCheckoutPendingRecords() {
            status = $2,
            hours_worked = $3
          WHERE id = $4`,
-        [checkOutTime.toISOString(), newStatus, shiftHours, r.id]
+        [checkOutTime.toISOString(), newStatus, hoursWorked, r.id]
       );
-      console.log(`[Auto-Checkout] User ${r.user_id} automatically checked out for date ${getISTDate(r.date)} at ${checkOutTime.toISOString()}`);
+      console.log(`[Auto-Checkout] User ${r.user_id} automatically checked out for date ${dateStr} at ${checkOutTime.toISOString()} (hours worked: ${hoursWorked})`);
     }
   } catch (err) {
     console.error('[Auto-Checkout] Error running auto-checkout cleanup:', err);

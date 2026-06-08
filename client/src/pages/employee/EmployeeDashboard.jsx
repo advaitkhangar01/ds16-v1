@@ -18,7 +18,7 @@ import { getPosition, classifyZone, ZONE_CONFIG } from '../../utils/geofence';
 
 function QuickStats({ salary, attendance }) {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
       {/* Earnings Card */}
       <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Earnings (This Month)</p>
@@ -74,6 +74,10 @@ function QuickStats({ salary, attendance }) {
       <div className="bg-red-50/50 border border-red-100 p-4 rounded-2xl shadow-sm">
         <p className="text-[10px] font-black text-red-700/60 uppercase tracking-widest mb-1">Team Absent</p>
         <span className="text-xl font-black text-red-500 font-mono tracking-tight">{attendance?.absent ?? 0}</span>
+      </div>
+      <div className="bg-purple-50/50 border border-purple-100 p-4 rounded-2xl shadow-sm">
+        <p className="text-[10px] font-black text-purple-700/60 uppercase tracking-widest mb-1">Team On Leave</p>
+        <span className="text-xl font-black text-purple-600 font-mono tracking-tight">{attendance?.on_leave ?? 0}</span>
       </div>
     </div>
   );

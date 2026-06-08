@@ -30,10 +30,11 @@ function AttendanceStats({ data }) {
     { label: 'Present Today', value: data?.checked_in ?? '—', color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
     { label: 'Checked Out', value: data?.checked_out ?? '—', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
     { label: 'Absent', value: data?.absent ?? '—', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' },
+    { label: 'On Leave', value: data?.on_leave ?? '—', color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200' },
   ];
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
       {stats.map((s) => (
         <div key={s.label} className={`card ${s.bg} border ${s.border}`}>
           <p className="text-xs font-medium text-muted mb-2">{s.label}</p>

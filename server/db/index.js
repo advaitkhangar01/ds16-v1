@@ -76,6 +76,7 @@ pool.query('SELECT NOW()', (err) => {
 
         // 2. Fix attendance status default value
         await pool.query("ALTER TABLE attendance ALTER COLUMN status SET DEFAULT 'working'");
+        await pool.query("UPDATE attendance SET status = LOWER(status) WHERE status IS NOT NULL");
         
         // 3. Ensure invoices table has due_date and signature_data columns
         await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS due_date DATE");

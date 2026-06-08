@@ -15,9 +15,11 @@ async function runTest() {
     const testUser = users[0];
     console.log(`Using test user: ${testUser.name} (ID: ${testUser.id})`);
 
-    // 2. Define a past test date
-    const testDate = '2026-05-15'; // A past date definitely before today
-    const checkInTime = new Date(`${testDate}T10:00:00.000Z`);
+    // 2. Define a past test date (yesterday's date in IST)
+    const yesterdayDate = new Date();
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const testDate = getISTDate(yesterdayDate);
+    const checkInTime = new Date(`${testDate}T10:00:00+05:30`);
 
     console.log(`Setting up test attendance record for Date: ${testDate}, Check-In: ${checkInTime.toISOString()}`);
 
@@ -67,27 +69,53 @@ async function runTest() {
       hours_worked: record.hours_worked
     });
 
-    // Calculations
-    const expectedCheckOut = new Date(checkInTime.getTime() + 9 * 60 * 60 * 1000).toISOString();
+    // Fetch settings to compute expected values
+    const { rows: settingsRows } = await pool.query(
+      "SELECT key, value FROM app_settings WHERE key IN ('office_start_time', 'min_working_hours')"
+    );
+    const settings = settingsRows.reduce((acc, r) => { acc[r.key] = r.value; return acc; }, {});
+    const officeStartTime = settings.office_start_time || '10:00';
+    const minWorkingHours = parseFloat(settings.min_working_hours || '4');
+
+    const [startH, startM] = officeStartTime.split(':').map(Number);
+    const startMinutes = startH * 60 + startM;
+    const checkoutMinutes = startMinutes + Math.round(minWorkingHours * 60);
+    const checkoutH = Math.floor(checkoutMinutes / 60) % 24;
+    const checkoutM = checkoutMinutes % 60;
+    
+    const expectedCheckOutStr = `${testDate}T${String(checkoutH).padStart(2, '0')}:${String(checkoutM).padStart(2, '0')}:00+05:30`;
+    const expectedCheckOutISO = new Date(expectedCheckOutStr).toISOString();
+
+    let expectedHoursWorked = (new Date(expectedCheckOutISO).getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
+    if (isNaN(expectedHoursWorked) || expectedHoursWorked < 0) {
+      expectedHoursWorked = 0;
+    }
+    expectedHoursWorked = parseFloat(expectedHoursWorked.toFixed(2));
+
+    let expectedStatus = 'completed';
+    if (expectedHoursWorked < minWorkingHours) {
+      expectedStatus = 'half_day';
+    }
+
     const actualCheckOut = new Date(record.check_out).toISOString();
 
     const assertions = [
       {
-        name: 'Check-out timestamp updated to check_in + 9 hours',
-        passed: actualCheckOut === expectedCheckOut,
-        expected: expectedCheckOut,
+        name: 'Check-out timestamp updated to office_start_time + min_working_hours',
+        passed: actualCheckOut === expectedCheckOutISO,
+        expected: expectedCheckOutISO,
         actual: actualCheckOut
       },
       {
-        name: 'Status updated to completed',
-        passed: record.status === 'completed',
-        expected: 'completed',
+        name: `Status updated to ${expectedStatus}`,
+        passed: record.status === expectedStatus,
+        expected: expectedStatus,
         actual: record.status
       },
       {
-        name: 'hours_worked set to 9.00',
-        passed: parseFloat(record.hours_worked) === 9.00,
-        expected: 9.00,
+        name: `hours_worked set to ${expectedHoursWorked}`,
+        passed: parseFloat(record.hours_worked) === expectedHoursWorked,
+        expected: expectedHoursWorked,
         actual: parseFloat(record.hours_worked)
       }
     ];

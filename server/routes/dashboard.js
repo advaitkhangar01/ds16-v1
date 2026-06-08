@@ -99,13 +99,32 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
     await autoCheckoutPendingRecords();
     const today = getISTDate();
 
-    // 1. Attendance summary (include everyone)
+    // 1. Attendance summary (include everyone, separating leaves from absences)
     const { rows: attendanceRows } = await pool.query(
       `SELECT
          COUNT(*) AS total_users,
          COUNT(*) FILTER (WHERE a.check_in IS NOT NULL AND a.check_out IS NULL AND a.date = $1::date) AS checked_in,
          COUNT(*) FILTER (WHERE a.check_out IS NOT NULL AND a.date = $1::date) AS checked_out,
-         COUNT(*) FILTER (WHERE a.check_in IS NULL) AS absent
+         COUNT(*) FILTER (
+           WHERE a.check_in IS NULL 
+             AND NOT EXISTS (
+               SELECT 1 FROM leave_requests lr 
+               WHERE lr.user_id = u.id 
+                 AND LOWER(lr.status) = 'approved' 
+                 AND lr.type NOT IN ('advance', 'resignation')
+                 AND $1::date BETWEEN lr.start_date AND lr.end_date
+             )
+         ) AS absent,
+         COUNT(*) FILTER (
+           WHERE a.check_in IS NULL 
+             AND EXISTS (
+               SELECT 1 FROM leave_requests lr 
+               WHERE lr.user_id = u.id 
+                 AND LOWER(lr.status) = 'approved' 
+                 AND lr.type NOT IN ('advance', 'resignation')
+                 AND $1::date BETWEEN lr.start_date AND lr.end_date
+             )
+         ) AS on_leave
        FROM users u
        LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date`,
       [today]
@@ -289,6 +308,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
         checked_in: parseInt(attendance.checked_in),
         checked_out: parseInt(attendance.checked_out),
         absent: parseInt(attendance.absent),
+        on_leave: parseInt(attendance.on_leave || 0),
       },
       todays_tasks: Object.values(tasksByProject),
       kanban,
@@ -554,12 +574,31 @@ router.get('/employee', authenticate, async (req, res) => {
       [userId, todayStr]
     );
 
-    // 1b. Team attendance summary (for stats)
+    // 1b. Team attendance summary (for stats, separating leaves from absences)
     const { rows: teamStatsRows } = await pool.query(
       `SELECT
          COUNT(*) FILTER (WHERE a.check_in IS NOT NULL AND a.check_out IS NULL AND a.date = $1::date) AS present,
          COUNT(*) FILTER (WHERE a.check_out IS NOT NULL AND a.date = $1::date) AS checked_out,
-         COUNT(*) FILTER (WHERE a.check_in IS NULL) AS absent
+         COUNT(*) FILTER (
+           WHERE a.check_in IS NULL 
+             AND NOT EXISTS (
+               SELECT 1 FROM leave_requests lr 
+               WHERE lr.user_id = u.id 
+                 AND LOWER(lr.status) = 'approved' 
+                 AND lr.type NOT IN ('advance', 'resignation')
+                 AND $1::date BETWEEN lr.start_date AND lr.end_date
+             )
+         ) AS absent,
+         COUNT(*) FILTER (
+           WHERE a.check_in IS NULL 
+             AND EXISTS (
+               SELECT 1 FROM leave_requests lr 
+               WHERE lr.user_id = u.id 
+                 AND LOWER(lr.status) = 'approved' 
+                 AND lr.type NOT IN ('advance', 'resignation')
+                 AND $1::date BETWEEN lr.start_date AND lr.end_date
+             )
+         ) AS on_leave
        FROM users u
        LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date`,
       [todayStr]
@@ -659,7 +698,8 @@ router.get('/employee', authenticate, async (req, res) => {
       team_stats: {
         present:     parseInt(teamStats.present),
         checked_out: parseInt(teamStats.checked_out),
-        absent:      parseInt(teamStats.absent)
+        absent:      parseInt(teamStats.absent),
+        on_leave:    parseInt(teamStats.on_leave || 0)
       },
       tasks: taskRows,
       projects: projRows,
