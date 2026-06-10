@@ -70,8 +70,8 @@ router.get('/', authenticate, async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const limitInt = parseInt(limit);
 
-    // Admins, accounts, design heads, and back office see all projects; others only see assigned projects
-    if (req.user.role === 'admin' || req.user.role === 'accounts' || req.user.role === 'back_office' || req.user.role === 'design_head') {
+    // Admins, accounts, and back office see all projects; others only see assigned projects
+    if (req.user.role === 'admin' || req.user.role === 'accounts' || req.user.role === 'back_office') {
       query = `
         SELECT p.*, 
           u.name as created_by_name,
