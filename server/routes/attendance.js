@@ -50,7 +50,7 @@ async function autoCheckoutPendingRecords() {
     
     // Find all attendance records from previous days that have a check_in but no check_out
     const { rows } = await pool.query(
-      `SELECT a.id, a.user_id, a.check_in, a.date, a.status
+      `SELECT a.id, a.user_id, a.check_in, a.date, LOWER(a.status) AS status
        FROM attendance a
        WHERE a.check_in IS NOT NULL 
          AND a.check_out IS NULL 

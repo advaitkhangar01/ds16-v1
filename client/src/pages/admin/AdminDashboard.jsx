@@ -169,17 +169,17 @@ function FinancialStats({ finances, onOpenBreakdown }) {
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
       {stats.map((s) => (
         <div 
           key={s.label} 
           onClick={() => onOpenBreakdown(s.id, s.label)}
-          className={`relative overflow-hidden group p-6 rounded-2xl bg-white border ${s.border} shadow-sm hover:shadow-md transition-all duration-300 cursor-pointer active:scale-95`}
+          className={`relative overflow-hidden group p-4 rounded-2xl bg-white border ${s.border} shadow-sm hover:shadow-md transition-all duration-300 cursor-pointer active:scale-95`}
         >
           <div className={`absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 rounded-full ${s.bg} opacity-50 group-hover:scale-110 transition-transform duration-500`} />
           
-          <div className="relative flex items-center justify-between mb-4">
-            <div className={`p-2.5 rounded-xl ${s.bg} ${s.color}`}>
+          <div className="relative flex items-center justify-between mb-3">
+            <div className={`p-2 rounded-xl ${s.bg} ${s.color}`}>
               {s.icon}
             </div>
             <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest group-hover:text-slate-400 transition-colors">{s.period}</span>
@@ -249,121 +249,307 @@ function MyAdminSalaryStats({ salary }) {
   );
 }
 
-// ── Today's tasks panel
-function TodaysTasks({ tasks }) {
+// ── Team Attendance Table (Redesigned)
+function TeamAttendanceTable({ records }) {
+  const [filter, setFilter] = useState('all');
+
+  // Helper status counts
+  const totalCount = records.length;
+  const presentCount = records.filter(r => ['working', 'completed', 'half_day'].includes(r.status)).length;
+  const lateCount = records.filter(r => r.is_late === true).length;
+  const leaveCount = records.filter(r => r.status === 'leave').length;
+  const absentCount = records.filter(r => r.status === 'absent' || (!r.checkIn && r.status !== 'leave')).length;
+
+  // Filter records
+  const filteredRecords = records.filter(r => {
+    if (filter === 'present') return ['working', 'completed', 'half_day'].includes(r.status);
+    if (filter === 'late') return r.is_late === true;
+    if (filter === 'leave') return r.status === 'leave';
+    if (filter === 'absent') return r.status === 'absent' || (!r.checkIn && r.status !== 'leave');
+    return true; // 'all'
+  });
+
+  const copyCoords = (lat, lng) => {
+    if (!lat || !lng) return;
+    navigator.clipboard.writeText(`${lat}, ${lng}`);
+    toast.success('Coordinates copied to clipboard! 📍');
+  };
+
+  const getZoneBadge = (zone, isVerified) => {
+    if (!zone) return null;
+    if (zone === 'strict') {
+      return <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md">🟢 Office</span>;
+    }
+    if (zone === 'buffer') {
+      return <span className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-md">🟡 Boundary</span>;
+    }
+    return <span className="inline-flex items-center gap-1 text-[9px] font-bold text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded-md">🔴 Outside</span>;
+  };
+
   return (
-    <div className="card h-full">
-      <h3 className="text-base font-semibold text-[#1A1A1A] mb-4">Today's Tasks</h3>
-      {tasks?.length === 0 && (
-        <p className="text-muted text-sm text-center py-10 opacity-60 italic">No tasks assigned today</p>
-      )}
-      <div className="space-y-4">
-        {tasks?.map((group) => (
-          <div key={group.project_id}>
-            <a href={`/projects/${group.project_id}`}
-              className="text-xs font-semibold text-[#E05A1E] hover:text-[#C94E16] uppercase tracking-wide mb-2 block">
-              {group.project_name}
-            </a>
-            <div className="space-y-2 ml-2">
-              {group.tasks.map((t) => (
-                <div key={t.id} className="flex items-start gap-3 p-3 rounded-lg bg-[#F5F5F5] border border-[#EBEBEB]">
-                  <div className="w-6 h-6 rounded-full bg-[rgba(224,90,30,0.1)] border border-[rgba(224,90,30,0.2)] flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-[10px] text-[#E05A1E] font-bold">
-                      {t.assigned_to_name?.charAt(0)}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-medium text-[#1A1A1A]">{t.assigned_to_name}</span>
-                      <span className={`badge ${t.status === 'passed' ? 'badge-completed' : t.status === 'done' ? 'badge-completed' : t.status === 'in_progress' ? 'badge-in-progress' : 'badge-pending'}`}>
-                        {t.status}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted mt-1 line-clamp-2">{t.title}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+    <div className="card w-full flex flex-col bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pb-2 border-b border-slate-100">
+        <div>
+          <h3 className="text-lg font-black text-slate-900 tracking-tight">Team Attendance Dashboard</h3>
+          <p className="text-xs text-slate-400 font-medium mt-0.5">Real-time geo-verified check-in status and work hours</p>
+        </div>
+        <a 
+          href="/attendance" 
+          className="text-xs font-bold text-[#E05A1E] hover:underline flex items-center gap-1 self-start sm:self-center group"
+        >
+          Open Official Logs 
+          <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+        </a>
+      </div>
+
+      {/* Filter Stats Row */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5 mb-4">
+        {[
+          { key: 'all', label: 'Total Team', count: totalCount, color: 'text-slate-800 border-slate-200 bg-slate-50/50 hover:bg-slate-50' },
+          { key: 'present', label: 'Present', count: presentCount, color: 'text-emerald-600 border-emerald-100 bg-emerald-50/30 hover:bg-emerald-50' },
+          { key: 'late', label: 'Late check-ins', count: lateCount, color: 'text-amber-600 border-amber-100 bg-amber-50/30 hover:bg-amber-50' },
+          { key: 'leave', label: 'On Leave', count: leaveCount, color: 'text-purple-600 border-purple-100 bg-purple-50/30 hover:bg-purple-50' },
+          { key: 'absent', label: 'Absent', count: absentCount, color: 'text-red-500 border-red-100 bg-red-50/30 hover:bg-red-50' },
+        ].map((item) => (
+          <button
+            key={item.key}
+            onClick={() => setFilter(item.key)}
+            className={`flex flex-col p-2.5 rounded-xl border text-left transition-all duration-200 active:scale-95 ${item.color} ${
+              filter === item.key 
+                ? 'ring-2 ring-[#E05A1E] ring-offset-1 shadow-sm font-black' 
+                : 'opacity-70 hover:opacity-100'
+            }`}
+          >
+            <span className="text-[10px] font-black uppercase tracking-wider opacity-80">{item.label}</span>
+            <span className="text-lg font-bold mt-0.5 tracking-tight">{item.count}</span>
+          </button>
         ))}
+      </div>
+
+      {/* Grid view of records */}
+      <div className="overflow-x-auto scrollbar-thin">
+        <table className="w-full text-left border-separate border-spacing-0">
+          <thead>
+            <tr className="border-b border-slate-100">
+              <th className="pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Member</th>
+              <th className="pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Today's Status</th>
+              <th className="pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Check-In Info</th>
+              <th className="pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Check-Out Info</th>
+              <th className="pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Working Progress</th>
+              <th className="pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center pr-2">GPS Audit</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {filteredRecords.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="py-12 text-center text-slate-400 italic text-sm">
+                  No records match the selected filter today
+                </td>
+              </tr>
+            ) : (
+              filteredRecords.map((r, i) => {
+                const isLate = r.is_late === true;
+                const initials = r.name ? r.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??';
+                
+                // Working progress metrics
+                const targetHours = 8;
+                const hours = parseFloat(r.hours_worked || 0);
+                const progressPct = Math.min(100, Math.max(0, (hours / targetHours) * 100));
+
+                return (
+                  <tr key={i} className="group hover:bg-slate-50/50 transition-colors">
+                    <td className="py-2.5 pl-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-slate-100 border border-slate-200 text-slate-600 flex items-center justify-center font-bold text-xs">
+                          {initials}
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-800 group-hover:text-[#E05A1E] transition-colors">{r.name}</p>
+                          <p className="text-[9px] text-slate-400 font-medium uppercase tracking-wider mt-0.5">
+                            {r.role === 'admin' ? 'Admin' : (r.department || 'Staff')}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-2.5">
+                      <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm border ${
+                        r.status === 'working'   ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                        r.status === 'completed' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                        r.status === 'half_day'  ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                        r.status === 'leave'     ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                        'bg-red-50 text-red-500 border-red-100'
+                      }`}>
+                        {r.status === 'working'   ? 'Present'  :
+                         r.status === 'completed' ? 'Done'     :
+                         r.status === 'half_day'  ? 'Half Day' :
+                         r.status === 'leave'     ? 'On Leave' : 'Absent'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      {r.checkIn ? (
+                        <div className="space-y-1">
+                          <p className={`text-xs font-bold ${isLate ? 'text-red-500' : 'text-emerald-600'}`}>
+                            {formatTimeIST(r.checkIn)}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {isLate && (
+                              <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1 py-0.2 rounded">
+                                Late by {r.late_minutes || 0}m
+                              </span>
+                            )}
+                            {getZoneBadge(r.checkinZone, r.checkinVerified)}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs font-medium text-slate-300 italic">—</p>
+                      )}
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      {r.checkOut ? (
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-blue-600">
+                            {formatTimeIST(r.checkOut)}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {r.checkoutOutsideZone ? (
+                              <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100">
+                                Outside location
+                              </span>
+                            ) : (
+                              getZoneBadge(r.checkoutZone, false)
+                            )}
+                          </div>
+                        </div>
+                      ) : r.checkIn ? (
+                        <span className="text-[10px] font-black uppercase tracking-wider text-emerald-500 animate-pulse">On duty</span>
+                      ) : (
+                        <p className="text-xs font-medium text-slate-300 italic">—</p>
+                      )}
+                    </td>
+                    <td className="py-2.5 pr-4">
+                      {r.checkIn ? (
+                        <div className="w-32 space-y-1">
+                          <div className="flex justify-between items-center text-[10px] font-bold text-slate-50">
+                            <span>{hours.toFixed(1)} hrs</span>
+                            <span className="opacity-65">{progressPct.toFixed(0)}%</span>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                r.status === 'completed' ? 'bg-blue-500' : 
+                                r.status === 'half_day' ? 'bg-amber-500' : 'bg-emerald-500'
+                              }`} 
+                              style={{ width: `${progressPct}%` }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs font-medium text-slate-300 italic">—</p>
+                      )}
+                    </td>
+                    <td className="py-2.5 text-center pr-2">
+                      {r.lat ? (
+                        <button
+                          onClick={() => copyCoords(r.lat, r.lng)}
+                          title="Click to copy coordinates"
+                          className="p-1 rounded-lg border border-slate-100 hover:border-[#E05A1E]/30 text-slate-400 hover:text-[#E05A1E] hover:shadow-sm transition-all"
+                        >
+                          <svg className="w-4 h-4 mx-auto" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                          </svg>
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-300">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
-// ── Team Attendance Table
-function TeamAttendanceTable({ records }) {
+// ── Employee Tasks Popup Modal
+function EmployeeTasksModal({ isOpen, onClose, employee, onOpenTask }) {
+  if (!isOpen || !employee) return null;
+
   return (
-    <div className="card h-full flex flex-col">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-base font-semibold text-[#1A1A1A]">Team Status Today</h3>
-        <span className="text-[10px] text-muted uppercase tracking-wider font-bold">Real-time</span>
-      </div>
-      <div className="flex-1 overflow-y-auto scrollbar-thin max-h-[400px]">
-        <table className="w-full text-left">
-          <thead>
-            <tr className="border-b border-[#F0F0F0]">
-              <th className="text-[10px] font-bold text-muted uppercase py-2">Member</th>
-              <th className="text-[10px] font-bold text-muted uppercase py-2">Check-In</th>
-              <th className="text-[10px] font-bold text-muted uppercase py-2">Check-Out</th>
-              <th className="text-[10px] font-bold text-muted uppercase py-2 text-right">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#F5F5F5]">
-            {records.map((r, i) => {
-              // Use server-computed is_late (IST-aware) instead of browser local time
-              const isLate = r.is_late === true;
-              return (
-                <tr key={i} className="group hover:bg-[#FAFAFA] transition-colors">
-                  <td className="py-2.5">
-                    <p className="text-xs font-bold text-[#1A1A1A] group-hover:text-[#E05A1E] transition-colors">{r.name}</p>
-                    <p className="text-[10px] text-muted truncate">{r.role === 'admin' ? 'Admin' : (r.department || 'Staff')}</p>
-                  </td>
-                  <td className="py-2.5">
-                    <p className={`text-xs font-bold ${isLate ? 'text-red-500' : r.checkIn ? 'text-emerald-600' : 'text-muted opacity-40'}`}>
-                      {r.checkIn ? formatTimeIST(r.checkIn) : '—'}
-                    </p>
-                  </td>
-                  <td className="py-2.5">
-                    <p className={`text-xs font-bold ${r.checkOut ? 'text-blue-600' : 'text-muted opacity-40'}`}>
-                      {r.checkOut ? formatTimeIST(r.checkOut) : '—'}
-                    </p>
-                  </td>
-                  <td className="py-2.5 text-right">
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter shadow-sm border ${
-                      r.status === 'working'   ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                      r.status === 'completed' ? 'bg-blue-50 text-blue-600 border-blue-100' :
-                      r.status === 'half_day'  ? 'bg-amber-50 text-amber-600 border-amber-100' :
-                      r.status === 'leave'     ? 'bg-purple-50 text-purple-600 border-purple-100' :
-                      'bg-red-50 text-red-500 border-red-100'
-                    }`}>
-                      {r.status === 'working'   ? 'Present'  :
-                       r.status === 'completed' ? 'Done'     :
-                       r.status === 'half_day'  ? 'Half Day' :
-                       r.status === 'leave'     ? 'On Leave' : 'Absent'}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <div className="mt-4 pt-3 border-t border-[#F0F0F0]">
-        <a href="/attendance" className="text-[11px] font-bold text-[#E05A1E] hover:underline flex items-center gap-1 group">
-          Open Official Logs 
-          <span className="group-hover:translate-x-0.5 transition-transform">→</span>
-        </a>
+    <div 
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in" 
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col w-full max-w-xl max-h-[75vh] overflow-hidden transition-all transform scale-100">
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div>
+            <h2 className="text-lg font-black text-slate-900 tracking-tight">{employee.name === 'Unassigned' ? 'Unassigned Tasks' : `${employee.name}'s Tasks`}</h2>
+            <p className="text-xs text-slate-500 font-medium mt-0.5 uppercase tracking-wide">
+              {employee.department ? `${employee.department} Department` : 'Team Queue'}
+            </p>
+          </div>
+          <button 
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-white border border-slate-100 text-slate-400 hover:text-slate-600 hover:shadow-md transition-all flex items-center justify-center text-sm"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-3 scrollbar-thin">
+          {employee.tasks?.length === 0 ? (
+            <div className="py-16 text-center text-slate-400 italic text-sm">
+              No tasks assigned
+            </div>
+          ) : (
+            employee.tasks?.map((t) => (
+              <div 
+                key={t.id}
+                onClick={() => onOpenTask(t.id)}
+                className="bg-white border border-slate-200 rounded-xl p-4 hover:border-[#E05A1E]/50 hover:shadow-md cursor-pointer transition-all group relative overflow-hidden"
+              >
+                <div className="absolute top-0 left-0 w-1.5 h-full bg-[#E05A1E] opacity-0 group-hover:opacity-100 transition-opacity" />
+                <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-2 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
+                
+                <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
+                  <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
+                    {t.project_name}
+                  </span>
+                  <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
+                    t.status === 'passed' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+                    t.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+                    t.status === 'in_progress' ? 'bg-amber-50 border-amber-200 text-amber-600' :
+                    t.status === 'review' ? 'bg-purple-50 border-purple-200 text-purple-600' :
+                    'bg-slate-100 border-slate-200 text-slate-400'
+                  }`}>
+                    {t.status}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+          <button onClick={onClose} className="btn-secondary py-1.5 px-4 text-xs font-bold uppercase">
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
 function TaskKanbanBoard() {
+  const { user } = useAuth();
   const [kanbanData, setKanbanData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
 
   const fetchKanban = useCallback(async () => {
     try {
@@ -390,41 +576,56 @@ function TaskKanbanBoard() {
     return <div className="card skeleton h-60 w-full rounded" />;
   }
 
+  // Derive admin tasks vs other users
+  const myColumn = kanbanData.find(col => col.user_id === user?.id) || { tasks: [] };
+  const otherColumns = kanbanData.filter(col => col.user_id !== user?.id);
+
+  // Retrieve selected employee data dynamically from kanbanData to stay synchronized
+  const activeEmployee = kanbanData.find(col => 
+    col.user_id === selectedEmployeeId || 
+    (selectedEmployeeId === 'unassigned' && col.user_id === null)
+  );
+
   return (
     <div className="card w-full">
-      <div className="flex items-center gap-2 mb-6">
-        <h3 className="text-lg font-black text-[#1A1A1A]">Task Board (By Employee)</h3>
+      <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+        <div>
+          <h3 className="text-lg font-black text-[#1A1A1A] tracking-tight">Task Command Center</h3>
+          <p className="text-xs text-slate-400 font-medium mt-0.5">Manage tasks assigned to you and monitor employee queues</p>
+        </div>
       </div>
       
-      <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin">
-        {kanbanData.map((col) => (
-          <div key={col.username || col.name} className="flex flex-col min-w-[280px] bg-slate-50 border border-slate-100 rounded-xl p-3 min-h-[400px]">
-            <div className="flex items-start justify-between mb-4 pb-2 border-b border-slate-200/60">
-              <div className="flex flex-col">
-                <span className="text-xs font-black text-slate-700 uppercase tracking-wider">{col.name}</span>
-                {col.department && (
-                  <span className="text-[10px] font-bold text-slate-400 mt-0.5 uppercase tracking-wide">{col.department}</span>
-                )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        {/* Left Column: Admin's Own Tasks */}
+        <div className="flex flex-col bg-slate-50/50 border border-slate-100 rounded-2xl p-4 min-h-[350px]">
+          <div className="flex items-center justify-between mb-3 pb-1.5 border-b border-slate-200/60">
+            <span className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#E05A1E] animate-pulse" />
+              My Tasks
+            </span>
+            <span className="px-2 py-0.5 rounded-full bg-white text-[10px] font-bold text-[#E05A1E] border border-slate-200 shadow-sm">
+              {myColumn.tasks?.length || 0} active
+            </span>
+          </div>
+          
+          <div className="space-y-2 flex-1 overflow-y-auto max-h-[400px] pr-1 scrollbar-thin">
+            {myColumn.tasks?.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center opacity-50">
+                <span className="text-2xl mb-2">🎉</span>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">All caught up!</p>
+                <p className="text-[10px] text-slate-400 mt-1">No tasks assigned to you today.</p>
               </div>
-              <span className="px-1.5 py-0.5 rounded bg-white text-[10px] font-bold text-slate-400 border border-slate-200 h-fit mt-0.5">
-                {col.tasks?.length || 0}
-              </span>
-            </div>
-            
-            <div className="flex-1 space-y-3">
-              {col.tasks?.length === 0 && (
-                <div className="text-center py-12 text-slate-300 italic text-xs">No tasks</div>
-              )}
-              {col.tasks?.map((t) => (
+            ) : (
+              myColumn.tasks?.map((t) => (
                 <div 
                   key={t.id}
                   onClick={() => openTask(t.id)}
-                  className="bg-white border border-slate-200 rounded-xl p-3 hover:border-[#E05A1E]/50 hover:shadow-md cursor-pointer transition-all group relative overflow-hidden"
+                  className="bg-white border border-slate-200 rounded-xl p-3 hover:border-[#E05A1E]/50 hover:shadow-md cursor-pointer transition-all duration-200 group relative overflow-hidden"
                 >
-                  <div className="absolute top-0 left-0 w-1 h-full bg-[#E05A1E] opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="absolute top-0 left-0 w-1.5 h-full bg-[#E05A1E]" />
                   <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-2 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
                   
-                  <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
+                  <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-slate-50 flex-wrap">
                     <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
                       {t.project_name}
                     </span>
@@ -439,11 +640,73 @@ function TaskKanbanBoard() {
                     </span>
                   </div>
                 </div>
-              ))}
-            </div>
+              ))
+            )}
           </div>
-        ))}
+        </div>
+        
+        {/* Right Column: Employee Directory */}
+        <div className="flex flex-col bg-slate-50/50 border border-slate-100 rounded-2xl p-4 min-h-[350px]">
+          <div className="flex items-center justify-between mb-3 pb-1.5 border-b border-slate-200/60">
+            <span className="text-xs font-black text-slate-800 uppercase tracking-widest">
+              Team Directory
+            </span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+              Click to view tasks
+            </span>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto max-h-[400px] pr-1 scrollbar-thin">
+            {otherColumns.map((col) => {
+              const taskCount = col.tasks?.length || 0;
+              const hasTasks = taskCount > 0;
+              const isUnassigned = col.user_id === null;
+              
+              // Initials or emoji for avatar
+              const initials = isUnassigned 
+                ? '👤' 
+                : (col.name ? col.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??');
+              
+              return (
+                <div 
+                  key={col.user_id || 'unassigned'}
+                  onClick={() => setSelectedEmployeeId(col.user_id === null ? 'unassigned' : col.user_id)}
+                  className="bg-white border border-slate-100 rounded-xl p-3 hover:border-[#E05A1E]/30 hover:shadow-md cursor-pointer transition-all duration-200 group flex items-center justify-between relative overflow-hidden"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0 transition-colors ${
+                      hasTasks 
+                        ? 'bg-[rgba(224,90,30,0.08)] text-[#E05A1E] border border-[rgba(224,90,30,0.15)]' 
+                        : 'bg-slate-100 text-slate-400 border border-slate-200'
+                    }`}>
+                      {initials}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-800 truncate group-hover:text-[#E05A1E] transition-colors">{col.name}</p>
+                      <p className="text-[10px] text-slate-400 font-medium truncate uppercase tracking-tight mt-0.5">{col.department || (isUnassigned ? 'Unassigned Tasks' : 'General')}</p>
+                    </div>
+                  </div>
+                  
+                  <div className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tight border ${
+                    hasTasks
+                      ? 'bg-amber-50 text-amber-600 border-amber-200'
+                      : 'bg-slate-50 text-slate-300 border-slate-100'
+                  }`}>
+                    {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
+
+      <EmployeeTasksModal 
+        isOpen={!!selectedEmployeeId}
+        onClose={() => setSelectedEmployeeId(null)}
+        employee={activeEmployee}
+        onOpenTask={openTask}
+      />
 
       <TaskModal 
         taskId={selectedTaskId}
@@ -556,7 +819,7 @@ export default function AdminDashboard() {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -578,8 +841,8 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-          <div className="lg:col-span-1 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+          <div className="lg:col-span-1 space-y-4">
             <AttendanceCard attendance={data?.my_attendance} onAction={handleAttendanceAction} />
             <MyAdminSalaryStats salary={data?.salary_stats} />
           </div>
@@ -590,7 +853,7 @@ export default function AdminDashboard() {
                 {[...Array(4)].map((_, i) => <StatSkeleton key={i} />)}
               </div>
             ) : (
-              <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-4">
                 <AttendanceStats data={data?.attendance} />
                 <ProjectTypeStats counts={data?.type_counts} />
               </div>
@@ -599,7 +862,7 @@ export default function AdminDashboard() {
 
           {/* Financial Summary Section - Now part of the same grid to ensure proper flow */}
           {!loading && (
-            <div className="lg:col-span-3 mt-2">
+            <div className="lg:col-span-3 mt-1">
               <FinancialStats 
                 finances={data?.finances} 
                 onOpenBreakdown={(type, label) => setFinancialModal({ isOpen: true, type, label })}
@@ -621,7 +884,11 @@ export default function AdminDashboard() {
         {isAccounts && !isAdmin ? (
           <AccountsCommandCenter />
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-4">
+            <div className="w-full">
+              <TaskKanbanBoard />
+            </div>
+
             <div className="w-full">
               {loading ? (
                 <div className="card skeleton h-96 rounded" />
@@ -631,28 +898,18 @@ export default function AdminDashboard() {
             </div>
 
             <div className="w-full">
-              <TaskKanbanBoard />
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               {loading ? (
-                <>
-                  <div className="card skeleton h-96 rounded" />
-                  <div className="card skeleton h-96 rounded" />
-                </>
+                <div className="card skeleton h-96 rounded" />
               ) : (
-                <>
-                  <TeamAttendanceTable records={data?.team_attendance || []} />
-                  <TodaysTasks tasks={data?.todays_tasks} />
-                </>
+                <TeamAttendanceTable records={data?.team_attendance || []} />
               )}
             </div>
           </div>
         )}
 
         {/* Quick links — accounts sees financial shortcuts, admin sees project overview */}
-        <div className="grid grid-cols-2 gap-4">
-          {isAccounts && !isAdmin ? (
+        {isAccounts && !isAdmin && (
+          <div className="grid grid-cols-2 gap-4">
             <a href="/admin/invoice"
               className="card flex items-center gap-4 hover:border-blue-400 transition-all group cursor-pointer">
               <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center flex-shrink-0">
@@ -666,33 +923,20 @@ export default function AdminDashboard() {
                 <p className="text-xs text-muted font-medium">Manage &amp; track all invoices</p>
               </div>
             </a>
-          ) : (
-            <a href="/projects"
-              className="card flex items-center gap-4 hover:border-[rgba(224,90,30,0.4)] transition-all group cursor-pointer">
-              <div className="w-10 h-10 rounded-lg bg-[rgba(224,90,30,0.08)] border border-[rgba(224,90,30,0.18)] flex items-center justify-center flex-shrink-0">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E05A1E" strokeWidth="2">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            <a href="/attendance"
+              className="card flex items-center gap-4 hover:border-emerald-400 transition-all group cursor-pointer">
+              <div className="w-10 h-10 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center flex-shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
                 </svg>
               </div>
               <div>
-                <p className="text-sm font-medium text-[#1A1A1A] group-hover:text-[#E05A1E] transition-colors">All Projects</p>
-                <p className="text-xs text-muted font-medium">{data?.total_projects ?? 0} total projects</p>
+                <p className="text-sm font-medium text-[#1A1A1A] group-hover:text-emerald-600 transition-colors">Attendance Log</p>
+                <p className="text-xs text-muted font-medium">View official team records</p>
               </div>
             </a>
-          )}
-          <a href="/attendance"
-            className="card flex items-center gap-4 hover:border-emerald-400 transition-all group cursor-pointer">
-            <div className="w-10 h-10 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center flex-shrink-0">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2">
-                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-              </svg>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-[#1A1A1A] group-hover:text-emerald-600 transition-colors">Attendance Log</p>
-              <p className="text-xs text-muted font-medium">View official team records</p>
-            </div>
-          </a>
-        </div>
+          </div>
+        )}
       </div>
     </AppLayout>
   );

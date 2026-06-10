@@ -124,6 +124,12 @@ router.post('/', authenticate, async (req, res) => {
   } catch (err) {
     await client_db.query('ROLLBACK');
     console.error('Clients POST error:', err);
+    if (err.code === '23505') {
+      if (err.constraint === 'unique_company_name' || err.constraint === 'clients_company_name_key' || (err.message && err.message.includes('company_name'))) {
+        return res.status(400).json({ error: 'A client with this company name already exists.' });
+      }
+      return res.status(400).json({ error: 'Duplicate entry: A record with this information already exists.' });
+    }
     res.status(500).json({ error: 'Server error' });
   } finally {
     client_db.release();
@@ -227,6 +233,12 @@ router.patch('/:id', authenticate, async (req, res) => {
   } catch (err) {
     await client_db.query('ROLLBACK');
     console.error('Clients PATCH error:', err);
+    if (err.code === '23505') {
+      if (err.constraint === 'unique_company_name' || err.constraint === 'clients_company_name_key' || (err.message && err.message.includes('company_name'))) {
+        return res.status(400).json({ error: 'A client with this company name already exists.' });
+      }
+      return res.status(400).json({ error: 'Duplicate entry: A record with this information already exists.' });
+    }
     res.status(500).json({ error: 'Server error' });
   } finally {
     client_db.release();

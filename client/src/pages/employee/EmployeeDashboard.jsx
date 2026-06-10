@@ -16,9 +16,9 @@ import { getPosition, classifyZone, ZONE_CONFIG } from '../../utils/geofence';
 
 // --- New Compact Components ---
 
-function QuickStats({ salary, attendance }) {
+function QuickStats({ salary }) {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {/* Earnings Card */}
       <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Earnings (This Month)</p>
@@ -61,23 +61,6 @@ function QuickStats({ salary, attendance }) {
           {/* Tooltip arrow */}
           <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-900" />
         </div>
-      </div>
-
-      <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-2xl shadow-sm">
-        <p className="text-[10px] font-black text-emerald-700/60 uppercase tracking-widest mb-1">Working Now</p>
-        <span className="text-xl font-black text-emerald-600 font-mono tracking-tight">{attendance?.present ?? 0}</span>
-      </div>
-      <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-2xl shadow-sm">
-        <p className="text-[10px] font-black text-blue-700/60 uppercase tracking-widest mb-1">Done Today</p>
-        <span className="text-xl font-black text-blue-600 font-mono tracking-tight">{attendance?.checked_out ?? 0}</span>
-      </div>
-      <div className="bg-red-50/50 border border-red-100 p-4 rounded-2xl shadow-sm">
-        <p className="text-[10px] font-black text-red-700/60 uppercase tracking-widest mb-1">Team Absent</p>
-        <span className="text-xl font-black text-red-500 font-mono tracking-tight">{attendance?.absent ?? 0}</span>
-      </div>
-      <div className="bg-purple-50/50 border border-purple-100 p-4 rounded-2xl shadow-sm">
-        <p className="text-[10px] font-black text-purple-700/60 uppercase tracking-widest mb-1">Team On Leave</p>
-        <span className="text-xl font-black text-purple-600 font-mono tracking-tight">{attendance?.on_leave ?? 0}</span>
       </div>
     </div>
   );
@@ -298,125 +281,273 @@ function AttendanceStatus({ attendance, onAction }) {
 }
 
 function TeamAttendanceCompact({ records }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  // Helper status counts
+  const totalCount = records.length;
+  const activeCount = records.filter(r => r.status === 'working').length;
+  const completedCount = records.filter(r => r.status === 'completed' || r.status === 'half_day').length;
+  const awayCount = records.filter(r => 
+    ['leave', 'absent', 'away'].includes(r.status) || (!r.checkIn && r.status !== 'leave')
+  ).length;
+
+  // Filter records
+  const filteredRecords = records.filter(r => {
+    // Search filter
+    const matchesSearch = r.name ? r.name.toLowerCase().includes(searchTerm.toLowerCase()) : false;
+    if (!matchesSearch) return false;
+
+    // Status filter
+    if (statusFilter === 'active') return r.status === 'working';
+    if (statusFilter === 'completed') return r.status === 'completed' || r.status === 'half_day';
+    if (statusFilter === 'away') return ['leave', 'absent', 'away'].includes(r.status) || (!r.checkIn && r.status !== 'leave');
+    
+    return true; // 'all'
+  });
+
+  // Sort records: Active working first, then completed/half-day, then away/leave/absent
+  const getSortOrder = (status) => {
+    switch (status) {
+      case 'working': return 1;
+      case 'completed': return 2;
+      case 'half_day': return 3;
+      case 'leave': return 4;
+      case 'absent': return 5;
+      default: return 6;
+    }
+  };
+
+  const sortedRecords = [...filteredRecords].sort((a, b) => getSortOrder(a.status) - getSortOrder(b.status));
+
   return (
-    <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Team Today</h3>
-        <span className="text-[10px] font-bold text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">Live</span>
+    <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex flex-col h-full min-h-[460px]">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Team Today</h3>
+          <p className="text-[10px] text-slate-400 mt-0.5">Real-time attendance list</p>
+        </div>
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          Live
+        </span>
       </div>
-      <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1 custom-scrollbar">
-        {records.map(r => (
-          <div key={r.id} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-none">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center">
-                <span className="text-[10px] font-bold text-slate-400">{r.name.charAt(0)}</span>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[11px] font-bold text-slate-800 truncate">{r.name.split(' ')[0]}</p>
-                <p className="text-[9px] text-slate-400 truncate uppercase">{r.department || 'Staff'}</p>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="flex items-center gap-1.5 justify-end">
-                <div className="text-right">
-                  <p className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-0.5">In</p>
-                  <p className="text-[10px] font-mono font-black text-emerald-600">{r.checkIn ? formatTimeIST(r.checkIn) : '--:--'}</p>
-                </div>
-                <span className="text-slate-200 text-[10px]">·</span>
-                <div className="text-right">
-                  <p className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-0.5">Out</p>
-                  <p className={`text-[10px] font-mono font-black ${r.checkOut ? 'text-blue-600' : 'text-slate-300'}`}>{r.checkOut ? formatTimeIST(r.checkOut) : '--:--'}</p>
-                </div>
-              </div>
-              <span className={`text-[8px] font-bold uppercase ${
-                r.status === 'working'   ? 'text-emerald-500' :
-                r.status === 'completed' ? 'text-blue-500'    :
-                r.status === 'half_day'  ? 'text-amber-500'   :
-                r.status === 'leave'     ? 'text-purple-500'  :
-                'text-slate-300'
-              }`}>
-                {r.status === 'working'   ? 'Present'  :
-                 r.status === 'completed' ? 'Done'     :
-                 r.status === 'half_day'  ? 'Half Day' :
-                 r.status === 'leave'     ? 'On Leave' : 'Away'}
-              </span>
-            </div>
-          </div>
+
+      {/* Search Input */}
+      <div className="relative mb-3">
+        <input
+          type="text"
+          placeholder="Search team member..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-[#E05A1E]/40 focus:bg-white text-slate-700 placeholder-slate-400 font-medium transition-all"
+        />
+        <svg
+          className="absolute left-2.5 top-2.5 text-slate-400"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+        >
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+        {searchTerm && (
+          <button
+            onClick={() => setSearchTerm('')}
+            className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-[11px] font-bold"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex gap-1 mb-4 overflow-x-auto pb-1 scrollbar-none">
+        {[
+          { key: 'all', label: 'All', count: totalCount },
+          { key: 'active', label: 'Active', count: activeCount },
+          { key: 'completed', label: 'Done', count: completedCount },
+          { key: 'away', label: 'Away', count: awayCount },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setStatusFilter(tab.key)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-bold transition-all whitespace-nowrap active:scale-95 ${
+              statusFilter === tab.key
+                ? 'bg-slate-900 border-slate-900 text-white font-black shadow-sm'
+                : 'bg-white hover:bg-slate-50 border-slate-100 text-slate-600'
+            }`}
+          >
+            <span>{tab.label}</span>
+            <span className={`px-1 py-0.2 rounded-md text-[8px] font-mono ${
+              statusFilter === tab.key ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-500'
+            }`}>{tab.count}</span>
+          </button>
         ))}
+      </div>
+
+      {/* Cards List */}
+      <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar flex-1">
+        {sortedRecords.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+            <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center mb-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-slate-300">
+                <circle cx="12" cy="12" r="10" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+            </div>
+            <p className="text-[11px] font-bold text-slate-500">No team members found</p>
+            <p className="text-[9px] text-slate-400 mt-0.5">Try adjusting your filters or search term</p>
+          </div>
+        ) : (
+          sortedRecords.map(r => {
+            const initials = r.name ? r.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??';
+            const displayName = r.name ? r.name.split(' ').slice(0, 2).join(' ') : 'Staff';
+            
+            const statusColors = {
+              working:   { ring: 'border-emerald-500', dot: 'bg-emerald-500', bg: 'bg-emerald-50/50 text-emerald-700' },
+              completed: { ring: 'border-blue-500', dot: 'bg-blue-500', bg: 'bg-blue-50/50 text-blue-700' },
+              half_day:  { ring: 'border-amber-500', dot: 'bg-amber-500', bg: 'bg-amber-50/50 text-amber-700' },
+              leave:     { ring: 'border-purple-500', dot: 'bg-purple-500', bg: 'bg-purple-50/50 text-purple-700' },
+              absent:    { ring: 'border-slate-300', dot: 'bg-slate-300', bg: 'bg-slate-50 text-slate-400' },
+              away:      { ring: 'border-slate-300', dot: 'bg-slate-300', bg: 'bg-slate-50 text-slate-400' },
+            };
+            const statusInfo = statusColors[r.status] || statusColors.away;
+
+            return (
+              <div key={r.id} className="flex items-center justify-between p-2.5 rounded-xl border border-slate-100 hover:border-slate-200 bg-white shadow-sm hover:shadow transition-all duration-200">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {/* Avatar with dynamic status ring & dot */}
+                  <div className="relative flex-shrink-0">
+                    <div className={`w-8 h-8 rounded-full border-2 ${statusInfo.ring} bg-slate-50 flex items-center justify-center font-bold text-[10px] text-slate-600`}>
+                      {initials}
+                    </div>
+                    <span className={`absolute bottom-0 right-0 w-2 h-2 rounded-full border border-white ${statusInfo.dot} ${r.status === 'working' ? 'animate-pulse' : ''}`} />
+                  </div>
+
+                  {/* Employee Info */}
+                  <div className="min-w-0 flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-[11px] font-bold text-slate-800 truncate leading-snug">{displayName}</p>
+                      {r.is_late && (
+                        <span className="inline-flex px-1 py-0.2 bg-amber-50 border border-amber-100 text-amber-600 rounded text-[7px] font-black uppercase tracking-wide">
+                          Late
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[8px] font-black uppercase bg-slate-50 border border-slate-100 text-slate-400 px-1 py-0.2 rounded tracking-wide">
+                        {r.department || 'Staff'}
+                      </span>
+                      {r.hours_worked > 0 && (
+                        <span className="text-[9px] font-bold text-slate-400 font-mono">
+                          • {parseFloat(r.hours_worked).toFixed(1)}h
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Timings */}
+                <div className="flex items-center gap-2">
+                  <div className="text-right">
+                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-0.5">In</p>
+                    <p className="text-[10px] font-mono font-black text-emerald-600">{r.checkIn ? formatTimeIST(r.checkIn) : '--:--'}</p>
+                  </div>
+                  <div className="w-px h-5 bg-slate-100" />
+                  <div className="text-right">
+                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-0.5">Out</p>
+                    <p className={`text-[10px] font-mono font-black ${r.checkOut ? 'text-blue-600' : 'text-slate-300'}`}>{r.checkOut ? formatTimeIST(r.checkOut) : '--:--'}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
 }
 
-function MyTasksTable({ tasks }) {
-  if (!tasks || tasks.length === 0) {
-    return (
-      <div className="bg-white border border-slate-100 rounded-2xl p-8 text-center shadow-sm">
-        <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-300">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-          </svg>
-        </div>
-        <p className="text-sm font-bold text-slate-900">No active tasks</p>
-        <p className="text-xs text-slate-400 mt-1">You're all caught up for now!</p>
-      </div>
-    );
-  }
+// ── Employee Tasks Popup Modal
+function EmployeeTasksModal({ isOpen, onClose, employee, onOpenTask }) {
+  if (!isOpen || !employee) return null;
 
   return (
-    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-50 flex items-center justify-between">
-        <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">My Assigned Tasks</h3>
-        <span className="text-[10px] font-bold text-[#E05A1E] bg-orange-50 px-2 py-0.5 rounded-full border border-orange-100">
-          {tasks.length} Active
-        </span>
-      </div>
-      <div className="overflow-x-auto scrollbar-thin">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-slate-50/50">
-              <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Project</th>
-              <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Task Details</th>
-              <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right">Time</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {tasks.map((task) => (
-              <tr key={task.id} className="group hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => window.location.href=`/projects/${task.project_id}`}>
-                <td className="px-6 py-4">
-                  <p className="text-[11px] font-black text-[#E05A1E] uppercase tracking-tight">{task.project_name}</p>
-                </td>
-                <td className="px-6 py-4 min-w-[200px]">
-                  <p className="text-xs font-bold text-slate-800 line-clamp-1">{task.title}</p>
-                </td>
-                <td className="px-6 py-4">
-                  <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
-                    task.status === 'passed' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' :
-                    task.status === 'done' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' :
-                    task.status === 'in_progress' ? 'bg-amber-50 border-amber-100 text-amber-600' :
-                    'bg-slate-100 border-slate-200 text-slate-500'
-                  }`}>
-                    {task.status}
+    <div 
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in" 
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col w-full max-w-xl max-h-[75vh] overflow-hidden transition-all transform scale-100">
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div>
+            <h2 className="text-lg font-black text-slate-900 tracking-tight">{employee.name === 'Unassigned' ? 'Unassigned Tasks' : `${employee.name}'s Tasks`}</h2>
+            <p className="text-xs text-slate-500 font-medium mt-0.5 uppercase tracking-wide">
+              {employee.department ? `${employee.department} Department` : 'Team Queue'}
+            </p>
+          </div>
+          <button 
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-white border border-slate-100 text-slate-400 hover:text-slate-600 hover:shadow-md transition-all flex items-center justify-center text-sm"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-3 scrollbar-thin">
+          {employee.tasks?.length === 0 ? (
+            <div className="py-16 text-center text-slate-400 italic text-sm">
+              No tasks assigned
+            </div>
+          ) : (
+            employee.tasks?.map((t) => (
+              <div 
+                key={t.id}
+                onClick={() => onOpenTask(t.id)}
+                className="bg-white border border-slate-200 rounded-xl p-4 hover:border-[#E05A1E]/50 hover:shadow-md cursor-pointer transition-all group relative overflow-hidden"
+              >
+                <div className="absolute top-0 left-0 w-1.5 h-full bg-[#E05A1E] opacity-0 group-hover:opacity-100 transition-opacity" />
+                <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-2 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
+                
+                <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
+                  <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
+                    {t.project_name}
                   </span>
-                </td>
-                <td className="px-6 py-4 text-right">
-                  <span className="text-[10px] font-bold text-slate-400">{timeAgo(task.created_at)}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
+                    t.status === 'passed' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+                    t.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+                    t.status === 'in_progress' ? 'bg-amber-50 border-amber-200 text-amber-600' :
+                    t.status === 'review' ? 'bg-purple-50 border-purple-200 text-purple-600' :
+                    'bg-slate-100 border-slate-200 text-slate-400'
+                  }`}>
+                    {t.status}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+          <button onClick={onClose} className="btn-secondary py-1.5 px-4 text-xs font-bold uppercase">
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
 function TaskKanbanBoard() {
+  const { user } = useAuth();
   const [kanbanData, setKanbanData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
 
   const fetchKanban = useCallback(async () => {
     try {
@@ -443,41 +574,56 @@ function TaskKanbanBoard() {
     return <div className="card skeleton h-60 w-full rounded" />;
   }
 
+  // Derive employee's own tasks vs other team members
+  const myColumn = kanbanData.find(col => col.user_id === user?.id) || { tasks: [] };
+  const otherColumns = kanbanData.filter(col => col.user_id !== user?.id);
+
+  // Retrieve selected employee data dynamically from kanbanData to stay synchronized
+  const activeEmployee = kanbanData.find(col => 
+    col.user_id === selectedEmployeeId || 
+    (selectedEmployeeId === 'unassigned' && col.user_id === null)
+  );
+
   return (
     <div className="card w-full">
-      <div className="flex items-center gap-2 mb-6">
-        <h3 className="text-lg font-black text-[#1A1A1A]">Task Board (All Employees)</h3>
+      <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+        <div>
+          <h3 className="text-lg font-black text-[#1A1A1A] tracking-tight">Task Command Center</h3>
+          <p className="text-xs text-slate-400 font-medium mt-0.5">Manage tasks assigned to you and monitor employee queues</p>
+        </div>
       </div>
       
-      <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin">
-        {kanbanData.map((col) => (
-          <div key={col.username || col.name} className="flex flex-col min-w-[280px] bg-slate-50 border border-slate-100 rounded-xl p-3 min-h-[400px]">
-            <div className="flex items-start justify-between mb-4 pb-2 border-b border-slate-200/60">
-              <div className="flex flex-col">
-                <span className="text-xs font-black text-slate-700 uppercase tracking-wider">{col.name}</span>
-                {col.department && (
-                  <span className="text-[10px] font-bold text-slate-400 mt-0.5 uppercase tracking-wide">{col.department}</span>
-                )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        {/* Left Column: Logged In Employee's Tasks */}
+        <div className="flex flex-col bg-slate-50/50 border border-slate-100 rounded-2xl p-4 min-h-[350px]">
+          <div className="flex items-center justify-between mb-3 pb-1.5 border-b border-slate-200/60">
+            <span className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#E05A1E] animate-pulse" />
+              My Tasks
+            </span>
+            <span className="px-2 py-0.5 rounded-full bg-white text-[10px] font-bold text-[#E05A1E] border border-slate-200 shadow-sm">
+              {myColumn.tasks?.length || 0} active
+            </span>
+          </div>
+          
+          <div className="space-y-2 flex-1 overflow-y-auto max-h-[400px] pr-1 scrollbar-thin">
+            {myColumn.tasks?.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center opacity-50">
+                <span className="text-2xl mb-2">🎉</span>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">All caught up!</p>
+                <p className="text-[10px] text-slate-400 mt-1">No tasks assigned to you today.</p>
               </div>
-              <span className="px-1.5 py-0.5 rounded bg-white text-[10px] font-bold text-slate-400 border border-slate-200 h-fit mt-0.5">
-                {col.tasks?.length || 0}
-              </span>
-            </div>
-            
-            <div className="flex-1 space-y-3">
-              {col.tasks?.length === 0 && (
-                <div className="text-center py-12 text-slate-300 italic text-xs">No tasks</div>
-              )}
-              {col.tasks?.map((t) => (
+            ) : (
+              myColumn.tasks?.map((t) => (
                 <div 
                   key={t.id}
                   onClick={() => openTask(t.id)}
-                  className="bg-white border border-slate-200 rounded-xl p-3 hover:border-[#E05A1E]/50 hover:shadow-md cursor-pointer transition-all group relative overflow-hidden"
+                  className="bg-white border border-slate-200 rounded-xl p-3 hover:border-[#E05A1E]/50 hover:shadow-md cursor-pointer transition-all duration-200 group relative overflow-hidden"
                 >
-                  <div className="absolute top-0 left-0 w-1 h-full bg-[#E05A1E] opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="absolute top-0 left-0 w-1.5 h-full bg-[#E05A1E]" />
                   <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-2 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
                   
-                  <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
+                  <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-slate-50 flex-wrap">
                     <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
                       {t.project_name}
                     </span>
@@ -492,11 +638,73 @@ function TaskKanbanBoard() {
                     </span>
                   </div>
                 </div>
-              ))}
-            </div>
+              ))
+            )}
           </div>
-        ))}
+        </div>
+        
+        {/* Right Column: Other Team Directory */}
+        <div className="flex flex-col bg-slate-50/50 border border-slate-100 rounded-2xl p-4 min-h-[350px]">
+          <div className="flex items-center justify-between mb-3 pb-1.5 border-b border-slate-200/60">
+            <span className="text-xs font-black text-slate-800 uppercase tracking-widest">
+              Team Directory
+            </span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+              Click to view tasks
+            </span>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto max-h-[400px] pr-1 scrollbar-thin">
+            {otherColumns.map((col) => {
+              const taskCount = col.tasks?.length || 0;
+              const hasTasks = taskCount > 0;
+              const isUnassigned = col.user_id === null;
+              
+              // Initials or emoji for avatar
+              const initials = isUnassigned 
+                ? '👤' 
+                : (col.name ? col.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??');
+              
+              return (
+                <div 
+                  key={col.user_id || 'unassigned'}
+                  onClick={() => setSelectedEmployeeId(col.user_id === null ? 'unassigned' : col.user_id)}
+                  className="bg-white border border-slate-100 rounded-xl p-3 hover:border-[#E05A1E]/30 hover:shadow-md cursor-pointer transition-all duration-200 group flex items-center justify-between relative overflow-hidden"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0 transition-colors ${
+                      hasTasks 
+                        ? 'bg-[rgba(224,90,30,0.08)] text-[#E05A1E] border border-[rgba(224,90,30,0.15)]' 
+                        : 'bg-slate-100 text-slate-400 border border-slate-200'
+                    }`}>
+                      {initials}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-800 truncate group-hover:text-[#E05A1E] transition-colors">{col.name}</p>
+                      <p className="text-[10px] text-slate-400 font-medium truncate uppercase tracking-tight mt-0.5">{col.department || (isUnassigned ? 'Unassigned Tasks' : 'General')}</p>
+                    </div>
+                  </div>
+                  
+                  <div className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tight border ${
+                    hasTasks
+                      ? 'bg-amber-50 text-amber-600 border-amber-200'
+                      : 'bg-slate-50 text-slate-300 border-slate-100'
+                  }`}>
+                    {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
+
+      <EmployeeTasksModal 
+        isOpen={!!selectedEmployeeId}
+        onClose={() => setSelectedEmployeeId(null)}
+        employee={activeEmployee}
+        onOpenTask={openTask}
+      />
 
       <TaskModal 
         taskId={selectedTaskId}
@@ -580,9 +788,8 @@ export default function EmployeeDashboard() {
           <div className="xl:col-span-3 space-y-6">
             <QuickStats 
               salary={data?.salary_stats} 
-              attendance={data?.team_stats} 
             />
-            <MyTasksTable tasks={data?.tasks} />
+            <TaskKanbanBoard />
           </div>
           <div className="xl:col-span-1">
             <TeamAttendanceCompact records={data?.team_attendance || []} />
@@ -598,15 +805,6 @@ export default function EmployeeDashboard() {
               <span className="text-[10px] px-2 py-0.5 bg-slate-100 text-slate-400 rounded-full font-bold">Live Status</span>
             </h2>
             <KanbanBoard kanban={data?.kanban} />
-          </div>
-
-          <div className="relative">
-            <div className="absolute -left-4 top-0 bottom-0 w-1 bg-slate-900 rounded-full hidden lg:block" />
-            <h2 className="text-xl font-black text-slate-900 tracking-tight mb-4 flex items-center gap-3">
-              Employee Tasks
-              <span className="text-[10px] px-2 py-0.5 bg-slate-100 text-slate-400 rounded-full font-bold">Internal</span>
-            </h2>
-            <TaskKanbanBoard />
           </div>
         </div>
       </div>

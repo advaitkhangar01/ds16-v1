@@ -9,22 +9,14 @@ const pool = new Pool({
   ssl: (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL.includes('localhost') && !process.env.DATABASE_URL.includes('127.0.0.1')) 
     ? { rejectUnauthorized: false } 
     : false,
+  options: "-c timezone=Asia/Kolkata",
 });
 
 pool.on('error', (err) => {
   console.error('Unexpected PostgreSQL error on idle client:', err);
 });
 
-// Set IST timezone for every new connection in the pool.
-// This ensures CURRENT_DATE, NOW(), and timestamps are always
-// interpreted in Asia/Kolkata (IST = UTC+5:30), preventing the
-// UTC vs IST date mismatch that causes attendance bugs between
-// 00:00–05:30 IST (when UTC is still the previous day).
-pool.on('connect', (client) => {
-  client.query("SET timezone = 'Asia/Kolkata'", (err) => {
-    if (err) console.error('[DB] Failed to set timezone to IST:', err.message);
-  });
-});
+// Note: Timezone is set at the connection level via pool options, and role-level fallback is wrapped in a safe catch.
 
 // Test connection on startup
 pool.query('SELECT NOW()', (err) => {
@@ -36,18 +28,30 @@ pool.query('SELECT NOW()', (err) => {
     // Auto-Migration: Ensure schema is correct for user deletion and missing columns
     const runMigrations = async () => {
       try {
+        // Set IST timezone for the database role to ensure CURRENT_DATE, NOW(), and timestamps 
+        // are always interpreted in Asia/Kolkata (IST = UTC+5:30), preventing the 
+        // UTC vs IST date mismatch that causes attendance bugs between 00:00–05:30 IST.
+        try {
+          await pool.query("ALTER ROLE CURRENT_USER SET timezone TO 'Asia/Kolkata'");
+        } catch (tzErr) {
+          console.warn('[DB Warning] Failed to alter role timezone setting (missing permissions):', tzErr.message);
+        }
+
         // 1. Fix Foreign Keys for users(id) to support deletion
-        // Using PostgreSQL compatible query (no referenced_table_name)
+        // Only drops and recreates the foreign key constraint if the delete rule is not already correct
         await pool.query(`
           DO $$ 
           DECLARE 
               r RECORD;
+              should_cascade BOOLEAN;
+              needs_update BOOLEAN;
           BEGIN
               FOR r IN (
                   SELECT 
                       tc.table_name, 
                       tc.constraint_name, 
-                      kcu.column_name
+                      kcu.column_name,
+                      rc.delete_rule
                   FROM 
                       information_schema.table_constraints AS tc 
                       JOIN information_schema.key_column_usage AS kcu
@@ -56,19 +60,26 @@ pool.query('SELECT NOW()', (err) => {
                       JOIN information_schema.constraint_column_usage AS ccu
                         ON ccu.constraint_name = tc.constraint_name
                         AND ccu.table_schema = tc.table_schema
+                      JOIN information_schema.referential_constraints AS rc
+                        ON rc.constraint_name = tc.constraint_name
+                        AND rc.constraint_schema = tc.table_schema
                   WHERE tc.constraint_type = 'FOREIGN KEY' 
                     AND ccu.table_name = 'users'
                     AND ccu.column_name = 'id'
               ) LOOP
-                  EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT ' || quote_ident(r.constraint_name);
+                  should_cascade := (r.column_name = 'user_id' OR r.table_name = 'attendance' OR r.table_name = 'payroll' OR r.table_name = 'leave_requests');
+                  needs_update := (should_cascade AND r.delete_rule <> 'CASCADE') OR (NOT should_cascade AND r.delete_rule <> 'SET NULL');
                   
-                  -- Determine if it should be CASCADE or SET NULL
-                  IF r.column_name = 'user_id' OR r.table_name = 'attendance' OR r.table_name = 'payroll' OR r.table_name = 'leave_requests' THEN
-                      EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' ADD CONSTRAINT ' || quote_ident(r.constraint_name) || 
-                              ' FOREIGN KEY (' || quote_ident(r.column_name) || ') REFERENCES users(id) ON DELETE CASCADE';
-                  ELSE
-                      EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' ADD CONSTRAINT ' || quote_ident(r.constraint_name) || 
-                              ' FOREIGN KEY (' || quote_ident(r.column_name) || ') REFERENCES users(id) ON DELETE SET NULL';
+                  IF needs_update THEN
+                      EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT ' || quote_ident(r.constraint_name);
+                      
+                      IF should_cascade THEN
+                          EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' ADD CONSTRAINT ' || quote_ident(r.constraint_name) || 
+                                  ' FOREIGN KEY (' || quote_ident(r.column_name) || ') REFERENCES users(id) ON DELETE CASCADE';
+                      ELSE
+                          EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' ADD CONSTRAINT ' || quote_ident(r.constraint_name) || 
+                                  ' FOREIGN KEY (' || quote_ident(r.column_name) || ') REFERENCES users(id) ON DELETE SET NULL';
+                      END IF;
                   END IF;
               END LOOP;
           END $$;
@@ -76,7 +87,7 @@ pool.query('SELECT NOW()', (err) => {
 
         // 2. Fix attendance status default value
         await pool.query("ALTER TABLE attendance ALTER COLUMN status SET DEFAULT 'working'");
-        await pool.query("UPDATE attendance SET status = LOWER(status) WHERE status IS NOT NULL");
+        await pool.query("UPDATE attendance SET status = LOWER(status) WHERE status IS NOT NULL AND status <> LOWER(status)");
         
         // 3. Ensure invoices table has due_date and signature_data columns
         await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS due_date DATE");
@@ -213,33 +224,54 @@ pool.query('SELECT NOW()', (err) => {
         await pool.query("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS hours_worked DECIMAL(10, 2) DEFAULT 0");
 
         // 11. Update users check constraint and migrate accounts role to back_office
-        await pool.query(`
-          DO $$ 
-          BEGIN 
-            -- Migrate any existing accounts users to back_office
-            UPDATE users SET role = 'back_office' WHERE role = 'accounts';
-
-            -- Drop old constraint and recreate with new roles list
-            ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
-            ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'design_head', 'design', 'liasoning', 'civil_engineer', 'employee', 'back_office'));
-          END $$;
+        // Only run if the check constraint doesn't exist or doesn't have 'back_office'
+        const { rows: usersRoleCheck } = await pool.query(`
+          SELECT pg_get_constraintdef(c.oid) as def
+          FROM pg_constraint c
+          JOIN pg_class t ON c.conrelid = t.oid
+          WHERE c.conname = 'users_role_check' AND t.relname = 'users'
         `);
+        if (usersRoleCheck.length === 0 || !usersRoleCheck[0].def.includes('back_office')) {
+          await pool.query(`
+            DO $$ 
+            BEGIN 
+              -- Migrate any existing accounts users to back_office
+              UPDATE users SET role = 'back_office' WHERE role = 'accounts';
+
+              -- Drop old constraint and recreate with new roles list
+              ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+              ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'design_head', 'design', 'liasoning', 'civil_engineer', 'employee', 'back_office'));
+            END $$;
+          `);
+        }
 
         // 12. Allow 'passed' status in tasks check constraint
-        await pool.query(`
-          DO $$
-          BEGIN
-            ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
-            ALTER TABLE tasks ADD CONSTRAINT tasks_status_check 
-              CHECK (status IN ('pending', 'in_progress', 'review', 'done', 'passed'));
-          END $$;
+        const { rows: tasksStatusCheck } = await pool.query(`
+          SELECT pg_get_constraintdef(c.oid) as def
+          FROM pg_constraint c
+          JOIN pg_class t ON c.conrelid = t.oid
+          WHERE c.conname = 'tasks_status_check' AND t.relname = 'tasks'
         `);
+        if (tasksStatusCheck.length === 0 || !tasksStatusCheck[0].def.includes('passed')) {
+          await pool.query(`
+            DO $$
+            BEGIN
+              ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
+              ALTER TABLE tasks ADD CONSTRAINT tasks_status_check 
+                CHECK (status IN ('pending', 'in_progress', 'review', 'done', 'passed'));
+            END $$;
+          `);
+        }
 
         // 13. Auto-sync PostgreSQL serial sequences to prevent duplicate key violations (projects_pkey etc.)
+        // Only run if the sequence value is actually behind the max ID to prevent concurrent write issues
         await pool.query(`
           DO $$ 
           DECLARE 
               r RECORD;
+              curr_val bigint;
+              max_val bigint;
+              seq_name_part text;
           BEGIN
               FOR r IN (
                   SELECT 
@@ -255,7 +287,20 @@ pool.query('SELECT NOW()', (err) => {
                     AND tc.table_schema = 'public'
               ) LOOP
                   IF r.seq_name IS NOT NULL THEN
-                      EXECUTE 'SELECT setval(' || quote_literal(r.seq_name) || ', COALESCE((SELECT MAX(' || quote_ident(r.column_name) || ') FROM ' || quote_ident(r.table_name) || '), 1))';
+                      seq_name_part := split_part(r.seq_name, '.', 2);
+                      
+                      -- Fetch last_value from pg_sequences
+                      SELECT last_value INTO curr_val 
+                      FROM pg_sequences 
+                      WHERE schemaname = 'public' AND sequencename = seq_name_part;
+                      
+                      -- Fetch max id from table
+                      EXECUTE 'SELECT COALESCE(MAX(' || quote_ident(r.column_name) || '), 1) FROM ' || quote_ident(r.table_name) INTO max_val;
+                      
+                      -- Only setval if the sequence is behind the max id
+                      IF curr_val IS NULL OR curr_val < max_val THEN
+                          EXECUTE 'SELECT setval(' || quote_literal(r.seq_name) || ', ' || max_val || ')';
+                      END IF;
                   END IF;
               END LOOP;
           END $$;
