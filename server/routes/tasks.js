@@ -107,7 +107,9 @@ router.get('/', authenticate, async (req, res) => {
         tasksQuery += ` WHERE t.status != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE) `;
       }
 
-      if (req.user.role !== 'admin' && req.user.role !== 'design_head' && req.user.role !== 'accounts' && req.user.role !== 'back_office') {
+      const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'accounts' || req.user.role === 'back_office';
+
+      if (!isPrivileged) {
         tasksQuery += ` AND (t.assigned_to = $1 OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $1)) `;
         tasksParams.push(req.user.id);
       }
@@ -119,15 +121,17 @@ router.get('/', authenticate, async (req, res) => {
       // Group by employee
       const kanban = {};
       
-      // Initialize columns for all employees
+      // Initialize columns based on user role privilege level
       employees.forEach(emp => {
-        kanban[emp.id] = {
-          user_id: emp.id,
-          name: emp.name,
-          username: emp.username,
-          department: emp.department,
-          tasks: []
-        };
+        if (isPrivileged || emp.id === req.user.id) {
+          kanban[emp.id] = {
+            user_id: emp.id,
+            name: emp.name,
+            username: emp.username,
+            department: emp.department,
+            tasks: []
+          };
+        }
       });
 
       // Add "Unassigned" column
@@ -152,6 +156,9 @@ router.get('/', authenticate, async (req, res) => {
       let result = Object.values(kanban);
       if (view === 'history' || view === 'scheduled') {
         result = result.filter(col => col.tasks.length > 0);
+      } else if (!isPrivileged) {
+        // For regular employees, keep their own column even if empty, and keep unassigned column if it has tasks
+        result = result.filter(col => col.user_id === req.user.id || col.tasks.length > 0);
       }
 
       return res.json({ kanban: result });

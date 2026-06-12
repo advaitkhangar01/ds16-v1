@@ -584,16 +584,20 @@ function TaskKanbanBoard() {
     (selectedEmployeeId === 'unassigned' && col.user_id === null)
   );
 
+  const isPrivileged = user?.role === 'admin' || user?.role === 'design_head' || user?.role === 'accounts' || user?.role === 'back_office';
+
   return (
     <div className="card w-full">
       <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
         <div>
           <h3 className="text-lg font-black text-[#1A1A1A] tracking-tight">Task Command Center</h3>
-          <p className="text-xs text-slate-400 font-medium mt-0.5">Manage tasks assigned to you and monitor employee queues</p>
+          <p className="text-xs text-slate-400 font-medium mt-0.5">
+            {isPrivileged ? "Manage tasks assigned to you and monitor employee queues" : "Manage tasks assigned to you"}
+          </p>
         </div>
       </div>
       
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      <div className={isPrivileged ? "grid grid-cols-1 lg:grid-cols-2 gap-4 items-start" : "w-full"}>
         {/* Left Column: Logged In Employee's Tasks */}
         <div className="flex flex-col bg-slate-50/50 border border-slate-100 rounded-2xl p-4 min-h-[350px]">
           <div className="flex items-center justify-between mb-3 pb-1.5 border-b border-slate-200/60">
@@ -644,59 +648,61 @@ function TaskKanbanBoard() {
         </div>
         
         {/* Right Column: Other Team Directory */}
-        <div className="flex flex-col bg-slate-50/50 border border-slate-100 rounded-2xl p-4 min-h-[350px]">
-          <div className="flex items-center justify-between mb-3 pb-1.5 border-b border-slate-200/60">
-            <span className="text-xs font-black text-slate-800 uppercase tracking-widest">
-              Team Directory
-            </span>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-              Click to view tasks
-            </span>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto max-h-[400px] pr-1 scrollbar-thin">
-            {otherColumns.map((col) => {
-              const taskCount = col.tasks?.length || 0;
-              const hasTasks = taskCount > 0;
-              const isUnassigned = col.user_id === null;
-              
-              // Initials or emoji for avatar
-              const initials = isUnassigned 
-                ? '👤' 
-                : (col.name ? col.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??');
-              
-              return (
-                <div 
-                  key={col.user_id || 'unassigned'}
-                  onClick={() => setSelectedEmployeeId(col.user_id === null ? 'unassigned' : col.user_id)}
-                  className="bg-white border border-slate-100 rounded-xl p-3 hover:border-[#E05A1E]/30 hover:shadow-md cursor-pointer transition-all duration-200 group flex items-center justify-between relative overflow-hidden"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0 transition-colors ${
-                      hasTasks 
-                        ? 'bg-[rgba(224,90,30,0.08)] text-[#E05A1E] border border-[rgba(224,90,30,0.15)]' 
-                        : 'bg-slate-100 text-slate-400 border border-slate-200'
+        {isPrivileged && (
+          <div className="flex flex-col bg-slate-50/50 border border-slate-100 rounded-2xl p-4 min-h-[350px]">
+            <div className="flex items-center justify-between mb-3 pb-1.5 border-b border-slate-200/60">
+              <span className="text-xs font-black text-slate-800 uppercase tracking-widest">
+                Team Directory
+              </span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                Click to view tasks
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto max-h-[400px] pr-1 scrollbar-thin">
+              {otherColumns.map((col) => {
+                const taskCount = col.tasks?.length || 0;
+                const hasTasks = taskCount > 0;
+                const isUnassigned = col.user_id === null;
+                
+                // Initials or emoji for avatar
+                const initials = isUnassigned 
+                  ? '👤' 
+                  : (col.name ? col.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??');
+                
+                return (
+                  <div 
+                    key={col.user_id || 'unassigned'}
+                    onClick={() => setSelectedEmployeeId(col.user_id === null ? 'unassigned' : col.user_id)}
+                    className="bg-white border border-slate-100 rounded-xl p-3 hover:border-[#E05A1E]/30 hover:shadow-md cursor-pointer transition-all duration-200 group flex items-center justify-between relative overflow-hidden"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0 transition-colors ${
+                        hasTasks 
+                          ? 'bg-[rgba(224,90,30,0.08)] text-[#E05A1E] border border-[rgba(224,90,30,0.15)]' 
+                          : 'bg-slate-100 text-slate-400 border border-slate-200'
+                      }`}>
+                        {initials}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-800 truncate group-hover:text-[#E05A1E] transition-colors">{col.name}</p>
+                        <p className="text-[10px] text-slate-400 font-medium truncate uppercase tracking-tight mt-0.5">{col.department || (isUnassigned ? 'Unassigned Tasks' : 'General')}</p>
+                      </div>
+                    </div>
+                    
+                    <div className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tight border ${
+                      hasTasks
+                        ? 'bg-amber-50 text-amber-600 border-amber-200'
+                        : 'bg-slate-50 text-slate-300 border-slate-100'
                     }`}>
-                      {initials}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-800 truncate group-hover:text-[#E05A1E] transition-colors">{col.name}</p>
-                      <p className="text-[10px] text-slate-400 font-medium truncate uppercase tracking-tight mt-0.5">{col.department || (isUnassigned ? 'Unassigned Tasks' : 'General')}</p>
+                      {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
                     </div>
                   </div>
-                  
-                  <div className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tight border ${
-                    hasTasks
-                      ? 'bg-amber-50 text-amber-600 border-amber-200'
-                      : 'bg-slate-50 text-slate-300 border-slate-100'
-                  }`}>
-                    {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <EmployeeTasksModal 

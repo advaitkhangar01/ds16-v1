@@ -172,7 +172,13 @@ export default function TasksPage() {
           <div className="card w-full">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
               <h3 className="text-lg font-black text-[#1A1A1A]">
-                {viewMode === 'history' ? 'Task History (Passed)' : viewMode === 'scheduled' ? 'Scheduled Tasks (Upcoming)' : 'Task Board (All Employees)'}
+                {viewMode === 'history' 
+                  ? 'Task History (Passed)' 
+                  : viewMode === 'scheduled' 
+                    ? 'Scheduled Tasks (Upcoming)' 
+                    : (user?.role === 'admin' || user?.role === 'design_head' || user?.role === 'accounts' || user?.role === 'back_office')
+                      ? 'Task Board (All Employees)' 
+                      : 'My Task Board'}
               </h3>
               
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 self-start">
