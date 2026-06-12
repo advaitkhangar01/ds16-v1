@@ -120,7 +120,7 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white/90 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-100 flex flex-col w-full max-w-2xl h-[80vh] overflow-hidden transition-all transform scale-100">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col w-full max-w-2xl h-[80vh] overflow-hidden transition-all transform scale-100">
         
         {/* Header */}
         {loading ? (
