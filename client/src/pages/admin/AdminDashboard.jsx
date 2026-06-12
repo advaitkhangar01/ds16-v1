@@ -476,11 +476,22 @@ function TeamAttendanceTable({ records }) {
 
 // ── Employee Tasks Popup Modal
 function EmployeeTasksModal({ isOpen, onClose, employee, onOpenTask }) {
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
+
   if (!isOpen || !employee) return null;
 
   return (
     <div 
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in" 
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/80 animate-fade-in" 
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col w-full max-w-xl max-h-[75vh] overflow-hidden transition-all transform scale-100">
