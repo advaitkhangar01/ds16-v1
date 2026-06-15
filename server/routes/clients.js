@@ -8,11 +8,9 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 // GET /api/clients - Get all clients with their primary contact and project count
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { page = 1, limit = 50 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    const limitInt = parseInt(limit);
+    const { page, limit } = req.query;
 
-    const { rows } = await pool.query(`
+    let query = `
       SELECT 
         c.*,
         cc.name as primary_contact_name,
@@ -22,9 +20,23 @@ router.get('/', authenticate, async (req, res) => {
       FROM clients c
       LEFT JOIN client_contacts cc ON cc.client_id = c.id AND cc.is_primary = TRUE
       ORDER BY c.name
-      LIMIT $1 OFFSET $2
-    `, [limitInt, offset]);
-    res.json({ clients: rows, page: parseInt(page), limit: limitInt });
+    `;
+    const params = [];
+
+    if (limit) {
+      const pageInt = parseInt(page) || 1;
+      const limitInt = parseInt(limit);
+      const offset = (pageInt - 1) * limitInt;
+      query += ` LIMIT $1 OFFSET $2`;
+      params.push(limitInt, offset);
+    }
+
+    const { rows } = await pool.query(query, params);
+    res.json({ 
+      clients: rows, 
+      page: page ? parseInt(page) : 1, 
+      limit: limit ? parseInt(limit) : rows.length 
+    });
   } catch (err) {
     console.error('Clients GET error:', err);
     res.status(500).json({ error: 'Server error' });

@@ -66,9 +66,7 @@ router.get('/', authenticate, async (req, res) => {
   try {
     let query, params;
 
-    const { page = 1, limit = 50 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    const limitInt = parseInt(limit);
+    const { page, limit } = req.query;
 
     // Admins, accounts, and back office see all projects; others only see assigned projects
     if (req.user.role === 'admin' || req.user.role === 'accounts' || req.user.role === 'back_office') {
@@ -83,9 +81,15 @@ router.get('/', authenticate, async (req, res) => {
         FROM projects p
         LEFT JOIN users u ON u.id = p.created_by
         LEFT JOIN clients c ON c.id = p.client_id
-        ORDER BY p.created_at DESC
-        LIMIT $1 OFFSET $2`;
-      params = [limitInt, offset];
+        ORDER BY p.created_at DESC`;
+      params = [];
+      if (limit) {
+        const pageInt = parseInt(page) || 1;
+        const limitInt = parseInt(limit);
+        const offset = (pageInt - 1) * limitInt;
+        query += ` LIMIT $1 OFFSET $2`;
+        params.push(limitInt, offset);
+      }
     } else {
       query = `
         SELECT p.*, 
@@ -100,13 +104,23 @@ router.get('/', authenticate, async (req, res) => {
         LEFT JOIN users u ON u.id = p.created_by
         LEFT JOIN clients c ON c.id = p.client_id
         WHERE pa.user_id = $1
-        ORDER BY p.created_at DESC
-        LIMIT $2 OFFSET $3`;
-      params = [req.user.id, limitInt, offset];
+        ORDER BY p.created_at DESC`;
+      params = [req.user.id];
+      if (limit) {
+        const pageInt = parseInt(page) || 1;
+        const limitInt = parseInt(limit);
+        const offset = (pageInt - 1) * limitInt;
+        query += ` LIMIT $2 OFFSET $3`;
+        params.push(limitInt, offset);
+      }
     }
 
     const { rows } = await pool.query(query, params);
-    res.json({ projects: rows, page: parseInt(page), limit: limitInt });
+    res.json({ 
+      projects: rows, 
+      page: page ? parseInt(page) : 1, 
+      limit: limit ? parseInt(limit) : rows.length 
+    });
 
   } catch (err) {
     console.error('Get projects error:', err);

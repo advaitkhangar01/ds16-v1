@@ -9,9 +9,7 @@ router.get('/', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Design department is not permitted to view invoices' });
   }
   try {
-    const { project_id, client_id, start_date, end_date, page = 1, limit = 50 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    const limitInt = parseInt(limit);
+    const { project_id, client_id, start_date, end_date, page, limit } = req.query;
 
     // 1. Fetch actual invoices matching filters
     let query = `
@@ -150,9 +148,20 @@ router.get('/', authenticate, async (req, res) => {
     const allInvoices = [...formattedInvoices, ...virtualInvoices];
     allInvoices.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    const paginatedInvoices = allInvoices.slice(offset, offset + limitInt);
+    let paginatedInvoices = allInvoices;
+    if (limit) {
+      const pageInt = parseInt(page) || 1;
+      const limitInt = parseInt(limit);
+      const offset = (pageInt - 1) * limitInt;
+      paginatedInvoices = allInvoices.slice(offset, offset + limitInt);
+    }
 
-    res.json({ invoices: paginatedInvoices, page: parseInt(page), limit: limitInt, totalCount: allInvoices.length });
+    res.json({ 
+      invoices: paginatedInvoices, 
+      page: page ? parseInt(page) : 1, 
+      limit: limit ? parseInt(limit) : allInvoices.length, 
+      totalCount: allInvoices.length 
+    });
   } catch (err) {
     console.error('Get invoices error:', err);
     res.status(500).json({ error: 'Server error' });
