@@ -74,7 +74,7 @@ router.get('/', authenticate, async (req, res) => {
   try {
     const { view, project_id, status } = req.query;
 
-    if (view === 'kanban' || view === 'history') {
+    if (view === 'kanban' || view === 'history' || view === 'scheduled') {
       // Group by assigned_to
       // We fetch all employees
       const { rows: employees } = await pool.query(`

@@ -1,7 +1,7 @@
 // client/src/pages/employee/EmployeeDashboard.jsx
 // Employee dashboard: check-in/out, my tasks, my projects
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import AppLayout from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -559,6 +559,7 @@ function TaskKanbanBoard() {
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
+  const prevEmployeeIdRef = useRef(null);
 
   const fetchKanban = useCallback(async () => {
     try {
@@ -577,6 +578,8 @@ function TaskKanbanBoard() {
   }, [fetchKanban]);
 
   const openTask = (taskId) => {
+    prevEmployeeIdRef.current = selectedEmployeeId;
+    setSelectedEmployeeId(null);
     setSelectedTaskId(taskId);
     setIsModalOpen(true);
   };
@@ -726,7 +729,14 @@ function TaskKanbanBoard() {
       <TaskModal 
         taskId={selectedTaskId}
         isOpen={isModalOpen}
-        onClose={() => { setIsModalOpen(false); fetchKanban(); }}
+        onClose={() => {
+          setIsModalOpen(false);
+          fetchKanban();
+          if (prevEmployeeIdRef.current !== null) {
+            setSelectedEmployeeId(prevEmployeeIdRef.current);
+            prevEmployeeIdRef.current = null;
+          }
+        }}
       />
     </div>
   );
