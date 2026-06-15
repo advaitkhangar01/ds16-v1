@@ -1934,24 +1934,24 @@ export default function AccountingPage() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-50/30">
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">S.No.</th>
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Invoice No</th>
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Client</th>
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Project</th>
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date / Due Date</th>
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Principal</th>
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">GST</th>
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Total Amount</th>
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Received</th>
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Pending</th>
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Status</th>
-                    <th className="px-6 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">S.No.</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Invoice No</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Client</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Project</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date / Due Date</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Principal</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">GST</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Total Amount</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Received</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Pending</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Status</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {loadingInvoices ? (
                     <tr>
-                      <td colSpan="12" className="px-6 py-12 text-center">
+                      <td colSpan="12" className="px-2 py-12 text-center">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <div className="w-8 h-8 border-2 border-[#E05A1E] border-t-transparent rounded-full animate-spin" />
                           <p className="text-gray-400 text-xs italic">Loading invoice history...</p>
@@ -1993,71 +1993,71 @@ export default function AccountingPage() {
 
                       return (
                         <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
-                          <td className="px-6 py-4 text-xs font-semibold text-gray-500">
+                          <td className="px-2 py-2 text-xs font-semibold text-gray-500">
                             {index + 1}
                           </td>
-                          <td className="px-6 py-4">
-                            <span className="font-mono font-bold text-sm text-[#E05A1E]">
+                          <td className="px-2 py-2">
+                            <span className="font-mono font-bold text-xs text-[#E05A1E]">
                               {inv.invoice_no}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-xs font-semibold text-gray-700">
+                          <td className="px-2 py-2 text-xs font-semibold text-gray-700">
                             {inv.client_name_full || inv.client_name || '-'}
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-2 py-2">
                             {inv.project_name ? (
-                              <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-[10px] font-black uppercase tracking-wider rounded">
+                              <span className="px-1.5 py-0.5 bg-gray-100 text-gray-700 text-[9px] font-black uppercase tracking-wider rounded">
                                  {inv.project_name}
                               </span>
                             ) : (
                               <span className="text-gray-400 text-xs italic">No Project</span>
                             )}
                           </td>
-                          <td className="px-6 py-4 text-xs text-gray-500">
+                          <td className="px-2 py-2 text-xs text-gray-500 whitespace-nowrap">
                             <div className="flex flex-col gap-0.5">
                               <span>{inv.is_payment_stage ? 'Initiated' : 'Issued'}: {new Date(inv.date).toLocaleDateString()}</span>
                               {!inv.is_payment_stage && inv.due_date && <span className="text-[10px] text-gray-400">Due: {new Date(inv.due_date).toLocaleDateString()}</span>}
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-right font-mono text-xs font-semibold text-gray-600">
+                          <td className="px-2 py-2 text-right font-mono text-xs font-semibold text-gray-600 whitespace-nowrap">
                             ₹{principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-6 py-4 text-right font-mono text-xs font-semibold text-gray-500">
+                          <td className="px-2 py-2 text-right font-mono text-xs font-semibold text-gray-500 whitespace-nowrap">
                             ₹{gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-6 py-4 text-right font-mono text-sm font-black text-gray-900">
+                          <td className="px-2 py-2 text-right font-mono text-xs font-bold text-gray-900 whitespace-nowrap">
                             ₹{amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-6 py-4 text-right font-mono text-xs font-bold text-emerald-600">
+                          <td className="px-2 py-2 text-right font-mono text-xs font-bold text-emerald-600 whitespace-nowrap">
                             ₹{parseFloat(inv.received_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           </td>
-                          <td className="px-6 py-4 text-right font-mono text-xs font-bold text-orange-600">
+                          <td className="px-2 py-2 text-right font-mono text-xs font-bold text-orange-600 whitespace-nowrap">
                             ₹{parseFloat(inv.pending_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className={`inline-block px-2.5 py-0.5 border rounded-full text-[10px] font-black uppercase tracking-wider ${statusColor}`}>
+                        <td className="px-2 py-2 text-center whitespace-nowrap">
+                          <span className={`inline-block px-1.5 py-0.5 border rounded-full text-[9px] font-bold uppercase tracking-wider ${statusColor}`}>
                             {inv.is_payment_stage ? 'Payment Stage' : inv.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center justify-end gap-2">
+                        <td className="px-2 py-2">
+                          <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                             {inv.is_payment_stage ? (
                               ['bill generated', 'bill delivered', 'paid'].includes(inv.stage_status?.toLowerCase()) ? (
                                 <button
                                   disabled
-                                  className="px-2.5 py-1 bg-gray-100 text-gray-400 border border-gray-200 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 cursor-not-allowed"
+                                  className="px-1.5 py-1 bg-gray-100 text-gray-400 border border-gray-200 rounded-lg text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 cursor-not-allowed"
                                   title="Bill already generated for this payment stage"
                                 >
-                                  <Lock size={12} />
+                                  <Lock size={10} />
                                   Billed
                                 </button>
                               ) : (
                                 <button
                                   onClick={() => handleGenerateBillFromStage(inv)}
-                                  className="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-primary border border-orange-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                  className="px-1.5 py-1 bg-orange-50 hover:bg-orange-100 text-primary border border-orange-200 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1"
                                   title="Generate Invoice from this Payment Stage"
                                 >
-                                  <Plus size={12} />
+                                  <Plus size={10} />
                                   Bill Stage
                                 </button>
                               )
@@ -2070,37 +2070,37 @@ export default function AccountingPage() {
                                         setSelectedInvoiceForPayment(inv);
                                         setShowPaymentModal(true);
                                       }}
-                                      className="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                      className="px-1.5 py-1 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1"
                                       title="Record Partial Payment"
                                     >
-                                      <CreditCard size={12} />
-                                      Record Payment
+                                      <CreditCard size={10} />
+                                      Pay
                                     </button>
                                     <button
                                       onClick={() => handleMarkPaid(inv.id)}
-                                      className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                      className="px-1.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1"
                                       title="Mark as Paid"
                                     >
-                                      <CheckCircle2 size={12} />
-                                      Mark Paid
+                                      <CheckCircle2 size={10} />
+                                      Paid
                                     </button>
                                   </>
                                 )}
                                 <a
                                   href={`/admin/invoice?invoice_id=${inv.id}`}
-                                  className="px-2.5 py-1 bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                  className="px-1.5 py-1 bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1"
                                   title="View / Print Invoice"
                                 >
-                                  <FileText size={12} />
+                                  <FileText size={10} />
                                   View
                                 </a>
                                 {isAdmin && (
                                   <button
                                     onClick={() => handleDeleteInvoice(inv.id, inv.invoice_no)}
-                                    className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                    className="px-1.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1"
                                     title="Delete Invoice"
                                   >
-                                    <Trash2 size={12} />
+                                    <Trash2 size={10} />
                                     Delete
                                   </button>
                                 )}
@@ -2113,7 +2113,7 @@ export default function AccountingPage() {
                   })}
                   {!loadingInvoices && filteredInvoicesList.length === 0 && (
                     <tr>
-                      <td colSpan="12" className="px-6 py-12 text-center text-gray-400 italic text-sm">
+                      <td colSpan="12" className="px-2 py-12 text-center text-gray-400 italic text-sm">
                         {invoiceFilter === 'received' ? 'No received (fully paid) invoices found.' : 
                          invoiceFilter === 'pending' ? 'No pending invoices found.' : 
                          'No invoice history available. Use the Invoice Editor to create new invoices.'}
@@ -2124,24 +2124,24 @@ export default function AccountingPage() {
                 {filteredInvoicesList.length > 0 && (
                   <tfoot className="bg-gray-50/85 font-bold border-t-2 border-gray-200">
                     <tr className="border-b border-gray-100/50">
-                      <td className="px-6 py-3 text-xs font-bold text-gray-500 uppercase" colSpan={5}>
+                      <td className="px-2 py-2 text-xs font-bold text-gray-500 uppercase" colSpan={5}>
                         <div className="flex items-center gap-4">
                           <span>Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-3 text-right font-mono text-xs font-bold text-gray-700">
+                      <td className="px-2 py-2 text-right font-mono text-xs font-bold text-gray-700">
                         ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-6 py-3 text-right font-mono text-xs font-bold text-gray-600">
+                      <td className="px-2 py-2 text-right font-mono text-xs font-bold text-gray-600">
                         ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-6 py-3 text-right font-mono text-sm font-black text-[#E05A1E]">
+                      <td className="px-2 py-2 text-right font-mono text-xs font-bold text-[#E05A1E]">
                         ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-6 py-3 text-right font-mono text-xs font-bold text-emerald-600">
+                      <td className="px-2 py-2 text-right font-mono text-xs font-bold text-emerald-600">
                         ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-6 py-3 text-right font-mono text-xs font-bold text-orange-600">
+                      <td className="px-2 py-2 text-right font-mono text-xs font-bold text-orange-600">
                         ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td colSpan={2}></td>

@@ -245,22 +245,22 @@ export default function InvoiceHistoryTab({ projectId, project }) {
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="bg-gray-50 border-b border-[#F0F0F0] text-muted font-bold uppercase tracking-tighter">
-              <th className="px-4 py-3">S.No.</th>
-              <th className="px-4 py-3">Date</th>
-              <th className="px-4 py-3">Invoice #</th>
-              <th className="px-4 py-3 text-right">Principal</th>
-              <th className="px-4 py-3 text-right">GST</th>
-              <th className="px-4 py-3 text-right">Total Amount</th>
-              <th className="px-4 py-3">Received</th>
-              <th className="px-4 py-3">Pending</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+              <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">S.No.</th>
+              <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date</th>
+              <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Invoice #</th>
+              <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Principal</th>
+              <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">GST</th>
+              <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Total Amount</th>
+              <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Received</th>
+              <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Pending</th>
+              <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
+              <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#F0F0F0]">
             {filteredInvoicesList.length === 0 ? (
               <tr>
-                <td colSpan="10" className="px-4 py-10 text-center text-muted italic">
+                <td colSpan="10" className="px-2 py-10 text-center text-muted italic">
                   {invoiceFilter === 'received' ? 'No received (fully paid) invoices found for this project.' :
                    invoiceFilter === 'pending' ? 'No pending invoices found for this project.' :
                    'No invoices found for this project.'}
@@ -292,32 +292,32 @@ export default function InvoiceHistoryTab({ projectId, project }) {
 
                   return (
                       <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-4 py-4 text-gray-500 font-medium">
+                        <td className="px-2 py-2 text-gray-500 font-medium">
                           {index + 1}
                         </td>
-                        <td className="px-4 py-4 text-[#1A1A1A] font-medium">
+                        <td className="px-2 py-2 text-[#1A1A1A] font-medium whitespace-nowrap">
                           {new Date(inv.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </td>
-                        <td className="px-4 py-4 font-mono text-[#E05A1E] font-bold">
+                        <td className="px-2 py-2 font-mono text-[#E05A1E] font-bold text-xs whitespace-nowrap">
                           {inv.invoice_no}
                         </td>
-                        <td className="px-4 py-4 text-[#1A1A1A] text-right font-mono font-semibold">
+                        <td className="px-2 py-2 text-[#1A1A1A] text-right font-mono font-semibold whitespace-nowrap">
                           ₹{principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="px-4 py-4 text-gray-500 text-right font-mono font-semibold">
+                        <td className="px-2 py-2 text-gray-500 text-right font-mono font-semibold whitespace-nowrap">
                           ₹{gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="px-4 py-4 text-[#1A1A1A] font-bold text-right font-mono">
+                        <td className="px-2 py-2 text-[#1A1A1A] font-bold text-right font-mono text-xs whitespace-nowrap">
                           ₹{amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="px-4 py-4 text-emerald-600 font-mono font-bold">
+                        <td className="px-2 py-2 text-emerald-600 font-mono font-bold whitespace-nowrap">
                           ₹{parseFloat(inv.received_amount || 0).toLocaleString('en-IN')}
                         </td>
-                        <td className="px-4 py-4 text-orange-600 font-mono font-bold">
+                        <td className="px-2 py-2 text-orange-600 font-mono font-bold whitespace-nowrap">
                           ₹{parseFloat(inv.pending_amount || 0).toLocaleString('en-IN')}
                         </td>
-                  <td className="px-4 py-4">
-                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest border ${
                       inv.is_payment_stage ? 'bg-amber-50 text-amber-600 border-amber-100' :
                       inv.status === 'paid' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
                       inv.status === 'sent' ? 'bg-blue-50 text-blue-700 border-blue-100' :
@@ -327,12 +327,12 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                       {inv.is_payment_stage ? 'Payment Stage' : inv.status}
                     </span>
                   </td>
-                  <td className="px-4 py-4 text-right">
+                  <td className="px-2 py-2 text-right">
                     {inv.is_payment_stage ? (
                       ['bill generated', 'bill delivered', 'paid'].includes(inv.stage_status?.toLowerCase()) ? (
                         <button
                           disabled
-                          className="bg-gray-100 text-gray-400 border border-gray-200 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest cursor-not-allowed flex items-center justify-center gap-1 ml-auto"
+                          className="bg-gray-100 text-gray-400 border border-gray-200 px-1.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest cursor-not-allowed flex items-center justify-center gap-1 ml-auto whitespace-nowrap"
                           title="Bill already generated for this payment stage"
                         >
                           <Lock size={10} />
@@ -341,13 +341,13 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                       ) : (
                         <button
                           onClick={() => handleGenerateBillFromStage(inv)}
-                          className="bg-[#E05A1E] text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-[#b8420e] transition-all"
+                          className="bg-[#E05A1E] text-white px-1.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-[#b8420e] transition-all whitespace-nowrap"
                         >
                           + Bill Stage
                         </button>
                       )
                     ) : (
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                         {inv.status !== 'paid' && (
                           <>
                             <button
@@ -355,7 +355,7 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                                 setSelectedInvoiceForPayment(inv);
                                 setShowPaymentModal(true);
                               }}
-                              className="bg-orange-50 hover:bg-orange-100 text-[#E05A1E] border border-orange-200 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-1"
+                              className="bg-orange-50 hover:bg-orange-100 text-[#E05A1E] border border-orange-200 px-1.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all flex items-center gap-1"
                               title="Record Partial Payment"
                             >
                               <CreditCard size={10} />
@@ -363,17 +363,17 @@ export default function InvoiceHistoryTab({ projectId, project }) {
                             </button>
                             <button
                               onClick={() => handleMarkPaid(inv.id)}
-                              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-1"
+                              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-1.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all flex items-center gap-1"
                               title="Mark as Paid"
                             >
                               <CheckCircle2 size={10} />
-                              Mark Paid
+                              Paid
                             </button>
                           </>
                         )}
                         <button 
                           onClick={() => handleViewInvoice(inv)}
-                          className="bg-[#1A1A1A] text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-[#E05A1E] transition-all flex items-center gap-1"
+                          className="bg-[#1A1A1A] text-white px-1.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest hover:bg-[#E05A1E] transition-all flex items-center gap-1"
                         >
                           <FileText size={10} />
                           View
@@ -388,22 +388,22 @@ export default function InvoiceHistoryTab({ projectId, project }) {
           {filteredInvoicesList.length > 0 && (
             <tfoot className="bg-gray-50 font-bold border-t border-[#F0F0F0] text-[10px]">
               <tr className="border-b border-[#F0F0F0]/50">
-                <td className="px-4 py-2 text-gray-500 uppercase font-bold" colSpan={3}>
+                <td className="px-2 py-2 text-gray-500 uppercase font-bold" colSpan={3}>
                   Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}
                 </td>
-                <td className="px-4 py-2 text-right font-mono font-semibold text-gray-700">
+                <td className="px-2 py-2 text-right font-mono font-semibold text-gray-700">
                   ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
-                <td className="px-4 py-2 text-right font-mono font-semibold text-gray-500">
+                <td className="px-2 py-2 text-right font-mono font-semibold text-gray-500">
                   ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
-                <td className="px-4 py-2 text-right font-mono text-[#E05A1E] font-bold">
+                <td className="px-2 py-2 text-right font-mono text-[#E05A1E] font-bold">
                   ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
-                <td className="px-4 py-2 text-emerald-600 font-mono font-bold">
+                <td className="px-2 py-2 text-emerald-600 font-mono font-bold">
                   ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </td>
-                <td className="px-4 py-2 text-orange-600 font-mono font-bold">
+                <td className="px-2 py-2 text-orange-600 font-mono font-bold">
                   ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </td>
                 <td colSpan={2}></td>
