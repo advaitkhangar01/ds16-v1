@@ -475,95 +475,13 @@ function TeamAttendanceTable({ records }) {
   );
 }
 
-// ── Employee Tasks Popup Modal
-function EmployeeTasksModal({ isOpen, onClose, employee, onOpenTask }) {
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
-
-  if (!isOpen || !employee) return null;
-
-  return createPortal(
-    <div 
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/80 animate-fade-in" 
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col w-full max-w-xl max-h-[75vh] overflow-hidden transition-all transform scale-100">
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <div>
-            <h2 className="text-lg font-black text-slate-900 tracking-tight">{employee.name === 'Unassigned' ? 'Unassigned Tasks' : `${employee.name}'s Tasks`}</h2>
-            <p className="text-xs text-slate-500 font-medium mt-0.5 uppercase tracking-wide">
-              {employee.department ? `${employee.department} Department` : 'Team Queue'}
-            </p>
-          </div>
-          <button 
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white border border-slate-100 text-slate-400 hover:text-slate-600 hover:shadow-md transition-all flex items-center justify-center text-sm"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6 space-y-3 scrollbar-thin">
-          {employee.tasks?.length === 0 ? (
-            <div className="py-16 text-center text-slate-400 italic text-sm">
-              No tasks assigned
-            </div>
-          ) : (
-            employee.tasks?.map((t) => (
-              <div 
-                key={t.id}
-                onClick={() => onOpenTask(t.id)}
-                className="bg-white border border-slate-200 rounded-xl p-4 hover:border-[#E05A1E]/50 hover:shadow-md cursor-pointer transition-all group relative overflow-hidden"
-              >
-                <div className="absolute top-0 left-0 w-1.5 h-full bg-[#E05A1E] opacity-0 group-hover:opacity-100 transition-opacity" />
-                <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-2 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
-                
-                <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
-                  <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
-                    {t.project_name}
-                  </span>
-                  <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
-                    t.status === 'passed' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
-                    t.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
-                    t.status === 'in_progress' ? 'bg-amber-50 border-amber-200 text-amber-600' :
-                    t.status === 'review' ? 'bg-purple-50 border-purple-200 text-purple-600' :
-                    'bg-slate-100 border-slate-200 text-slate-400'
-                  }`}>
-                    {t.status}
-                  </span>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-          <button onClick={onClose} className="btn-secondary py-1.5 px-4 text-xs font-bold uppercase">
-            Close
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
+// ── Task Kanban Board (Horizontal Scrolling Columns)
 function TaskKanbanBoard() {
   const { user } = useAuth();
   const [kanbanData, setKanbanData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
-  const prevEmployeeIdRef = useRef(null);
 
   const fetchKanban = useCallback(async () => {
     try {
@@ -582,8 +500,6 @@ function TaskKanbanBoard() {
   }, [fetchKanban]);
 
   const openTask = (taskId) => {
-    prevEmployeeIdRef.current = selectedEmployeeId;
-    setSelectedEmployeeId(null);
     setSelectedTaskId(taskId);
     setIsModalOpen(true);
   };
@@ -592,56 +508,44 @@ function TaskKanbanBoard() {
     return <div className="card skeleton h-60 w-full rounded" />;
   }
 
-  // Derive admin tasks vs other users
-  const myColumn = kanbanData.find(col => col.user_id === user?.id) || { tasks: [] };
-  const otherColumns = kanbanData.filter(col => col.user_id !== user?.id);
-
-  // Retrieve selected employee data dynamically from kanbanData to stay synchronized
-  const activeEmployee = kanbanData.find(col => 
-    col.user_id === selectedEmployeeId || 
-    (selectedEmployeeId === 'unassigned' && col.user_id === null)
-  );
-
   return (
     <div className="card w-full">
       <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
         <div>
           <h3 className="text-lg font-black text-[#1A1A1A] tracking-tight">Task Command Center</h3>
-          <p className="text-xs text-slate-400 font-medium mt-0.5">Manage tasks assigned to you and monitor employee queues</p>
+          <p className="text-xs text-slate-400 font-medium mt-0.5">Monitor task progress and queues across all employees</p>
         </div>
       </div>
       
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-        {/* Left Column: Admin's Own Tasks */}
-        <div className="flex flex-col bg-slate-50/50 border border-slate-100 rounded-2xl p-4 min-h-[350px]">
-          <div className="flex items-center justify-between mb-3 pb-1.5 border-b border-slate-200/60">
-            <span className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[#E05A1E] animate-pulse" />
-              My Tasks
-            </span>
-            <span className="px-2 py-0.5 rounded-full bg-white text-[10px] font-bold text-[#E05A1E] border border-slate-200 shadow-sm">
-              {myColumn.tasks?.length || 0} active
-            </span>
-          </div>
-          
-          <div className="space-y-2 flex-1 overflow-y-auto max-h-[400px] pr-1 scrollbar-thin">
-            {myColumn.tasks?.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center opacity-50">
-                <span className="text-2xl mb-2">🎉</span>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">All caught up!</p>
-                <p className="text-[10px] text-slate-400 mt-1">No tasks assigned to you today.</p>
+      <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin">
+        {kanbanData.map((col) => (
+          <div key={col.username || col.name} className="flex flex-col min-w-[280px] bg-slate-50 border border-slate-100 rounded-xl p-3 min-h-[400px]">
+            <div className="flex items-start justify-between mb-4 pb-2 border-b border-slate-200/60">
+              <div className="flex flex-col">
+                <span className="text-xs font-black text-slate-700 uppercase tracking-wider">{col.name}</span>
+                {col.department && (
+                  <span className="text-[10px] font-bold text-slate-400 mt-0.5 uppercase tracking-wide">{col.department}</span>
+                )}
               </div>
-            ) : (
-              myColumn.tasks?.map((t) => (
+              <span className="px-1.5 py-0.5 rounded bg-white text-[10px] font-bold text-slate-400 border border-slate-200 h-fit mt-0.5">
+                {col.tasks?.length || 0}
+              </span>
+            </div>
+            
+            <div className="flex-1 space-y-3">
+              {col.tasks?.length === 0 && (
+                <div className="text-center py-12 text-slate-300 italic text-xs">No tasks</div>
+              )}
+              {col.tasks?.map((t) => (
                 <div 
                   key={t.id}
                   onClick={() => openTask(t.id)}
-                  className="bg-white border border-slate-200 rounded-xl p-3 hover:border-[#E05A1E]/50 hover:shadow-md cursor-pointer transition-all duration-200 group relative overflow-hidden"
+                  className="bg-white border border-slate-200 rounded-xl p-3 hover:border-[#E05A1E]/50 hover:shadow-md cursor-pointer transition-all group relative overflow-hidden"
                 >
-                  <div className="absolute top-0 left-0 w-1.5 h-full bg-[#E05A1E]" />
+                  <div className="absolute top-0 left-0 w-1 h-full bg-[#E05A1E] opacity-0 group-hover:opacity-100 transition-opacity" />
                   <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-2 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
                   
-                  <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-slate-50 flex-wrap">
+                  <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
                     <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
                       {t.project_name}
                     </span>
@@ -656,85 +560,16 @@ function TaskKanbanBoard() {
                     </span>
                   </div>
                 </div>
-              ))
-            )}
+              ))}
+            </div>
           </div>
-        </div>
-        
-        {/* Right Column: Employee Directory */}
-        <div className="flex flex-col bg-slate-50/50 border border-slate-100 rounded-2xl p-4 min-h-[350px]">
-          <div className="flex items-center justify-between mb-3 pb-1.5 border-b border-slate-200/60">
-            <span className="text-xs font-black text-slate-800 uppercase tracking-widest">
-              Team Directory
-            </span>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-              Click to view tasks
-            </span>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto max-h-[400px] pr-1 scrollbar-thin">
-            {otherColumns.map((col) => {
-              const taskCount = col.tasks?.length || 0;
-              const hasTasks = taskCount > 0;
-              const isUnassigned = col.user_id === null;
-              
-              // Initials or emoji for avatar
-              const initials = isUnassigned 
-                ? '👤' 
-                : (col.name ? col.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??');
-              
-              return (
-                <div 
-                  key={col.user_id || 'unassigned'}
-                  onClick={() => setSelectedEmployeeId(col.user_id === null ? 'unassigned' : col.user_id)}
-                  className="bg-white border border-slate-100 rounded-xl p-3 hover:border-[#E05A1E]/30 hover:shadow-md cursor-pointer transition-all duration-200 group flex items-center justify-between relative overflow-hidden"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0 transition-colors ${
-                      hasTasks 
-                        ? 'bg-[rgba(224,90,30,0.08)] text-[#E05A1E] border border-[rgba(224,90,30,0.15)]' 
-                        : 'bg-slate-100 text-slate-400 border border-slate-200'
-                    }`}>
-                      {initials}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-800 truncate group-hover:text-[#E05A1E] transition-colors">{col.name}</p>
-                      <p className="text-[10px] text-slate-400 font-medium truncate uppercase tracking-tight mt-0.5">{col.department || (isUnassigned ? 'Unassigned Tasks' : 'General')}</p>
-                    </div>
-                  </div>
-                  
-                  <div className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tight border ${
-                    hasTasks
-                      ? 'bg-amber-50 text-amber-600 border-amber-200'
-                      : 'bg-slate-50 text-slate-300 border-slate-100'
-                  }`}>
-                    {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        ))}
       </div>
-
-      <EmployeeTasksModal 
-        isOpen={!!selectedEmployeeId}
-        onClose={() => setSelectedEmployeeId(null)}
-        employee={activeEmployee}
-        onOpenTask={openTask}
-      />
 
       <TaskModal 
         taskId={selectedTaskId}
         isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-          fetchKanban();
-          if (prevEmployeeIdRef.current !== null) {
-            setSelectedEmployeeId(prevEmployeeIdRef.current);
-            prevEmployeeIdRef.current = null;
-          }
-        }}
+        onClose={() => { setIsModalOpen(false); fetchKanban(); }}
       />
     </div>
   );
