@@ -1,5 +1,6 @@
 // client/src/components/projects/TaskModal.jsx
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { formatTimeIST, formatIST, formatDateIST, getISODateIST, timeAgo } from '../../utils/time';
@@ -129,7 +130,7 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 animate-fade-in">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col w-full max-w-2xl h-[80vh] overflow-hidden transition-all transform scale-100">
         
@@ -324,6 +325,7 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
           </button>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

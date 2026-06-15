@@ -12,6 +12,7 @@ import toast from 'react-hot-toast';
 import TaskModal from '../../components/projects/TaskModal';
 import KanbanBoard from '../../components/dashboard/KanbanBoard';
 import FinancialBreakdownModal from '../../components/dashboard/FinancialBreakdownModal';
+import { createPortal } from 'react-dom';
 
 // ── Skeleton loader
 function StatSkeleton() {
@@ -489,7 +490,7 @@ function EmployeeTasksModal({ isOpen, onClose, employee, onOpenTask }) {
 
   if (!isOpen || !employee) return null;
 
-  return (
+  return createPortal(
     <div 
       className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/80 animate-fade-in" 
       onClick={(e) => e.target === e.currentTarget && onClose()}
@@ -550,7 +551,8 @@ function EmployeeTasksModal({ isOpen, onClose, employee, onOpenTask }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
