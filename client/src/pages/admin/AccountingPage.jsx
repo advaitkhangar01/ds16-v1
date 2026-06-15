@@ -134,13 +134,17 @@ export default function AccountingPage() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   const filteredInvoicesList = useMemo(() => {
+    let list = invoices;
     if (invoiceFilter === 'generated') {
-      return invoices.filter(inv => inv.status !== 'draft');
+      list = invoices.filter(inv => inv.status !== 'draft');
+    } else if (invoiceFilter === 'draft') {
+      list = invoices.filter(inv => inv.status === 'draft');
+    } else if (invoiceFilter === 'received') {
+      list = invoices.filter(inv => inv.status === 'paid');
+    } else if (invoiceFilter === 'pending') {
+      list = invoices.filter(inv => inv.status !== 'paid' && inv.status !== 'cancelled' && parseFloat(inv.pending_amount || 0) > 0);
     }
-    if (invoiceFilter === 'draft') {
-      return invoices.filter(inv => inv.status === 'draft');
-    }
-    return invoices;
+    return list;
   }, [invoices, invoiceFilter]);
 
   const invoiceTotalsBreakdown = useMemo(() => {
@@ -1896,7 +1900,9 @@ export default function AccountingPage() {
                   {[
                     { id: 'all', label: 'All' },
                     { id: 'generated', label: 'Generated' },
-                    { id: 'draft', label: 'Drafts' }
+                    { id: 'draft', label: 'Drafts' },
+                    { id: 'received', label: 'Received' },
+                    { id: 'pending', label: 'Pending' }
                   ].map((filter) => (
                     <button
                       key={filter.id}
@@ -2116,6 +2122,8 @@ export default function AccountingPage() {
                       <td colSpan="12" className="px-6 py-12 text-center text-gray-400 italic text-sm">
                         {invoiceFilter === 'generated' ? 'No generated invoices found.' : 
                          invoiceFilter === 'draft' ? 'No draft invoices found.' : 
+                         invoiceFilter === 'received' ? 'No received (fully paid) invoices found.' : 
+                         invoiceFilter === 'pending' ? 'No pending invoices found.' : 
                          'No invoice history available. Use the Invoice Editor to create new invoices.'}
                       </td>
                     </tr>
