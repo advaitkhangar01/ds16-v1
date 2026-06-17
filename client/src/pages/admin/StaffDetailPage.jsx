@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { formatDateIST, formatTimeIST } from '../../utils/time';
 import UserModal from '../../components/staff/UserModal';
 import ResetPasswordModal from '../../components/staff/ResetPasswordModal';
+import { useAuth } from '../../context/AuthContext';
 import { 
   ArrowLeft, 
   User, 
@@ -26,7 +27,8 @@ import {
 } from 'lucide-react';
 
 export default function StaffDetailPage() {
-  const { id } = useParams();
+  const { id: paramId } = useParams();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -34,18 +36,26 @@ export default function StaffDetailPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
+  const id = paramId || user?.id;
+
   const fetchStaffDetail = useCallback(async () => {
+    if (!id) return;
     try {
       setLoading(true);
       const { data: res } = await api.get(`/staff/${id}`);
       setData(res);
     } catch (err) {
       toast.error('Failed to load employee details');
-      navigate('/admin/staff');
+      const isAdminOrAccounts = user?.role === 'admin' || user?.role === 'back_office' || user?.role === 'accounts' || user?.department?.toLowerCase() === 'accounts';
+      if (isAdminOrAccounts) {
+        navigate('/admin/staff');
+      } else {
+        navigate('/employee/dashboard');
+      }
     } finally {
       setLoading(false);
     }
-  }, [id, navigate]);
+  }, [id, user, navigate]);
 
   useEffect(() => {
     fetchStaffDetail();
@@ -80,13 +90,23 @@ export default function StaffDetailPage() {
     <AppLayout>
       <div className="space-y-6 max-w-6xl mx-auto animate-in fade-in duration-500 pb-12">
         {/* Navigation & Breadcrumbs */}
-        <nav className="flex items-center gap-2 text-xs font-semibold">
-          <Link to="/admin/staff" className="text-gray-400 hover:text-primary transition-colors flex items-center gap-1">
-            <ArrowLeft size={12} /> Staff Management
-          </Link>
-          <span className="text-gray-300">/</span>
-          <span className="text-gray-800">{employee.name}</span>
-        </nav>
+        {paramId ? (
+          <nav className="flex items-center gap-2 text-xs font-semibold">
+            <Link to="/admin/staff" className="text-gray-400 hover:text-primary transition-colors flex items-center gap-1">
+              <ArrowLeft size={12} /> Staff Management
+            </Link>
+            <span className="text-gray-300">/</span>
+            <span className="text-gray-800">{employee.name}</span>
+          </nav>
+        ) : (
+          <nav className="flex items-center gap-2 text-xs font-semibold">
+            <Link to={user?.role === 'admin' || user?.role === 'back_office' || user?.role === 'accounts' || user?.department?.toLowerCase() === 'accounts' ? "/admin/dashboard" : "/employee/dashboard"} className="text-gray-400 hover:text-primary transition-colors flex items-center gap-1">
+              <ArrowLeft size={12} /> Dashboard
+            </Link>
+            <span className="text-gray-300">/</span>
+            <span className="text-gray-800">My Profile</span>
+          </nav>
+        )}
 
         {/* Premium Profile Header Card */}
         <div className="bg-white border border-gray-200 rounded-3xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
@@ -119,19 +139,23 @@ export default function StaffDetailPage() {
           </div>
 
           <div className="flex items-center gap-3 relative z-10 flex-wrap">
-            <button 
-              onClick={() => setShowEditModal(true)}
-              className="btn-secondary px-4 py-2.5 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 hover:border-primary/50"
-            >
-              <User size={14} className="text-primary" /> Edit Profile
-            </button>
-            <button 
-              onClick={() => setShowResetModal(true)}
-              className="btn-secondary px-4 py-2.5 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 hover:border-primary/50 text-slate-700"
-            >
-              <Key size={14} className="text-amber-500" /> Reset Password
-            </button>
-            <div className="h-8 w-px bg-gray-200 mx-1" />
+            {user?.role === 'admin' && (
+              <>
+                <button 
+                  onClick={() => setShowEditModal(true)}
+                  className="btn-secondary px-4 py-2.5 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 hover:border-primary/50"
+                >
+                  <User size={14} className="text-primary" /> Edit Profile
+                </button>
+                <button 
+                  onClick={() => setShowResetModal(true)}
+                  className="btn-secondary px-4 py-2.5 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 hover:border-primary/50 text-slate-700"
+                >
+                  <Key size={14} className="text-amber-500" /> Reset Password
+                </button>
+                <div className="h-8 w-px bg-gray-200 mx-1" />
+              </>
+            )}
             <div className="text-right">
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block leading-none mb-1">Contract Wages</span>
               <span className="text-lg font-black text-gray-800 font-mono">₹{Number(employee.base_salary || 0).toLocaleString('en-IN')}/mo</span>

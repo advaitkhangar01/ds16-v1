@@ -8,6 +8,7 @@ import { useState } from 'react'; // eslint-disable-line no-unused-vars
 
 const ADMIN_LINKS = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: 'grid' },
+  { to: '/admin/profile', label: 'My Profile', icon: 'user' },
   { to: '/projects', label: 'Projects', icon: 'folder' },
   { to: '/tasks', label: 'Tasks', icon: 'check_square' },
   { to: '/vendors', label: 'Vendors', icon: 'tool' },
@@ -24,6 +25,7 @@ const ADMIN_LINKS = [
 // Accounts: financial-first nav, no task board or settings
 const ACCOUNTS_LINKS = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: 'grid' },
+  { to: '/admin/profile', label: 'My Profile', icon: 'user' },
   { to: '/admin/invoice', label: 'Invoice', icon: 'receipt' },
   { to: '/admin/accounting', label: 'Accounting', icon: 'calculator' },
   { to: '/admin/reports', label: 'Reports', icon: 'file_spreadsheet' },
@@ -35,6 +37,7 @@ const ACCOUNTS_LINKS = [
 
 const EMP_LINKS = [
   { to: '/employee/dashboard', label: 'Dashboard', icon: 'grid' },
+  { to: '/employee/profile', label: 'My Profile', icon: 'user' },
   { to: '/projects', label: 'My Projects', icon: 'folder' },
   { to: '/tasks', label: 'Tasks', icon: 'check_square' },
   { to: '/attendance', label: 'Attendance', icon: 'clock' },
@@ -67,6 +70,11 @@ const ICONS = {
   users: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+  ),
+  user: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
     </svg>
   ),
   briefcase: (

@@ -15,10 +15,9 @@ function requireAdminOrAccounts(req, res, next) {
 }
 
 router.use(authenticate);
-router.use(requireAdminOrAccounts);
 
 // GET /api/staff - Get all staff with quick telemetry stats
-router.get('/', async (req, res) => {
+router.get('/', requireAdminOrAccounts, async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT 
@@ -47,6 +46,14 @@ router.get('/', async (req, res) => {
 // GET /api/staff/:id - Get full employee analytical profile
 router.get('/:id', async (req, res) => {
   const { id } = req.params;
+  
+  const isSelf = req.user.id === parseInt(id);
+  const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts' || req.user.department?.toLowerCase() === 'accounts';
+  const isAdmin = req.user.role === 'admin';
+
+  if (!isSelf && !isAdmin && !isAccounts) {
+    return res.status(403).json({ error: 'Access denied: You can only view your own profile.' });
+  }
   try {
     // 1. Core Profile Details
     const { rows: userRows } = await pool.query(
