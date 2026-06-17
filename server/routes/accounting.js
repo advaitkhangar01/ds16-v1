@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const checkPeriodLock = require('../middleware/periodLock');
+const { calculatePayrollForEmployee } = require('../utils/payroll');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -143,169 +144,15 @@ router.get('/payroll/employees', async (req, res) => {
       return acc;
     }, {});
 
-    // 3. Fetch Holidays for the month
-    const holidaysRes = await pool.query(`
-      SELECT date, is_paid FROM holidays 
-      WHERE EXTRACT(MONTH FROM date) = $1 AND EXTRACT(YEAR FROM date) = $2
-    `, [month, year]);
-    const holidays = holidaysRes.rows;
-    const paidHolidayCount = holidays.filter(h => h.is_paid).length;
-
-    // 4. Fetch Leave Summary
-    const leaveSummaryRes = await pool.query(`
-      SELECT user_id, unpaid_leaves 
-      FROM employee_leave_summary 
-      WHERE month = $1 AND year = $2
-    `, [month, year]);
-    const leaveSummaries = leaveSummaryRes.rows.reduce((acc, row) => {
-      acc[row.user_id] = row.unpaid_leaves;
-      return acc;
-    }, {});
-
-    // 4.5 Fetch Leave Requests for the month
-    const startStr = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endStr = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
-    const leavesRes = await pool.query(`
-      SELECT user_id, start_date, end_date FROM leave_requests 
-      WHERE status = 'approved' 
-        AND NOT (end_date < $1 OR start_date > $2)
-    `, [startStr, endStr]);
-    const leaveRequests = leavesRes.rows;
-
-    // 5. Fetch detailed attendance for the month
-    const attendanceRes = await pool.query(`
-      SELECT user_id, check_in, check_out, date, LOWER(status) AS status, is_late, hours_worked
-      FROM attendance
-      WHERE EXTRACT(MONTH FROM date) = $1 AND EXTRACT(YEAR FROM date) = $2
-    `, [month, year]);
-    const attendanceRecords = attendanceRes.rows;
-
-    // 6. Calculate suggested salary and detailed counts for each employee
-    const daysInMonth = new Date(year, month, 0).getDate();
-    const latePenaltyRuleCount = parseInt(settings.late_penalty_rule_count || 3);
-    const latePenaltyRuleDays = parseFloat(settings.late_penalty_rule_days || 0.5);
-
-    const formatDate = (dateInput) => {
-      if (!dateInput) return '';
-      const d = new Date(dateInput);
-      if (isNaN(d.getTime())) return '';
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${y}-${m}-${day}`;
-    };
-
-    const result = employees.map(emp => {
-      const myRecords = attendanceRecords.filter(r => r.user_id === emp.id);
-      const myLeaves = leaveRequests.filter(lr => lr.user_id === emp.id);
-      
-      const holidayDates = new Set(holidays.map(h => formatDate(h.date)));
-
-      let fullDaysWorked = 0;
-      let halfDaysWorked = 0;
-      let sundaysCount = 0;
-      let holidaysCount = 0;
-      let leavesCount = 0;
-      let unmarkedAbsentCount = 0;
-
-      for (let d = 1; d <= daysInMonth; d++) {
-        const dateObj = new Date(year, month - 1, d);
-        const dateStr = formatDate(dateObj);
-        const isSunday = (dateObj.getDay() === 0);
-
-        if (isSunday) {
-          sundaysCount++;
-          continue;
-        }
-
-        if (holidayDates.has(dateStr)) {
-          holidaysCount++;
-          continue;
-        }
-
-        // Check if user has an approved leave request covering this day
-        const isOnApprovedLeave = myLeaves.some(lr => {
-          const start = formatDate(lr.start_date);
-          const end = formatDate(lr.end_date);
-          return dateStr >= start && dateStr <= end;
-        });
-
-        // Find attendance record
-        const record = myRecords.find(r => formatDate(r.date) === dateStr);
-        const status = record ? (record.status ? record.status.toLowerCase() : '') : '';
-
-        if (isOnApprovedLeave || status === 'leave') {
-          leavesCount++;
-        } else if (record) {
-          if (status === 'present' || status === 'working' || status === 'completed') {
-            fullDaysWorked++;
-          } else if (status === 'half_day') {
-            halfDaysWorked++;
-          } else if (status === 'absent') {
-            unmarkedAbsentCount++;
-          } else {
-            fullDaysWorked++;
-          }
-        } else {
-          unmarkedAbsentCount++;
-        }
-      }
-
-      const totalPresent = fullDaysWorked + halfDaysWorked + sundaysCount + holidaysCount;
-      const totalAbsent = leavesCount + unmarkedAbsentCount;
-
-      const fullDays = myRecords.filter(r => r.status === 'present' || r.status === 'working' || r.status === 'completed').length;
-      const halfDays = myRecords.filter(r => r.status === 'half_day').length;
-      const lateCount = myRecords.filter(r => r.is_late).length;
-      const unpaidLeaves = parseFloat(leaveSummaries[emp.id]) || 0;
-
-      const hourlyRate = parseFloat(emp.hourly_rate) || 0;
-      const totalHours = myRecords.reduce((sum, r) => sum + parseFloat(r.hours_worked || 0), 0);
-      
-      let suggestedSalary = 0;
-      let calcMethod = 'daily';
-      let effectiveDays = 0;
-      let finalPayableDays = 0;
-      let latePenaltyDays = 0;
-
-      if (hourlyRate > 0) {
-        suggestedSalary = Math.round(hourlyRate * totalHours);
-        calcMethod = 'hourly';
-        effectiveDays = totalHours; // For hourly, effective units are hours
-        finalPayableDays = totalHours;
-      } else {
-        const baseSalary = parseFloat(emp.base_salary) || 0;
-        const perDaySalary = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
-        latePenaltyDays = Math.floor(lateCount / latePenaltyRuleCount) * latePenaltyRuleDays;
-        effectiveDays = emp.role === 'admin' ? daysInMonth : (fullDays + (halfDays * 0.5) + paidHolidayCount - unpaidLeaves);
-        finalPayableDays = emp.role === 'admin' ? daysInMonth : Math.max(0, effectiveDays - latePenaltyDays);
-        suggestedSalary = Math.round(perDaySalary * finalPayableDays);
-      }
-
-      return {
-        ...emp,
-        full_days: fullDays,
-        half_days: halfDays,
-        late_count: lateCount,
-        unpaid_leaves: unpaidLeaves,
-        paid_holidays: paidHolidayCount,
-        effective_days: effectiveDays,
-        late_penalty_days: latePenaltyDays,
-        payable_days: finalPayableDays,
-        total_days: daysInMonth,
-        total_hours: totalHours,
-        calculation_method: calcMethod,
-        suggested_salary: suggestedSalary < 0 ? 0 : suggestedSalary,
-        total_present: totalPresent,
-        total_absent: totalAbsent,
-        full_days_worked: fullDaysWorked,
-        half_days_worked: halfDaysWorked,
-        sundays_count: sundaysCount,
-        holidays_count: holidaysCount,
-        leaves_count: leavesCount,
-        unmarked_absent_count: unmarkedAbsentCount
-      };
-    });
+    const result = await Promise.all(
+      employees.map(async (emp) => {
+        const payrollData = await calculatePayrollForEmployee(emp.id, parseInt(month), parseInt(year), settings, pool);
+        return {
+          ...emp,
+          ...payrollData
+        };
+      })
+    );
 
     res.json(result);
   } catch (err) {

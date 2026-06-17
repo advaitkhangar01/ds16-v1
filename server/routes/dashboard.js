@@ -4,90 +4,22 @@ const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { getISTDate, getISTTime } = require('../utils/date');
 const { autoCheckoutPendingRecords } = require('./attendance');
+const { calculatePayrollForEmployee } = require('../utils/payroll');
 
 async function calculateSalaryStats(userId, month, year, todayStr, settings) {
-  const { rows: userRows } = await pool.query('SELECT base_salary, hourly_rate FROM users WHERE id = $1', [userId]);
-  const user = userRows[0];
-  if (!user) return null;
+  const payrollData = await calculatePayrollForEmployee(userId, month, year, settings, pool);
+  if (!payrollData) return null;
 
-  const baseSalary = parseFloat(user.base_salary || 0);
-  const hourlyRate = parseFloat(user.hourly_rate || 0);
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const dailyWage = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
-
-  // Fetch attendance for this month
-  const { rows: monthAtt } = await pool.query(
-    `SELECT check_in, check_out, date, LOWER(status) AS status, is_late, hours_worked FROM attendance 
-     WHERE user_id = $1 AND EXTRACT(MONTH FROM date) = $2 AND EXTRACT(YEAR FROM date) = $3`,
-    [userId, month, year]
-  );
-
-  let earnedMonth = 0;
-  let deductionsMonth = 0;
-  let todayEarned = 0;
-  let todayDeductions = 0;
-  let lateCount = 0;
-  let halfDayCount = 0;
-
-  const officeStartTimeStr = settings.office_start_time || '09:30';
-  const lateThresholdMins = parseInt(settings.late_threshold_mins || 15);
-  const latePenaltyAmount = parseFloat(settings.late_penalty_amount || 0);
-  const halfDayThresholdHours = parseFloat(settings.half_day_threshold_hours || 4);
-  const halfDayPenaltyPercent = parseFloat(settings.half_day_penalty_percent || 50);
-
-  monthAtt.forEach(record => {
-    const isToday = getISTDate(record.date) === todayStr;
-    let dayEarned = 0;
-    let dayDeductions = 0;
-    const statusLower = (record.status || '').toLowerCase();
-    const isHalfDayRecord = statusLower === 'half_day';
-
-    if (hourlyRate > 0) {
-      const hours = parseFloat(record.hours_worked || 0);
-      dayEarned = hours * hourlyRate;
-    } else {
-      dayEarned = dailyWage;
-      if (record.check_in) {
-        const checkInTimeStr = getISTTime(record.check_in);
-        const [ciH, ciM] = checkInTimeStr.split(':').map(Number);
-        const [startH, startM] = officeStartTimeStr.split(':').map(Number);
-
-        const diffMins = (ciH * 60 + ciM) - (startH * 60 + startM);
-        // Skip late penalty if already penalised as half_day (avoid double-counting)
-        if (!isHalfDayRecord && diffMins > lateThresholdMins) {
-          dayDeductions += latePenaltyAmount;
-          lateCount++;
-        }
-
-        if (record.check_out) {
-          // Use stored hours_worked — set by server at checkout, avoids timestamp re-derivation
-          const hoursWorked = parseFloat(record.hours_worked || 0);
-          if (isHalfDayRecord || hoursWorked < halfDayThresholdHours) {
-            dayDeductions += (dailyWage * halfDayPenaltyPercent / 100);
-            halfDayCount++;
-          }
-        }
-      } else {
-        dayEarned = 0; // Not present
-      }
-    }
-
-    earnedMonth += dayEarned;
-    deductionsMonth += dayDeductions;
-
-    if (isToday) {
-      todayEarned = dayEarned;
-      todayDeductions = dayDeductions;
-    }
-  });
+  // Find today's daily record in the processed daily logs
+  const todayRecord = payrollData.processedAttendance.find(r => r.date === todayStr);
 
   return {
-    earned_this_month: Math.round(earnedMonth),
-    deductions_this_month: Math.round(deductionsMonth),
-    today_earned: Math.round(todayEarned),
-    today_deductions: Math.round(todayDeductions),
-    late_count: lateCount,
-    half_day_count: halfDayCount
+    earned_this_month: payrollData.suggested_salary,
+    deductions_this_month: payrollData.deductions,
+    today_earned: todayRecord ? Math.round(todayRecord.earnings) : 0,
+    today_deductions: todayRecord ? Math.round(todayRecord.deduction) : 0,
+    late_count: payrollData.late_count,
+    half_day_count: payrollData.half_days
   };
 }
 

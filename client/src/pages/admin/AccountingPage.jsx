@@ -706,12 +706,15 @@ export default function AccountingPage() {
 
     try {
       // 1. Save to payroll table (legacy/detail)
+      const isHourly = parseFloat(emp.hourly_rate) > 0;
+      const deductionsVal = isHourly ? 0 : Math.max(0, parseFloat(emp.base_salary || 0) - parseFloat(emp.suggested_salary || 0));
+
       await api.post('/accounting/payroll', {
         user_id: emp.id,
         base_salary: emp.base_salary,
         bonus: 0,
         incentives: parseFloat(incentiveAmount) || 0,
-        deductions: 0,
+        deductions: Math.round(deductionsVal),
         net_paid: parseFloat(finalAmount),
         month: selectedMonth,
         year: selectedYear,

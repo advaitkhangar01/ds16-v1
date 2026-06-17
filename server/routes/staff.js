@@ -142,11 +142,12 @@ router.get('/:id', async (req, res) => {
       if (hourlyRate > 0) {
         // Hourly rate employees only earn from regular hours (excluding overtime)
         earnings = regularHours * hourlyRate;
+        deduction = 0;
       } else {
         const statusLower = (att.status || '').toLowerCase();
         if (statusLower === 'absent') {
           earnings = 0;
-          deduction = 0;
+          deduction = dailyWage;
         } else if (statusLower === 'half_day') {
           earnings = dailyWage;
           deduction = dailyWage * (halfDayPenaltyPercent / 100);
