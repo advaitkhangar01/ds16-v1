@@ -340,6 +340,8 @@ export default function StaffDetailPage() {
                         <th className="px-6 py-4">Check-In</th>
                         <th className="px-6 py-4">Check-Out</th>
                         <th className="px-6 py-4">Hours Worked</th>
+                        <th className="px-6 py-4">Earnings</th>
+                        <th className="px-6 py-4 text-center">Late/Half Day/Absent</th>
                         <th className="px-6 py-4">Geo Location</th>
                         <th className="px-6 py-4 text-center">Status</th>
                       </tr>
@@ -347,6 +349,21 @@ export default function StaffDetailPage() {
                     <tbody className="divide-y divide-gray-100 font-medium text-gray-600">
                       {attendance.map((att) => {
                         const isLate = att.is_late === true;
+                        const dailyEarnings = parseFloat(att.hours_worked || 0) * parseFloat(employee.hourly_rate || 0);
+
+                        let anomalyLabel = 'Regular';
+                        let anomalyClass = 'bg-slate-50 text-slate-500 border-slate-200';
+                        if (att.status === 'absent') {
+                          anomalyLabel = 'Absent';
+                          anomalyClass = 'bg-red-50 text-red-600 border border-red-100 font-bold';
+                        } else if (att.status === 'half_day') {
+                          anomalyLabel = 'Half Day';
+                          anomalyClass = 'bg-amber-50 text-amber-600 border border-amber-100 font-bold';
+                        } else if (isLate) {
+                          anomalyLabel = `Late Arrival (${att.late_minutes}m)`;
+                          anomalyClass = 'bg-red-50/50 text-red-500 border border-red-100/50 font-bold';
+                        }
+
                         return (
                           <tr key={att.id} className="hover:bg-gray-50/50 transition-colors">
                             <td className="px-6 py-4 font-bold text-gray-900">{formatDateIST(att.date)}</td>
@@ -366,6 +383,14 @@ export default function StaffDetailPage() {
                             <td className="px-6 py-4 font-bold font-mono text-gray-900">
                               {att.hours_worked > 0 ? `${parseFloat(att.hours_worked).toFixed(1)} hrs` : '—'}
                             </td>
+                            <td className="px-6 py-4 font-bold font-mono text-emerald-600">
+                              {dailyEarnings > 0 ? `₹${Number(dailyEarnings.toFixed(2)).toLocaleString('en-IN')}` : '—'}
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`inline-flex px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border ${anomalyClass}`}>
+                                {anomalyLabel}
+                              </span>
+                            </td>
                             <td className="px-6 py-4">
                               {att.checkin_zone ? (
                                 <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter ${
@@ -381,11 +406,11 @@ export default function StaffDetailPage() {
                               )}
                             </td>
                             <td className="px-6 py-4 text-center">
-                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                                att.status === 'working' ? 'bg-emerald-50 text-emerald-600' :
-                                att.status === 'completed' ? 'bg-blue-50 text-blue-600' :
-                                att.status === 'half_day' ? 'bg-amber-50 text-amber-600' :
-                                'bg-red-50 text-red-500'
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                                att.status === 'working' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                                att.status === 'completed' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                                att.status === 'half_day' ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                                'bg-red-50 text-red-500 border-red-100'
                               }`}>
                                 {att.status === 'working' ? 'Present' : att.status === 'completed' ? 'Done' : att.status === 'half_day' ? 'Half Day' : att.status}
                               </span>

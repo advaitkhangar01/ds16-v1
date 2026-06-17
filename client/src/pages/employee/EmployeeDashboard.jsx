@@ -32,7 +32,7 @@ function QuickStats({ salary }) {
       {/* Adjustments Card with tooltip */}
       <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all relative group">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
-          Adjustments
+          Late Arrival/Half Day/ Absent
           {/* Tooltip trigger icon */}
           <span className="w-3 h-3 rounded-full border border-slate-300 text-slate-300 text-[8px] font-black flex items-center justify-center cursor-help leading-none">?</span>
         </p>
@@ -44,7 +44,7 @@ function QuickStats({ salary }) {
 
         {/* Hover tooltip breakdown */}
         <div className="absolute bottom-full left-0 mb-2 w-52 bg-slate-900 text-white text-[10px] rounded-xl p-3 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
-          <p className="font-black uppercase tracking-widest text-slate-400 mb-2">Adjustment Breakdown</p>
+          <p className="font-black uppercase tracking-widest text-slate-400 mb-2">Late Arrival/Half Day/ Absent</p>
           <div className="space-y-1">
             <div className="flex justify-between">
               <span className="text-slate-300">Leaves taken</span>

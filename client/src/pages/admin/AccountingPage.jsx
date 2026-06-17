@@ -1471,13 +1471,17 @@ export default function AccountingPage() {
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2 mb-4">
-                          <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
-                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Attendance</p>
-                            <p className="text-xs font-black text-slate-700">{emp.payable_days}d</p>
+                          <div className="bg-emerald-50/50 p-2 rounded-lg border border-emerald-100/50 text-center">
+                            <p className="text-[8px] font-bold text-emerald-600 uppercase tracking-tighter">Present</p>
+                            <p className="text-xs font-black text-emerald-700">{emp.total_present || 0}d</p>
+                          </div>
+                          <div className="bg-rose-50/50 p-2 rounded-lg border border-rose-100/50 text-center">
+                            <p className="text-[8px] font-bold text-rose-600 uppercase tracking-tighter">Absent</p>
+                            <p className="text-xs font-black text-rose-700">{emp.total_absent || 0}d</p>
                           </div>
                           <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
                             <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Base Sal.</p>
-                            <p className="text-xs font-black text-slate-700">
+                            <p className="text-[10px] font-black text-slate-700">
                               ₹{parseFloat(emp.hourly_rate) > 0 ? `${emp.hourly_rate}/hr` : parseFloat(emp.base_salary).toLocaleString('en-IN')}
                             </p>
                           </div>
@@ -1510,10 +1514,14 @@ export default function AccountingPage() {
                     <thead>
                       <tr className="bg-gray-50/50 border-b border-gray-100">
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px]">Employee / Role</th>
-                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Attendance</th>
+                        <th className="px-6 py-4 font-bold text-emerald-700 uppercase tracking-tighter text-[11px] text-center bg-emerald-50/10">Present</th>
+                        <th className="px-6 py-4 font-bold text-rose-700 uppercase tracking-tighter text-[11px] text-center bg-rose-50/10">Absent</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Full Days</th>
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Half Days</th>
-                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Late</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Sundays</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Holidays</th>
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Leaves</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Late</th>
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-right">Base / Hourly</th>
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Hours</th>
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-right">Incentives</th>
@@ -1540,13 +1548,32 @@ export default function AccountingPage() {
                               </div>
                               <div className="text-[10px] text-gray-400 font-bold uppercase">{emp.department}</div>
                             </td>
-                            <td className="px-6 py-4 text-center">
-                              <span className="font-bold text-gray-800">{emp.full_days || 0}</span>
-                              <span className="text-[10px] text-gray-400 font-bold ml-1">/ {emp.total_days}</span>
+                            <td className="px-6 py-4 text-center bg-emerald-50/5">
+                              <span className="font-bold text-emerald-700">{emp.total_present || 0}</span>
+                              <span className="text-[9px] text-gray-400 font-bold ml-0.5">d</span>
+                            </td>
+                            <td className="px-6 py-4 text-center bg-rose-50/5">
+                              <span className="font-bold text-rose-700">{emp.total_absent || 0}</span>
+                              <span className="text-[9px] text-gray-400 font-bold ml-0.5">d</span>
                             </td>
                             <td className="px-6 py-4 text-center">
-                              <span className={`font-bold ${emp.half_days > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
-                                {emp.half_days || 0}
+                              <span className="font-bold text-gray-800">{emp.full_days_worked || 0}</span>
+                              <span className="text-[9px] text-gray-400 font-bold ml-1">/ {emp.total_days}</span>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`font-bold ${emp.half_days_worked > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                                {emp.half_days_worked || 0}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-center text-gray-500 text-xs font-semibold">
+                              <span>{emp.sundays_count || 0}</span>
+                            </td>
+                            <td className="px-6 py-4 text-center text-gray-500 text-xs font-semibold">
+                              <span>{emp.holidays_count || 0}</span>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`font-bold ${emp.leaves_count > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                                {emp.leaves_count || 0}
                               </span>
                             </td>
                             <td className="px-6 py-4 text-center">
@@ -1558,11 +1585,6 @@ export default function AccountingPage() {
                                   <span className="text-[9px] font-black text-red-400">-{emp.late_penalty_days}d</span>
                                 )}
                               </div>
-                            </td>
-                            <td className="px-6 py-4 text-center">
-                              <span className={`font-bold ${emp.unpaid_leaves > 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                                {emp.unpaid_leaves || 0}
-                              </span>
                             </td>
                             <td className="px-6 py-4 text-right">
                               <div className="flex flex-col items-end gap-1">

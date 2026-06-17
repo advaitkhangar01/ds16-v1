@@ -219,7 +219,7 @@ function MyAdminSalaryStats({ salary }) {
 
       <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all group relative">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
-          My Adjustments
+          My Late Arrival/Half Day/ Absent
           <span className="w-3 h-3 rounded-full border border-slate-300 text-slate-300 text-[8px] font-black flex items-center justify-center cursor-help leading-none">?</span>
         </p>
         <div className="flex items-baseline gap-1.5">
