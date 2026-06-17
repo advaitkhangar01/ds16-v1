@@ -349,7 +349,6 @@ export default function StaffDetailPage() {
                     <tbody className="divide-y divide-gray-100 font-medium text-gray-600">
                       {attendance.map((att) => {
                         const isLate = att.is_late === true;
-                        const dailyEarnings = parseFloat(att.hours_worked || 0) * parseFloat(employee.hourly_rate || 0);
 
                         const deductionText = att.deduction > 0 ? ` (₹${Math.round(att.deduction).toLocaleString('en-IN')})` : '';
 
@@ -386,7 +385,7 @@ export default function StaffDetailPage() {
                               {att.hours_worked > 0 ? `${parseFloat(att.hours_worked).toFixed(1)} hrs` : '—'}
                             </td>
                             <td className="px-6 py-4 font-bold font-mono text-emerald-600">
-                              {dailyEarnings > 0 ? `₹${Number(dailyEarnings.toFixed(2)).toLocaleString('en-IN')}` : '—'}
+                              {att.earnings > 0 ? `₹${Number(att.earnings).toLocaleString('en-IN')}` : '—'}
                             </td>
                             <td className="px-6 py-4 text-center">
                               <span className={`inline-flex px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border ${anomalyClass}`}>

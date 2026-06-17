@@ -110,24 +110,35 @@ router.get('/:id', async (req, res) => {
 
     const processedAttendance = attendance.map(att => {
       let deduction = 0;
-      if (hourlyRate <= 0) {
-        const recordDate = new Date(att.date);
-        const recordMonth = recordDate.getMonth() + 1;
-        const recordYear = recordDate.getFullYear();
-        const daysInMonth = new Date(recordYear, recordMonth, 0).getDate();
-        const dailyWage = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
+      let earnings = 0;
 
+      const recordDate = new Date(att.date);
+      const recordMonth = recordDate.getMonth() + 1;
+      const recordYear = recordDate.getFullYear();
+      const daysInMonth = new Date(recordYear, recordMonth, 0).getDate();
+      const dailyWage = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
+
+      if (hourlyRate > 0) {
+        earnings = parseFloat(att.hours_worked || 0) * hourlyRate;
+      } else {
         const statusLower = (att.status || '').toLowerCase();
         if (statusLower === 'absent') {
-          deduction = 0; // Absence results in 0 earnings; it does not double-deduct from base salary
+          earnings = 0;
+          deduction = 0;
         } else if (statusLower === 'half_day') {
+          earnings = dailyWage;
           deduction = dailyWage * (halfDayPenaltyPercent / 100);
-        } else if (att.is_late) {
-          deduction = latePenaltyAmount;
+        } else {
+          earnings = dailyWage;
+          if (att.is_late) {
+            deduction = latePenaltyAmount;
+          }
         }
       }
+
       return {
         ...att,
+        earnings: Math.round(earnings * 100) / 100,
         deduction: Math.round(deduction * 100) / 100
       };
     });
