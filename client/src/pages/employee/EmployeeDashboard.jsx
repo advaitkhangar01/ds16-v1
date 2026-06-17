@@ -755,9 +755,11 @@ export default function EmployeeDashboard() {
   const [breakdown, setBreakdown] = useState({ open: false, tab: 'earnings' });
 
   const openBreakdown = useCallback((tab) => {
+    console.log('[EmployeeDashboard] openBreakdown called with tab:', tab);
     setBreakdown({ open: true, tab });
   }, []);
   const closeBreakdown = useCallback(() => {
+    console.log('[EmployeeDashboard] closeBreakdown called');
     setBreakdown(prev => ({ ...prev, open: false }));
   }, []);
 

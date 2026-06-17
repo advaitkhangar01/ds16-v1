@@ -1,4 +1,4 @@
-﻿// client/src/components/dashboard/SalaryBreakdownModal.jsx
+// client/src/components/dashboard/SalaryBreakdownModal.jsx
 import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import api from '../../api/client';
@@ -37,7 +37,7 @@ function StatusBadge({ status, isLate }) {
 
 export default function SalaryBreakdownModal({ isOpen, onClose, defaultTab = 'earnings' }) {
   const [data,    setData]    = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
   const [tab,     setTab]     = useState(defaultTab);
   const [filter,  setFilter]  = useState('all');
@@ -48,19 +48,26 @@ export default function SalaryBreakdownModal({ isOpen, onClose, defaultTab = 'ea
   // Lazy-fetch on open
   const fetchBreakdown = useCallback(async () => {
     if (!isOpen) return;
+    console.log('[SalaryBreakdownModal] Fetching salary breakdown from backend...');
     setLoading(true);
     setError(null);
     try {
       const { data: res } = await api.get('/dashboard/salary-breakdown');
+      console.log('[SalaryBreakdownModal] Successfully fetched breakdown:', res);
       setData(res);
-    } catch {
+    } catch (err) {
+      console.error('[SalaryBreakdownModal] Error fetching breakdown:', err);
       setError('Failed to load breakdown.');
     } finally {
       setLoading(false);
     }
   }, [isOpen]);
 
-  useEffect(() => { fetchBreakdown(); }, [fetchBreakdown]);
+  useEffect(() => {
+    if (isOpen) {
+      fetchBreakdown();
+    }
+  }, [isOpen, fetchBreakdown]);
 
   // Escape key
   useEffect(() => {
