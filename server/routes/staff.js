@@ -119,7 +119,7 @@ router.get('/:id', async (req, res) => {
 
         const statusLower = (att.status || '').toLowerCase();
         if (statusLower === 'absent') {
-          deduction = dailyWage;
+          deduction = 0; // Absence results in 0 earnings; it does not double-deduct from base salary
         } else if (statusLower === 'half_day') {
           deduction = dailyWage * (halfDayPenaltyPercent / 100);
         } else if (att.is_late) {
