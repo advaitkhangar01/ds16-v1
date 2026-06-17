@@ -111,6 +111,27 @@ router.get('/:id', async (req, res) => {
     const processedAttendance = attendance.map(att => {
       let deduction = 0;
       let earnings = 0;
+      let overtimeHours = 0;
+      let regularHours = parseFloat(att.hours_worked || 0);
+
+      if (att.check_in && att.check_out) {
+        const ci = new Date(att.check_in);
+        const co = new Date(att.check_out);
+        
+        // Get date string of check-out in IST (YYYY-MM-DD)
+        const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+        const dateStr = formatter.format(co);
+        
+        // Cutoff threshold is 7:00 PM (19:00) IST on the date of check-out
+        const cutoff = new Date(`${dateStr}T19:00:00+05:30`);
+        
+        if (co > cutoff) {
+          const startForOt = ci > cutoff ? ci : cutoff;
+          const otMs = co - startForOt;
+          overtimeHours = otMs / (1000 * 60 * 60);
+          regularHours = Math.max(0, regularHours - overtimeHours);
+        }
+      }
 
       const recordDate = new Date(att.date);
       const recordMonth = recordDate.getMonth() + 1;
@@ -119,7 +140,8 @@ router.get('/:id', async (req, res) => {
       const dailyWage = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
 
       if (hourlyRate > 0) {
-        earnings = parseFloat(att.hours_worked || 0) * hourlyRate;
+        // Hourly rate employees only earn from regular hours (excluding overtime)
+        earnings = regularHours * hourlyRate;
       } else {
         const statusLower = (att.status || '').toLowerCase();
         if (statusLower === 'absent') {
@@ -138,6 +160,8 @@ router.get('/:id', async (req, res) => {
 
       return {
         ...att,
+        regular_hours: Math.round(regularHours * 100) / 100,
+        overtime_hours: Math.round(overtimeHours * 100) / 100,
         earnings: Math.round(earnings * 100) / 100,
         deduction: Math.round(deduction * 100) / 100
       };

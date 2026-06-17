@@ -340,6 +340,7 @@ export default function StaffDetailPage() {
                         <th className="px-6 py-4">Check-In</th>
                         <th className="px-6 py-4">Check-Out</th>
                         <th className="px-6 py-4">Hours Worked</th>
+                        <th className="px-6 py-4">Overtime</th>
                         <th className="px-6 py-4">Earnings</th>
                         <th className="px-6 py-4 text-center">Late/Half Day/Absent</th>
                         <th className="px-6 py-4">Geo Location</th>
@@ -383,6 +384,9 @@ export default function StaffDetailPage() {
                             </td>
                             <td className="px-6 py-4 font-bold font-mono text-gray-900">
                               {att.hours_worked > 0 ? `${parseFloat(att.hours_worked).toFixed(1)} hrs` : '—'}
+                            </td>
+                            <td className="px-6 py-4 font-bold font-mono text-amber-600">
+                              {att.overtime_hours > 0 ? `${parseFloat(att.overtime_hours).toFixed(1)} hrs` : '—'}
                             </td>
                             <td className="px-6 py-4 font-bold font-mono text-emerald-600">
                               {att.earnings > 0 ? `₹${Number(att.earnings).toLocaleString('en-IN')}` : '—'}
