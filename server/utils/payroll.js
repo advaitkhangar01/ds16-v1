@@ -147,9 +147,25 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       checkinZone = record.checkin_zone;
       checkinDistance = record.checkin_distance;
 
-      // Lateness: use persisted values from check-in
-      isLate = record.is_late || false;
-      lateMins = record.late_minutes || 0;
+      // Lateness: calculate on the fly for backward compatibility with manual/historical records
+      if (record.check_in) {
+        const checkInTimeStr = getISTTime(record.check_in);
+        const [ciH, ciM] = checkInTimeStr.split(':').map(Number);
+        const [startH, startM] = officeStartTimeStr.split(':').map(Number);
+        const diffMins = (ciH * 60 + ciM) - (startH * 60 + startM);
+        
+        let isLateThresholdMet = false;
+        if (settings.late_threshold_time) {
+          isLateThresholdMet = checkInTimeStr > settings.late_threshold_time;
+        } else {
+          isLateThresholdMet = diffMins > lateThresholdMins;
+        }
+
+        if (isLateThresholdMet) {
+          isLate = true;
+          lateMins = diffMins;
+        }
+      }
 
       if (status === 'present' || status === 'working' || status === 'completed') {
         fullDaysWorked++;
