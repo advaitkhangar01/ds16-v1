@@ -12,6 +12,7 @@ import toast from 'react-hot-toast';
 import TaskModal from '../../components/projects/TaskModal';
 import KanbanBoard from '../../components/dashboard/KanbanBoard';
 import FinancialBreakdownModal from '../../components/dashboard/FinancialBreakdownModal';
+import SalaryBreakdownModal from '../../components/dashboard/SalaryBreakdownModal';
 import { createPortal } from 'react-dom';
 
 // ── Skeleton loader
@@ -204,48 +205,57 @@ function FinancialStats({ finances, onOpenBreakdown }) {
 
 
 
-function MyAdminSalaryStats({ salary }) {
+function MyAdminSalaryStats({ salary, onCardClick }) {
   if (!salary) return null;
   
   return (
     <div className="grid grid-cols-2 gap-4">
-      <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">My Earnings (Month)</p>
+      {/* Earnings Card — click opens modal on Earnings tab */}
+      <button
+        type="button"
+        onClick={() => onCardClick('earnings')}
+        className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md hover:border-emerald-200 hover:ring-2 hover:ring-emerald-100 transition-all text-left w-full group cursor-pointer"
+      >
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+          My Earnings (Month)
+          <svg className="w-3 h-3 ml-auto text-slate-200 group-hover:text-emerald-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+          </svg>
+        </p>
         <div className="flex items-baseline gap-1.5">
           <span className="text-xl font-black text-slate-900 font-mono tracking-tight">₹{salary.earned_this_month ?? 0}</span>
-          {salary.today_earned > 0 && <span className="text-[10px] font-bold text-emerald-500 font-mono">+{salary.today_earned}</span>}
+          <span className={`text-[10px] font-bold font-mono ${
+            salary.today_earned > 0 ? 'text-emerald-500' : 'text-slate-300'
+          }`}>
+            {salary.today_earned > 0 ? `+₹${salary.today_earned} today` : 'Not checked in'}
+          </span>
         </div>
-      </div>
+        <p className="text-[9px] text-slate-300 mt-1.5 group-hover:text-emerald-400 transition-colors font-bold uppercase tracking-widest">Click for breakdown →</p>
+      </button>
 
-      <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all group relative">
+      {/* Deductions Card — click opens modal on Deductions tab */}
+      <button
+        type="button"
+        onClick={() => onCardClick('deductions')}
+        className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md hover:border-amber-200 hover:ring-2 hover:ring-amber-100 transition-all text-left w-full group cursor-pointer relative"
+      >
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
-          My Late Arrival/Half Day/ Absent
-          <span className="w-3 h-3 rounded-full border border-slate-300 text-slate-300 text-[8px] font-black flex items-center justify-center cursor-help leading-none">?</span>
+          My Late / Half / Absent
+          <svg className="w-3 h-3 ml-auto text-slate-200 group-hover:text-amber-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+          </svg>
         </p>
         <div className="flex items-baseline gap-1.5">
           <span className="text-xl font-black text-amber-600 font-mono tracking-tight">₹{salary.deductions_this_month ?? 0}</span>
-          {salary.today_deductions > 0 && <span className="text-[10px] font-bold text-amber-400 font-mono">+{salary.today_deductions}</span>}
+          {salary.today_deductions > 0 && (
+            <span className="text-[10px] font-bold text-amber-400 font-mono">+₹{salary.today_deductions} today</span>
+          )}
         </div>
-        
-        <div className="absolute bottom-full left-0 mb-2 w-52 bg-slate-900 text-white text-[10px] rounded-xl p-3 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
-          <p className="font-black uppercase tracking-widest text-slate-400 mb-2 border-b border-slate-800 pb-1">Deduction Rules</p>
-          <div className="space-y-1.5 mt-2">
-            <div className="flex justify-between">
-              <span className="text-slate-400">Late Arrival</span>
-              <span className="text-slate-200">Per instance</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Half Day</span>
-              <span className="text-slate-200">50% Daily Wage</span>
-            </div>
-            <div className="flex justify-between border-t border-slate-800 pt-1 mt-1">
-              <span className="text-slate-400">Late Count</span>
-              <span className="font-bold text-white">{salary.late_count ?? 0}</span>
-            </div>
-          </div>
-          <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-900" />
-        </div>
-      </div>
+        <p className="text-[10px] text-slate-400 mt-1 leading-tight">
+          {[salary.leaves_count > 0 && `${salary.leaves_count} leave`, salary.late_count > 0 && `${salary.late_count} late`, salary.half_day_count > 0 && `${salary.half_day_count} half-day`, salary.unmarked_absent_count > 0 && `${salary.unmarked_absent_count} absent`].filter(Boolean).join(' · ') || 'Leaves, late arrivals & half days'}
+        </p>
+        <p className="text-[9px] text-slate-300 mt-1 group-hover:text-amber-400 transition-colors font-bold uppercase tracking-widest">Click for breakdown →</p>
+      </button>
     </div>
   );
 }
@@ -644,6 +654,16 @@ export default function AdminDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [financialModal, setFinancialModal] = useState({ isOpen: false, type: '', label: '' });
+  const [breakdown, setBreakdown] = useState({ open: false, tab: 'earnings' });
+
+  const openBreakdown = useCallback((tab) => {
+    console.log('[AdminDashboard] openBreakdown called with tab:', tab);
+    setBreakdown({ open: true, tab });
+  }, []);
+  const closeBreakdown = useCallback(() => {
+    console.log('[AdminDashboard] closeBreakdown called');
+    setBreakdown(prev => ({ ...prev, open: false }));
+  }, []);
 
 
   const fetchDashboard = useCallback(async () => {
@@ -676,7 +696,8 @@ export default function AdminDashboard() {
   }, [fetchDashboard]);
 
   return (
-    <AppLayout>
+    <>
+      <AppLayout>
       <div className="space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -702,7 +723,7 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
           <div className="lg:col-span-1 space-y-4">
             <AttendanceCard attendance={data?.my_attendance} onAction={handleAttendanceAction} />
-            <MyAdminSalaryStats salary={data?.salary_stats} />
+            <MyAdminSalaryStats salary={data?.salary_stats} onCardClick={openBreakdown} />
           </div>
           
           <div className="lg:col-span-2">
@@ -797,5 +818,13 @@ export default function AdminDashboard() {
         )}
       </div>
     </AppLayout>
+
+    {/* Salary Breakdown Modal — rendered via portal above everything */}
+    <SalaryBreakdownModal
+      isOpen={breakdown.open}
+      defaultTab={breakdown.tab}
+      onClose={closeBreakdown}
+    />
+  </>
   );
 }
