@@ -112,10 +112,13 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   // Build a daily mapping to reconstruct detailed logs
   const dailyRecords = [];
 
+  const todayStr = getISTDate();
+
   for (let d = 1; d <= daysInMonth; d++) {
     const dateObj = new Date(year, month - 1, d);
     const dateStr = formatDate(dateObj);
     const isSunday = (dateObj.getDay() === 0);
+    const isFuture = dateStr > todayStr;
 
     // Find if user has attendance for this day
     const record = attendance.find(r => formatDate(r.date) === dateStr);
@@ -184,6 +187,8 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       if (isLate && status !== 'half_day' && status !== 'absent') {
         lateCount++;
       }
+    } else if (isFuture) {
+      dayStatus = 'future';
     } else if (isSunday) {
       sundaysCount++;
       dayStatus = 'sunday';
@@ -302,6 +307,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
         } else {
           dayDeduction = 0;
         }
+      } else if (statusLower === 'future') {
+        dayEarnings = 0;
+        dayDeduction = 0;
       } else {
         // present, working, completed, sunday, holiday
         if (att.is_late && statusLower !== 'sunday' && statusLower !== 'holiday') {
@@ -318,6 +326,15 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       deduction: Math.round(dayDeduction * 100) / 100
     };
   });
+
+  // Calculate total deductions as the sum of all daily deductions
+  let calculatedDeductions = 0;
+  if (hourlyRate <= 0 && employee.role !== 'admin') {
+    processedAttendance.forEach(att => {
+      calculatedDeductions += att.deduction;
+    });
+  }
+  totalDeductions = Math.round(calculatedDeductions);
 
   return {
     employee,
