@@ -18,6 +18,10 @@ cd ../client && npm ci && npm run build
 # 3. Reload PM2 (Zero-downtime)
 echo "==> Reloading PM2..."
 cd ..
-pm2 reload ds16-api
+if pm2 list | grep -q "ds16-final"; then
+  pm2 reload ds16-final
+else
+  pm2 reload ds16-api
+fi
 
 echo "✅ Rollback complete. Check status with: pm2 status"

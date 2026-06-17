@@ -227,7 +227,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   let finalPayableDays = 0;
   let latePenaltyDays = 0;
 
-  if (hourlyRate > 0) {
+  if (hourlyRate > 0 && !(baseSalary > 0)) {
     calcMethod = 'hourly';
     totalEarnings = totalHours * hourlyRate;
     totalDeductions = 0;
@@ -238,16 +238,12 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     // Salaried calculation
     const halfDayFactor = 1 - (halfDayPenaltyPercent / 100);
 
-    effectiveDays = employee.role === 'admin' 
-      ? daysInMonth 
-      : (fullDaysWorked + (halfDaysWorked * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
+    effectiveDays = (fullDaysWorked + (halfDaysWorked * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
     
     // Check late penalty
     latePenaltyDays = Math.floor(lateCount / latePenaltyRuleCount) * latePenaltyRuleDays;
 
-    finalPayableDays = employee.role === 'admin' 
-      ? daysInMonth 
-      : Math.max(0, effectiveDays - latePenaltyDays);
+    finalPayableDays = Math.max(0, effectiveDays - latePenaltyDays);
 
     suggestedSalary = Math.round(perDaySalary * finalPayableDays);
     totalEarnings = baseSalary; // Gross expected earnings is baseSalary
@@ -282,11 +278,8 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       }
     }
 
-    if (hourlyRate > 0) {
+    if (hourlyRate > 0 && !(baseSalary > 0)) {
       dayEarnings = regularHours * hourlyRate;
-      dayDeduction = 0;
-    } else if (employee.role === 'admin') {
-      dayEarnings = perDaySalary;
       dayDeduction = 0;
     } else {
       dayEarnings = perDaySalary;
@@ -329,7 +322,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
 
   // Calculate total deductions as the sum of all daily deductions
   let calculatedDeductions = 0;
-  if (hourlyRate <= 0 && employee.role !== 'admin') {
+  if (hourlyRate <= 0 || baseSalary > 0) {
     processedAttendance.forEach(att => {
       calculatedDeductions += att.deduction;
     });

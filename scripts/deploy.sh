@@ -44,7 +44,11 @@ npm run build
 # 5. Reload server via PM2 (Zero-downtime)
 echo "==> Reloading PM2 process..."
 cd ..
-pm2 reload ds16-api --update-env
+if pm2 list | grep -q "ds16-final"; then
+  pm2 reload ds16-final --update-env
+else
+  pm2 reload ds16-api --update-env
+fi
 pm2 save
 
 echo "✅ Deploy complete at $(date)"
