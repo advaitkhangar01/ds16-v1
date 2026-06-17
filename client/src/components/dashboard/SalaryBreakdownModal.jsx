@@ -100,7 +100,7 @@ export default function SalaryBreakdownModal({ isOpen, onClose, defaultTab = 'ea
     return true;
   });
 
-  const totalEarnings   = visible.reduce((s, d) => s + (d.earnings  || 0), 0);
+  const totalEarnings   = visible.reduce((s, d) => s + Math.max(0, (d.earnings || 0) - (d.deduction || 0)), 0);
   const totalDeductions = visible.reduce((s, d) => s + (d.deduction || 0), 0);
 
   return createPortal(
@@ -224,7 +224,7 @@ export default function SalaryBreakdownModal({ isOpen, onClose, defaultTab = 'ea
                 <table className="w-full text-[11px] border-separate border-spacing-0">
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-slate-50">
-                      {['Date','Day','Status','Check-in','Check-out','Hours','Earnings','Deduction'].map(h => (
+                      {['Date','Day','Status','Check-in','Check-out','Hours', tab === 'earnings' ? 'Earned' : 'Deduction'].map(h => (
                         <th key={h} className="px-3 py-2.5 text-left text-[9px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap border-b border-slate-100">
                           {h}
                         </th>
@@ -261,16 +261,19 @@ export default function SalaryBreakdownModal({ isOpen, onClose, defaultTab = 'ea
                           <td className="px-3 py-2.5 font-mono text-slate-500">
                             {d.hours_worked > 0 ? `${parseFloat(d.hours_worked).toFixed(1)}h` : <span className="text-slate-200">-</span>}
                           </td>
-                          <td className="px-3 py-2.5 font-mono font-bold whitespace-nowrap">
-                            {!isFuture && d.earnings > 0
-                              ? <span className="text-emerald-600">₹{d.earnings.toLocaleString('en-IN')}</span>
-                              : <span className="text-slate-200">-</span>}
-                          </td>
-                          <td className="px-3 py-2.5 font-mono font-bold whitespace-nowrap">
-                            {d.deduction > 0
-                              ? <span className="text-red-500">-₹{d.deduction.toLocaleString('en-IN')}</span>
-                              : <span className="text-slate-200">-</span>}
-                          </td>
+                          {tab === 'earnings' ? (
+                            <td className="px-3 py-2.5 font-mono font-bold whitespace-nowrap">
+                              {!isFuture && (d.earnings - d.deduction) > 0
+                                ? <span className="text-emerald-600">₹{Math.round(d.earnings - d.deduction).toLocaleString('en-IN')}</span>
+                                : <span className="text-slate-200">-</span>}
+                            </td>
+                          ) : (
+                            <td className="px-3 py-2.5 font-mono font-bold whitespace-nowrap">
+                              {d.deduction > 0
+                                ? <span className="text-red-500">-₹{d.deduction.toLocaleString('en-IN')}</span>
+                                : <span className="text-slate-200">-</span>}
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -285,13 +288,13 @@ export default function SalaryBreakdownModal({ isOpen, onClose, defaultTab = 'ea
                 {visible.length} of {daily.length} days
               </p>
               <div className="flex items-center gap-6">
-                {totalEarnings > 0 && (
+                {tab === 'earnings' && totalEarnings > 0 && (
                   <div className="text-right">
                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Shown Earned</p>
                     <p className="text-sm font-black text-emerald-600 font-mono leading-tight">₹{totalEarnings.toLocaleString('en-IN')}</p>
                   </div>
                 )}
-                {totalDeductions > 0 && (
+                {tab === 'deductions' && totalDeductions > 0 && (
                   <div className="text-right">
                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Shown Deducted</p>
                     <p className="text-sm font-black text-red-500 font-mono leading-tight">-₹{totalDeductions.toLocaleString('en-IN')}</p>
