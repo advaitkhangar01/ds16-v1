@@ -19,7 +19,10 @@ async function calculateSalaryStats(userId, month, year, todayStr, settings) {
     today_earned: todayRecord ? Math.round(todayRecord.earnings) : 0,
     today_deductions: todayRecord ? Math.round(todayRecord.deduction) : 0,
     late_count: payrollData.late_count,
-    half_day_count: payrollData.half_days
+    half_day_count: payrollData.half_days,
+    leaves_count: payrollData.leaves_count,
+    unpaid_leaves: payrollData.unpaid_leaves,
+    unmarked_absent_count: payrollData.unmarked_absent_count
   };
 }
 

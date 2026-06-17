@@ -33,15 +33,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   );
   const paidHolidayCount = holidays.filter(h => h.is_paid).length;
 
-  // 4. Fetch Unpaid Leaves count from summary
-  const { rows: leaveSummaryRows } = await dbPool.query(
-    `SELECT unpaid_leaves FROM employee_leave_summary 
-     WHERE user_id = $1 AND month = $2 AND year = $3`,
-    [userId, month, year]
-  );
-  const unpaidLeaves = parseFloat(leaveSummaryRows[0]?.unpaid_leaves || 0);
-
-  // 5. Fetch Leave Requests for the month
+  // 4. Fetch Leave Requests for the month (moved up to support on-the-fly unpaid leaves calculation)
   const daysInMonth = new Date(year, month, 0).getDate();
   const startStr = `${year}-${String(month).padStart(2, '0')}-01`;
   const endStr = `${year}-${String(month).padStart(2, '0')}-${daysInMonth}`;
@@ -52,12 +44,49 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     [userId, startStr, endStr]
   );
 
+  // 5. Fetch or calculate Unpaid Leaves count
+  let unpaidLeaves = 0;
+  const { rows: leaveSummaryRows } = await dbPool.query(
+    `SELECT unpaid_leaves FROM employee_leave_summary 
+     WHERE user_id = $1 AND month = $2 AND year = $3`,
+    [userId, month, year]
+  );
+  if (leaveSummaryRows.length > 0) {
+    unpaidLeaves = parseFloat(leaveSummaryRows[0].unpaid_leaves || 0);
+  } else {
+    // Month is not closed yet; calculate unpaid leaves on the fly
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+    const { rows: prevBalRows } = await dbPool.query(
+      'SELECT closing_balance FROM employee_leave_balance WHERE user_id = $1 AND month = $2 AND year = $3',
+      [userId, prevMonth, prevYear]
+    );
+    const prevClosingBalance = prevBalRows[0] ? parseFloat(prevBalRows[0].closing_balance) : 0.00;
+
+    let leavesTaken = 0;
+    const startOfMonth = new Date(startStr);
+    const endOfMonth = new Date(endStr);
+    for (const lr of leaveRequests) {
+      const leaveStart = new Date(lr.start_date);
+      const leaveEnd = new Date(lr.end_date);
+      const overlapStart = new Date(Math.max(leaveStart.getTime(), startOfMonth.getTime()));
+      const overlapEnd = new Date(Math.min(leaveEnd.getTime(), endOfMonth.getTime()));
+      const diffMs = overlapEnd.getTime() - overlapStart.getTime();
+      if (diffMs >= 0) {
+        leavesTaken += Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1;
+      }
+    }
+    unpaidLeaves = Math.max(0, leavesTaken - (prevClosingBalance + 1.50));
+  }
+
   // Parse settings
   const officeStartTimeStr = settings.office_start_time || '10:00';
   const lateThresholdMins = parseInt(settings.late_threshold_mins || 15);
   const latePenaltyAmount = parseFloat(settings.late_penalty_amount || 0);
   const halfDayThresholdHours = parseFloat(settings.half_day_threshold_hours || 4);
   const halfDayPenaltyPercent = parseFloat(settings.half_day_penalty_percent || 50);
+  const latePenaltyRuleCount = parseInt(settings.late_penalty_rule_count || 3);
+  const latePenaltyRuleDays = parseFloat(settings.late_penalty_rule_days || 0.5);
 
   const formatDate = (dateInput) => {
     if (!dateInput) return '';
@@ -118,17 +147,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       checkinZone = record.checkin_zone;
       checkinDistance = record.checkin_distance;
 
-      // Lateness
-      if (record.check_in) {
-        const checkInTimeStr = getISTTime(record.check_in);
-        const [ciH, ciM] = checkInTimeStr.split(':').map(Number);
-        const [startH, startM] = officeStartTimeStr.split(':').map(Number);
-        const diffMins = (ciH * 60 + ciM) - (startH * 60 + startM);
-        if (diffMins > lateThresholdMins) {
-          isLate = true;
-          lateMins = diffMins;
-        }
-      }
+      // Lateness: use persisted values from check-in
+      isLate = record.is_late || false;
+      lateMins = record.late_minutes || 0;
 
       if (status === 'present' || status === 'working' || status === 'completed') {
         fullDaysWorked++;
@@ -194,14 +215,13 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     finalPayableDays = totalHours;
   } else {
     // Salaried calculation
-    // effectiveDays = present + half_day*0.5 + holidays + sundays + paid_leaves
+    const halfDayFactor = 1 - (halfDayPenaltyPercent / 100);
+
     effectiveDays = employee.role === 'admin' 
       ? daysInMonth 
-      : (fullDaysWorked + (halfDaysWorked * 0.5) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
+      : (fullDaysWorked + (halfDaysWorked * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
     
     // Check late penalty
-    const latePenaltyRuleCount = parseInt(settings.late_penalty_rule_count || 3);
-    const latePenaltyRuleDays = parseFloat(settings.late_penalty_rule_days || 0.5);
     latePenaltyDays = Math.floor(lateCount / latePenaltyRuleCount) * latePenaltyRuleDays;
 
     finalPayableDays = employee.role === 'admin' 
@@ -214,6 +234,12 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   }
 
   // Pre-calculate earnings and deduction for each daily record
+  let unpaidLeavesRemaining = unpaidLeaves;
+  const calculatedLatePenaltyDays = Math.floor(lateCount / latePenaltyRuleCount) * latePenaltyRuleDays;
+  const totalLatePenalty = calculatedLatePenaltyDays * perDaySalary;
+  const latePenaltyPerLate = lateCount > 0 ? (totalLatePenalty / lateCount) : 0;
+  const halfDayPenaltyFactor = halfDayPenaltyPercent / 100;
+
   const processedAttendance = dailyRecords.map(att => {
     let dayDeduction = 0;
     let dayEarnings = 0;
@@ -238,18 +264,32 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     if (hourlyRate > 0) {
       dayEarnings = regularHours * hourlyRate;
       dayDeduction = 0;
+    } else if (employee.role === 'admin') {
+      dayEarnings = perDaySalary;
+      dayDeduction = 0;
     } else {
       dayEarnings = perDaySalary;
       const statusLower = att.status.toLowerCase();
       if (statusLower === 'absent') {
         dayDeduction = perDaySalary;
       } else if (statusLower === 'half_day') {
-        dayDeduction = perDaySalary * (halfDayPenaltyPercent / 100);
+        dayDeduction = perDaySalary * halfDayPenaltyFactor;
       } else if (statusLower === 'leave') {
-        dayDeduction = 0; 
+        if (unpaidLeavesRemaining > 0) {
+          if (unpaidLeavesRemaining >= 1) {
+            dayDeduction = perDaySalary;
+            unpaidLeavesRemaining -= 1;
+          } else {
+            dayDeduction = perDaySalary * unpaidLeavesRemaining;
+            unpaidLeavesRemaining = 0;
+          }
+        } else {
+          dayDeduction = 0;
+        }
       } else {
+        // present, working, completed, sunday, holiday
         if (att.is_late && statusLower !== 'sunday' && statusLower !== 'holiday') {
-          dayDeduction = latePenaltyAmount;
+          dayDeduction = latePenaltyPerLate;
         }
       }
     }
