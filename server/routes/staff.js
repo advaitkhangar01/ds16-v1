@@ -99,6 +99,39 @@ router.get('/:id', async (req, res) => {
       LIMIT 50
     `, [id]);
 
+    // Fetch app settings to calculate penalty deductions
+    const settingsRes = await pool.query('SELECT key, value FROM app_settings');
+    const settings = settingsRes.rows.reduce((acc, row) => { acc[row.key] = row.value; return acc; }, {});
+
+    const baseSalary = parseFloat(employee.base_salary || 0);
+    const hourlyRate = parseFloat(employee.hourly_rate || 0);
+    const latePenaltyAmount = parseFloat(settings.late_penalty_amount || 0);
+    const halfDayPenaltyPercent = parseFloat(settings.half_day_penalty_percent || 50);
+
+    const processedAttendance = attendance.map(att => {
+      let deduction = 0;
+      if (hourlyRate <= 0) {
+        const recordDate = new Date(att.date);
+        const recordMonth = recordDate.getMonth() + 1;
+        const recordYear = recordDate.getFullYear();
+        const daysInMonth = new Date(recordYear, recordMonth, 0).getDate();
+        const dailyWage = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
+
+        const statusLower = (att.status || '').toLowerCase();
+        if (statusLower === 'absent') {
+          deduction = dailyWage;
+        } else if (statusLower === 'half_day') {
+          deduction = dailyWage * (halfDayPenaltyPercent / 100);
+        } else if (att.is_late) {
+          deduction = latePenaltyAmount;
+        }
+      }
+      return {
+        ...att,
+        deduction: Math.round(deduction * 100) / 100
+      };
+    });
+
     // 5. Leaves History
     const { rows: leaveStats } = await pool.query(`
       SELECT 
@@ -132,7 +165,7 @@ router.get('/:id', async (req, res) => {
         total_late: parseInt(attStats[0]?.total_late || 0),
         avg_hours: parseFloat(attStats[0]?.avg_hours || 0).toFixed(1)
       },
-      attendance,
+      attendance: processedAttendance,
       leaveStats: {
         approved_leaves: parseInt(leaveStats[0]?.approved_leaves || 0),
         pending_leaves: parseInt(leaveStats[0]?.pending_leaves || 0)

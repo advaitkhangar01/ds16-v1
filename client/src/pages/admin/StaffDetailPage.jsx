@@ -351,16 +351,18 @@ export default function StaffDetailPage() {
                         const isLate = att.is_late === true;
                         const dailyEarnings = parseFloat(att.hours_worked || 0) * parseFloat(employee.hourly_rate || 0);
 
+                        const deductionText = att.deduction > 0 ? ` (₹${Math.round(att.deduction).toLocaleString('en-IN')})` : '';
+
                         let anomalyLabel = 'Regular';
                         let anomalyClass = 'bg-slate-50 text-slate-500 border-slate-200';
                         if (att.status === 'absent') {
-                          anomalyLabel = 'Absent';
+                          anomalyLabel = `Absent${deductionText}`;
                           anomalyClass = 'bg-red-50 text-red-600 border border-red-100 font-bold';
                         } else if (att.status === 'half_day') {
-                          anomalyLabel = 'Half Day';
+                          anomalyLabel = `Half Day${deductionText}`;
                           anomalyClass = 'bg-amber-50 text-amber-600 border border-amber-100 font-bold';
                         } else if (isLate) {
-                          anomalyLabel = `Late Arrival (${att.late_minutes}m)`;
+                          anomalyLabel = `Late Arrival (${att.late_minutes}m)${deductionText}`;
                           anomalyClass = 'bg-red-50/50 text-red-500 border border-red-100/50 font-bold';
                         }
 
