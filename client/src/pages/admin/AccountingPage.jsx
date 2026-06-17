@@ -1644,7 +1644,7 @@ export default function AccountingPage() {
                             </td>
                             <td className="px-6 py-4 text-center">
                               <span className={`font-bold ${emp.total_hours > 0 ? 'text-primary' : 'text-gray-400'}`}>
-                                {emp.total_hours || 0}h
+                                {emp.total_hours ? Number(emp.total_hours).toFixed(2) : 0}h
                               </span>
                             </td>
                             <td className="px-6 py-4 text-right">
