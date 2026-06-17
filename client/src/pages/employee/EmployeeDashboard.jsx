@@ -802,61 +802,63 @@ export default function EmployeeDashboard() {
   }
 
   return (
-    <AppLayout>
-      <div className="space-y-6 max-w-[1600px] mx-auto">
-        {/* Header Section */}
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-none mb-2">
-              Hey, {user?.name?.split(' ')[0]}!
-            </h1>
-            <p className="text-[11px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Production Active • {todayIST()}
-            </p>
+    <>
+      <AppLayout>
+        <div className="space-y-6 max-w-[1600px] mx-auto">
+          {/* Header Section */}
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-none mb-2">
+                Hey, {user?.name?.split(' ')[0]}!
+              </h1>
+              <p className="text-[11px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                Production Active • {todayIST()}
+              </p>
+            </div>
+            
+            <div className="flex-1 max-w-4xl">
+              <AttendanceStatus 
+                attendance={data?.attendance} 
+                onAction={fetchData} 
+              />
+            </div>
           </div>
-          
-          <div className="flex-1 max-w-4xl">
-            <AttendanceStatus 
-              attendance={data?.attendance} 
-              onAction={fetchData} 
-            />
+
+          {/* Stats & Team Section */}
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+            <div className="xl:col-span-3 space-y-6">
+              <QuickStats 
+                salary={data?.salary_stats}
+                onCardClick={openBreakdown}
+              />
+              <TaskKanbanBoard />
+            </div>
+            <div className="xl:col-span-1">
+              <TeamAttendanceCompact records={data?.team_attendance || []} />
+            </div>
+          </div>
+
+          {/* Main Content: Kanban Boards */}
+          <div className="space-y-8">
+            <div className="relative">
+              <div className="absolute -left-4 top-0 bottom-0 w-1 bg-[#E05A1E] rounded-full hidden lg:block" />
+              <h2 className="text-xl font-black text-slate-900 tracking-tight mb-4 flex items-center gap-3">
+                Project Pipeline
+                <span className="text-[10px] px-2 py-0.5 bg-slate-100 text-slate-400 rounded-full font-bold">Live Status</span>
+              </h2>
+              <KanbanBoard kanban={data?.kanban} />
+            </div>
           </div>
         </div>
+      </AppLayout>
 
-        {/* Stats & Team Section */}
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-          <div className="xl:col-span-3 space-y-6">
-            <QuickStats 
-              salary={data?.salary_stats}
-              onCardClick={openBreakdown}
-            />
-            <TaskKanbanBoard />
-          </div>
-          <div className="xl:col-span-1">
-            <TeamAttendanceCompact records={data?.team_attendance || []} />
-          </div>
-        </div>
-
-        {/* Main Content: Kanban Boards */}
-        <div className="space-y-8">
-          <div className="relative">
-            <div className="absolute -left-4 top-0 bottom-0 w-1 bg-[#E05A1E] rounded-full hidden lg:block" />
-            <h2 className="text-xl font-black text-slate-900 tracking-tight mb-4 flex items-center gap-3">
-              Project Pipeline
-              <span className="text-[10px] px-2 py-0.5 bg-slate-100 text-slate-400 rounded-full font-bold">Live Status</span>
-            </h2>
-            <KanbanBoard kanban={data?.kanban} />
-          </div>
-        </div>
-      </div>
-    </AppLayout>
-
-    {/* Salary Breakdown Modal — rendered via portal above everything */}
-    <SalaryBreakdownModal
-      isOpen={breakdown.open}
-      defaultTab={breakdown.tab}
-      onClose={closeBreakdown}
-    />
+      {/* Salary Breakdown Modal — rendered via portal above everything */}
+      <SalaryBreakdownModal
+        isOpen={breakdown.open}
+        defaultTab={breakdown.tab}
+        onClose={closeBreakdown}
+      />
+    </>
   );
 }
