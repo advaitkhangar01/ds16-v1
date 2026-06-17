@@ -491,6 +491,45 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
 });
 
 
+// GET /api/dashboard/salary-breakdown
+// Returns full daily payroll breakdown for the logged-in employee (current month).
+// Fetched lazily — only when the employee opens the breakdown modal.
+router.get('/salary-breakdown', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const todayStr = getISTDate();
+    const [year, month] = todayStr.split('-').map(Number);
+
+    const settingsRes = await pool.query('SELECT key, value FROM app_settings');
+    const settings = settingsRes.rows.reduce((acc, row) => { acc[row.key] = row.value; return acc; }, {});
+
+    const payrollData = await calculatePayrollForEmployee(userId, month, year, settings, pool);
+    if (!payrollData) return res.status(404).json({ error: 'No payroll data found' });
+
+    res.json({
+      month,
+      year,
+      summary: {
+        base_salary:           parseFloat(payrollData.employee.base_salary || 0),
+        earned_this_month:     Math.max(0, payrollData.suggested_salary),
+        deductions_this_month: payrollData.deductions,
+        full_days:             payrollData.full_days_worked,
+        half_days:             payrollData.half_days_worked,
+        late_count:            payrollData.late_count,
+        leaves_count:          payrollData.leaves_count,
+        unmarked_absent_count: payrollData.unmarked_absent_count,
+        total_days:            payrollData.total_days,
+        payable_days:          payrollData.payable_days,
+        calculation_method:    payrollData.calculation_method,
+      },
+      daily: payrollData.processedAttendance,
+    });
+  } catch (err) {
+    console.error('Salary breakdown error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/dashboard/employee
 router.get('/employee', authenticate, async (req, res) => {
   try {
