@@ -102,6 +102,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
 
   let fullDaysWorked = 0;
   let halfDaysWorked = 0;
+  let lateHalfDayCount = 0; // half-day days that are also late — get late penalty only
   let sundaysCount = 0;
   let holidaysCount = 0;
   let leavesCount = 0;
@@ -184,8 +185,12 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
         dayStatus = 'present';
       }
 
-      if (isLate && status !== 'half_day' && status !== 'absent') {
+      if (isLate && status !== 'absent') {
         lateCount++;
+        if (status === 'half_day') {
+          // Late on a half-day → penalise as late arrival only, treat day as full for payroll
+          lateHalfDayCount++;
+        }
       }
     } else if (isFuture) {
       dayStatus = 'future';
@@ -238,7 +243,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     // Salaried calculation
     const halfDayFactor = 1 - (halfDayPenaltyPercent / 100);
 
-    effectiveDays = (fullDaysWorked + (halfDaysWorked * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
+    // late+half-day days count as full days (only late penalty applies, not the half-day deduction)
+    const netHalfDays = halfDaysWorked - lateHalfDayCount;
+    effectiveDays = (fullDaysWorked + lateHalfDayCount + (netHalfDays * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
     
     // Check late penalty
     latePenaltyDays = Math.floor(lateCount / latePenaltyRuleCount) * latePenaltyRuleDays;
@@ -287,7 +294,12 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       if (statusLower === 'absent') {
         dayDeduction = perDaySalary;
       } else if (statusLower === 'half_day') {
-        dayDeduction = perDaySalary * halfDayPenaltyFactor;
+        // If also late: apply only late penalty (day already counts as full in effectiveDays)
+        if (att.is_late) {
+          dayDeduction = latePenaltyPerLate;
+        } else {
+          dayDeduction = perDaySalary * halfDayPenaltyFactor;
+        }
       } else if (statusLower === 'leave') {
         if (unpaidLeavesRemaining > 0) {
           if (unpaidLeavesRemaining >= 1) {

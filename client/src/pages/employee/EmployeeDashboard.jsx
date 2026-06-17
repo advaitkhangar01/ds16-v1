@@ -25,7 +25,11 @@ function QuickStats({ salary }) {
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Earnings (This Month)</p>
         <div className="flex items-baseline gap-1.5">
           <span className="text-xl font-black text-slate-900 font-mono tracking-tight">₹{salary?.earned_this_month ?? 0}</span>
-          {salary?.today_earned > 0 && <span className="text-[10px] font-bold text-emerald-500 font-mono">+{salary.today_earned}</span>}
+          <span className={`text-[10px] font-bold font-mono ${
+            salary?.today_earned > 0 ? 'text-emerald-500' : 'text-slate-300'
+          }`}>
+            {salary?.today_earned > 0 ? `+₹${salary.today_earned} today` : 'Not checked in'}
+          </span>
         </div>
       </div>
 
@@ -58,6 +62,12 @@ function QuickStats({ salary }) {
               <span className="text-slate-300">Half days</span>
               <span className="font-mono font-bold text-white">{salary?.half_day_count ?? 0} day(s)</span>
             </div>
+            {(salary?.unmarked_absent_count ?? 0) > 0 && (
+              <div className="flex justify-between border-t border-slate-700 pt-1 mt-1">
+                <span className="text-slate-300">Unmarked absent</span>
+                <span className="font-mono font-bold text-amber-400">{salary.unmarked_absent_count} day(s)</span>
+              </div>
+            )}
           </div>
           {/* Tooltip arrow */}
           <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-900" />
