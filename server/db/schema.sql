@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
   client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
   client_name VARCHAR(200),
+  client_company VARCHAR(200),
   amount DECIMAL(15, 2) NOT NULL,
   date DATE DEFAULT CURRENT_DATE,
   items JSONB,

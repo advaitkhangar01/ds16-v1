@@ -133,7 +133,13 @@ router.get('/:id', authenticate, checkProjectAccess(), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT p.*, u.name as created_by_name,
-              c.name as client_display_name, c.company_name as client_company, c.gst_number, c.pan_number
+              c.name as client_display_name, c.company_name as client_company, 
+              c.gst_number, c.pan_number, c.phone as client_phone, c.email as client_email, c.address as client_address,
+              (SELECT name FROM client_contacts WHERE client_id = c.id AND is_primary = TRUE LIMIT 1) as primary_contact_name,
+              (SELECT phone FROM client_contacts WHERE client_id = c.id AND is_primary = TRUE LIMIT 1) as primary_contact_phone,
+              (SELECT email FROM client_contacts WHERE client_id = c.id AND is_primary = TRUE LIMIT 1) as primary_contact_email,
+              (SELECT phone FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as project_stakeholder_phone,
+              (SELECT email FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as project_stakeholder_email
        FROM projects p
        LEFT JOIN users u ON u.id = p.created_by
        LEFT JOIN clients c ON c.id = p.client_id

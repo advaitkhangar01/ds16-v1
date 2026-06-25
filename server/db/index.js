@@ -92,6 +92,7 @@ pool.query('SELECT NOW()', (err) => {
         // 3. Ensure invoices table has due_date and signature_data columns
         await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS due_date DATE");
         await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS signature_data TEXT");
+        await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS client_company VARCHAR(200)");
         
         // 4. Ensure project_payment_stages is correct
         await pool.query(`

@@ -43,10 +43,11 @@ export default function InvoiceHistoryTab({ projectId, project }) {
           payment_stage_id: parseInt(inv.id.replace('stage-', '')),
           project_id: projectId,
           billToName: project?.client_display_name || project?.client_name || '',
-          billToAddress: project?.location || '',
+          billToCompany: project?.client_company || '',
+          billToAddress: project?.client_address || project?.location || '',
           billToGst: project?.gst_number || '',
-          billToPhone: project?.primary_contact_phone || '',
-          billToEmail: project?.primary_contact_email || '',
+          billToPhone: project?.primary_contact_phone || project?.client_phone || project?.project_stakeholder_phone || '',
+          billToEmail: project?.primary_contact_email || project?.client_email || project?.project_stakeholder_email || '',
           items: [
             {
               id: Date.now(),
@@ -212,10 +213,11 @@ export default function InvoiceHistoryTab({ projectId, project }) {
               preFill: { 
                 project_id: projectId,
                 billToName: project?.client_display_name || project?.client_name || '',
-                billToAddress: project?.location || '',
+                billToCompany: project?.client_company || '',
+                billToAddress: project?.client_address || project?.location || '',
                 billToGst: project?.gst_number || '',
-                billToPhone: project?.primary_contact_phone || '',
-                billToEmail: project?.primary_contact_email || '',
+                billToPhone: project?.primary_contact_phone || project?.client_phone || project?.project_stakeholder_phone || '',
+                billToEmail: project?.primary_contact_email || project?.client_email || project?.project_stakeholder_email || '',
                 items: [{ id: Date.now(), description: '', quantity: 1, rate: 0 }]
               } 
             } 

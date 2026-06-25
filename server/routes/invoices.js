@@ -13,7 +13,7 @@ router.get('/', authenticate, async (req, res) => {
 
     // 1. Fetch actual invoices matching filters
     let query = `
-      SELECT i.*, p.name as project_name, c.name as client_name_full
+      SELECT i.*, p.name as project_name, c.name as client_name_full, c.company_name as client_company_full
       FROM invoices i
       LEFT JOIN projects p ON p.id = i.project_id
       LEFT JOIN clients c ON c.id = i.client_id
@@ -233,7 +233,7 @@ router.get('/:id', authenticate, checkProjectAccess({ idIsResource: 'invoice' })
   }
   try {
     const { rows } = await pool.query(
-      `SELECT i.*, p.name as project_name, c.name as client_name_full
+      `SELECT i.*, p.name as project_name, c.name as client_name_full, c.company_name as client_company_full
        FROM invoices i
        LEFT JOIN projects p ON p.id = i.project_id
        LEFT JOIN clients c ON c.id = i.client_id
@@ -262,6 +262,7 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
       project_id, 
       client_id, 
       client_name, 
+      client_company, 
       amount, 
       date, 
       items, 
@@ -312,10 +313,10 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
     // Strict INSERT — will throw a unique_violation (code 23505) if invoice_no already exists
     const query = `
       INSERT INTO invoices (
-        invoice_no, project_id, client_id, client_name, amount, 
+        invoice_no, project_id, client_id, client_name, client_company, amount, 
         date, items, tax_details, status, due_date, signature_data, payment_stage_id, created_by, received_amount
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *;
     `;
 
@@ -324,6 +325,7 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
       project_id || null, 
       client_id || null, 
       client_name, 
+      client_company || null, 
       parsedAmount, 
       date || new Date(), 
       JSON.stringify(items), 

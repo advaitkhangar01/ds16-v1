@@ -20,6 +20,7 @@ const INITIAL_FORM = {
   buyerOrderNo: '', // Buyer's Order No.
   termsOfDelivery: '',
   billToName: '',
+  billToCompany: '',
   billToAddress: '',
   billToGst: '',
   billToPhone: '',
@@ -255,6 +256,7 @@ export default function InvoicePage() {
         buyerOrderNo: inv.buyer_order_no || inv.tax_details?.buyerOrderNo || '',
         termsOfDelivery: inv.tax_details?.termsOfDelivery || '',
         billToName: inv.client_name || '',
+        billToCompany: inv.client_company || inv.client_company_full || '',
         billToAddress: inv.bill_to_address || '',
         billToGst: inv.bill_to_gst || '',
         billToPhone: inv.bill_to_phone || '',
@@ -392,6 +394,7 @@ export default function InvoicePage() {
         payment_stage_ids: selectedStageIds,
         client_id: clients.find(c => c.name === formData.billToName)?.id,
         client_name: formData.billToName,
+        client_company: formData.billToCompany,
         amount: grandTotal,
         date: formData.date,
         items: formData.items,
@@ -640,10 +643,11 @@ export default function InvoicePage() {
       ...prev,
       project_id: p.id,
       billToName: p.client_name || '',
-      billToAddress: p.location || client?.address || '',
+      billToCompany: client?.company_name || p.client_company || '',
+      billToAddress: client?.address || p.location || '',
       billToGst: client?.gst_number || '',
-      billToPhone: client?.primary_contact_phone || p.primary_contact_phone || '',
-      billToEmail: client?.primary_contact_email || ''
+      billToPhone: client?.primary_contact_phone || client?.phone || p.primary_contact_phone || '',
+      billToEmail: client?.primary_contact_email || client?.email || ''
     }));
     setSelectedStageIds([]);
     fetchProjectStages(p.id);
@@ -807,10 +811,11 @@ export default function InvoicePage() {
                             setFormData(prev => ({ 
                               ...prev, 
                               billToName: c.name, 
+                              billToCompany: c.company_name || '',
                               billToAddress: c.address || '',
                               billToGst: c.gst_number || '',
-                              billToPhone: c.primary_contact_phone || '', 
-                              billToEmail: c.primary_contact_email || '' 
+                              billToPhone: c.primary_contact_phone || c.phone || '', 
+                              billToEmail: c.primary_contact_email || c.email || '' 
                             }));
                             setIsClientDropdownOpen(false);
                             setClientSearch('');
@@ -823,6 +828,15 @@ export default function InvoicePage() {
                     </div>
                   )}
                 </div>
+
+                <input 
+                  type="text" 
+                  name="billToCompany" 
+                  value={formData.billToCompany} 
+                  onChange={handleChange} 
+                  className="input text-xs" 
+                  placeholder="Client Company Name (Optional)" 
+                />
 
                 <textarea 
                   name="billToAddress" 
@@ -1117,10 +1131,17 @@ export default function InvoicePage() {
 
             {/* Buyer (Bill to) Header & Box */}
             <div className="w-full bg-gray-100 text-[#1A1A1A] px-3 py-1 text-[8px] font-black uppercase tracking-wider border border-black border-t-0">
-              Buyer (Bill to) - {formData.billToName || 'CLIENT NAME'}
+              Buyer (Bill to) - {formData.billToCompany || formData.billToName || 'CLIENT NAME'}
             </div>
             <div className="w-full border border-black border-t-0 p-3 text-[10px] space-y-1 leading-normal font-bold">
-              <div className="text-base font-black text-gray-900 leading-none mb-1">{formData.billToName || 'CLIENT NAME'}</div>
+              {formData.billToCompany ? (
+                <>
+                  <div className="text-base font-black text-gray-900 leading-none mb-1">{formData.billToCompany}</div>
+                  <div className="text-xs text-gray-600 font-semibold mb-1">Attn: {formData.billToName}</div>
+                </>
+              ) : (
+                <div className="text-base font-black text-gray-900 leading-none mb-1">{formData.billToName || 'CLIENT NAME'}</div>
+              )}
               <div className="text-gray-600 font-medium whitespace-pre-wrap">{formData.billToAddress || 'Client Address Not Provided'}</div>
               <div className="grid grid-cols-2 gap-4 pt-1 text-[8px]">
                 {formData.billToGst && <p><span className="text-gray-400 uppercase font-black">GSTIN:</span> {formData.billToGst}</p>}
