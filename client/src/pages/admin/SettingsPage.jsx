@@ -372,6 +372,7 @@ export default function SettingsPage() {
                             u.role === 'design' ? 'bg-orange-100 text-orange-700' :
                             u.role === 'liasoning' ? 'bg-teal-100 text-teal-700' :
                             u.role === 'civil_engineer' ? 'bg-indigo-100 text-indigo-700' :
+                            u.role === 'project_head' ? 'bg-cyan-100 text-cyan-700' :
                             'bg-blue-100 text-blue-700'
                           }`}>
                             {u.role === 'design_head' ? 'Design Head' : 
@@ -380,6 +381,7 @@ export default function SettingsPage() {
                              u.role === 'accounts' ? 'Accounts' : 
                              u.role === 'liasoning' ? 'Liasoning' : 
                              u.role === 'civil_engineer' ? 'Civil Engineer' : 
+                             u.role === 'project_head' ? 'Project Head' : 
                              u.role === 'employee' ? 'Employee' : u.role}
                           </span>
                         </td>
@@ -1033,6 +1035,7 @@ export default function SettingsPage() {
                       <option value="design">Design</option>
                       <option value="design_head">Design Head</option>
                       <option value="back_office">Back Office</option>
+                      <option value="project_head">Project Head</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>
@@ -1131,6 +1134,7 @@ export default function SettingsPage() {
                       <option value="design">Design</option>
                       <option value="design_head">Design Head</option>
                       <option value="back_office">Back Office</option>
+                      <option value="project_head">Project Head</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>

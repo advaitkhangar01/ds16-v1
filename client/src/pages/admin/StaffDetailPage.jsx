@@ -36,13 +36,25 @@ export default function StaffDetailPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
+  // Date Filter States
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [tempStartDate, setTempStartDate] = useState('');
+  const [tempEndDate, setTempEndDate] = useState('');
+  const [activePreset, setActivePreset] = useState('');
+
   const id = paramId || user?.id;
 
-  const fetchStaffDetail = useCallback(async () => {
+  const fetchStaffDetail = useCallback(async (start = '', end = '') => {
     if (!id) return;
     try {
       setLoading(true);
-      const { data: res } = await api.get(`/staff/${id}`);
+      const { data: res } = await api.get(`/staff/${id}`, {
+        params: {
+          startDate: start || undefined,
+          endDate: end || undefined
+        }
+      });
       setData(res);
     } catch (err) {
       toast.error('Failed to load employee details');
@@ -57,9 +69,63 @@ export default function StaffDetailPage() {
     }
   }, [id, user, navigate]);
 
+  const handleApplyCustomFilter = () => {
+    if (tempStartDate && tempEndDate && new Date(tempStartDate) > new Date(tempEndDate)) {
+      toast.error('Start date cannot be after end date');
+      return;
+    }
+    setActivePreset('custom');
+    setStartDate(tempStartDate);
+    setEndDate(tempEndDate);
+  };
+
+  const handleClearFilter = () => {
+    setStartDate('');
+    setEndDate('');
+    setTempStartDate('');
+    setTempEndDate('');
+    setActivePreset('');
+  };
+
+  const handlePreset = (preset) => {
+    const today = new Date();
+    let start = '';
+    let end = '';
+
+    // Convert dates to YYYY-MM-DD in local time zone (IST)
+    const formatDateForInput = (dateObj) => {
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    if (preset === 'this_month') {
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+      start = formatDateForInput(firstDay);
+      end = formatDateForInput(today);
+    } else if (preset === 'last_month') {
+      const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
+      start = formatDateForInput(firstDay);
+      end = formatDateForInput(lastDay);
+    } else if (preset === 'last_30_days') {
+      const past30 = new Date();
+      past30.setDate(today.getDate() - 30);
+      start = formatDateForInput(past30);
+      end = formatDateForInput(today);
+    }
+
+    setActivePreset(preset);
+    setTempStartDate(start);
+    setTempEndDate(end);
+    setStartDate(start);
+    setEndDate(end);
+  };
+
   useEffect(() => {
-    fetchStaffDetail();
-  }, [fetchStaffDetail]);
+    fetchStaffDetail(startDate, endDate);
+  }, [fetchStaffDetail, startDate, endDate]);
 
   if (loading) {
     return (
@@ -84,6 +150,7 @@ export default function StaffDetailPage() {
     employee.role === 'design' ? 'bg-orange-50 text-orange-700 border-orange-100' :
     employee.role === 'liasoning' ? 'bg-teal-50 text-teal-700 border-teal-100' :
     employee.role === 'civil_engineer' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
+    employee.role === 'project_head' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' :
     'bg-blue-50 text-blue-700 border-blue-100';
 
   return (
@@ -127,6 +194,7 @@ export default function StaffDetailPage() {
                    employee.role === 'accounts' ? 'Accounts' : 
                    employee.role === 'liasoning' ? 'Liasoning' : 
                    employee.role === 'civil_engineer' ? 'Civil Engineer' : 
+                   employee.role === 'project_head' ? 'Project Head' : 
                    employee.role === 'employee' ? 'Employee' : employee.role}
                 </span>
                 {employee.department && (
@@ -314,10 +382,14 @@ export default function StaffDetailPage() {
           {/* ATTENDANCE TAB */}
           {activeTab === 'attendance' && (
             <div className="card space-y-6">
-              <div className="flex justify-between items-center border-b border-gray-100 pb-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 pb-4 gap-4">
                 <div>
                   <h3 className="text-sm font-black text-gray-800 uppercase tracking-wide">Historical Attendance Logs</h3>
-                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Showing last 50 check-ins</p>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
+                    {startDate || endDate 
+                      ? `Showing logs from ${formatDateIST(startDate || 'Beginning')} to ${formatDateIST(endDate || 'Today')}`
+                      : 'Showing last 50 check-ins'}
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full text-[10px] font-black uppercase tracking-wider">
@@ -326,6 +398,81 @@ export default function StaffDetailPage() {
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-700 border border-red-100 rounded-full text-[10px] font-black uppercase tracking-wider">
                     Lates: {attendanceStats.total_late}
                   </span>
+                </div>
+              </div>
+
+              {/* Date Filters Panel */}
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                {/* Custom Date Pickers */}
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex flex-col gap-1 w-full sm:w-auto">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Start Date</label>
+                    <input 
+                      type="date" 
+                      value={tempStartDate} 
+                      onChange={(e) => setTempStartDate(e.target.value)}
+                      className="input py-1.5 text-xs w-full sm:w-36 md:w-40"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1 w-full sm:w-auto">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">End Date</label>
+                    <input 
+                      type="date" 
+                      value={tempEndDate} 
+                      onChange={(e) => setTempEndDate(e.target.value)}
+                      className="input py-1.5 text-xs w-full sm:w-36 md:w-40"
+                    />
+                  </div>
+                  <div className="flex items-end pt-3 sm:pt-4">
+                    <button
+                      onClick={handleApplyCustomFilter}
+                      className="btn-primary py-2 px-4 text-xs font-black uppercase tracking-widest text-[9px] shadow-md shadow-orange-100"
+                    >
+                      Apply Filter
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Presets & Clear */}
+                <div className="flex flex-wrap items-center gap-2 mt-2 lg:mt-0 lg:self-end">
+                  <button
+                    onClick={() => handlePreset('this_month')}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                      activePreset === 'this_month' 
+                        ? 'bg-primary text-white border-primary shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    This Month
+                  </button>
+                  <button
+                    onClick={() => handlePreset('last_month')}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                      activePreset === 'last_month' 
+                        ? 'bg-primary text-white border-primary shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    Last Month
+                  </button>
+                  <button
+                    onClick={() => handlePreset('last_30_days')}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                      activePreset === 'last_30_days' 
+                        ? 'bg-primary text-white border-primary shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    Last 30 Days
+                  </button>
+                  {(startDate || endDate) && (
+                    <button
+                      onClick={handleClearFilter}
+                      className="px-3 py-2 rounded-xl text-xs font-bold transition-all border bg-red-50 text-red-600 border-red-100 hover:bg-red-100"
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
               </div>
 

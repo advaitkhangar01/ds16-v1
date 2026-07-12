@@ -203,6 +203,7 @@ export default function StaffPage() {
                     design: 'Design',
                     liasoning: 'Liasoning',
                     civil_engineer: 'Civil Engineer',
+                    project_head: 'Project Head',
                     employee: 'Employee',
                     back_office: 'Back Office',
                     accounts: 'Accounts'
@@ -257,6 +258,7 @@ export default function StaffPage() {
                     member.role === 'design' ? 'bg-orange-50 text-orange-700 border-orange-100' :
                     member.role === 'liasoning' ? 'bg-teal-50 text-teal-700 border-teal-100' :
                     member.role === 'civil_engineer' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
+                    member.role === 'project_head' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' :
                     'bg-blue-50 text-blue-700 border-blue-100';
 
                   return (
@@ -281,6 +283,7 @@ export default function StaffPage() {
                                member.role === 'accounts' ? 'Accounts' : 
                                member.role === 'liasoning' ? 'Liasoning' : 
                                member.role === 'civil_engineer' ? 'Civil Engineer' : 
+                               member.role === 'project_head' ? 'Project Head' : 
                                member.role === 'employee' ? 'Employee' : member.role}
                             </span>
                             {member.department && (

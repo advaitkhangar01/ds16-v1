@@ -83,6 +83,11 @@ export default function AccountingPage() {
           project_id: inv.project_id,
           payment_stage_id: inv.is_payment_stage ? parseInt(inv.id.replace('stage-', '')) : null,
           billToName: inv.client_name_full || inv.client_name || '',
+          billToCompany: inv.client_company_full || inv.client_company || '',
+          billToAddress: inv.bill_to_address || '',
+          billToGst: inv.bill_to_gst || '',
+          billToPhone: inv.bill_to_phone || '',
+          billToEmail: inv.bill_to_email || '',
           items: [
             {
               id: Date.now(),

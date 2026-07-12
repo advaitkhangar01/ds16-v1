@@ -45,7 +45,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const isAdmin = user?.role === 'admin';
-  const isEmployee = user?.role === 'employee' || user?.role === 'civil_engineer' || user?.role === 'liasoning';
+  const isEmployee = user?.role === 'employee' || user?.role === 'civil_engineer' || user?.role === 'liasoning' || user?.role === 'project_head';
   const isAccounts = user?.role === 'back_office' || user?.role === 'accounts' || user?.department?.toLowerCase() === 'accounts';
   const isDesignHead = user?.role === 'design_head' || user?.role === 'design';
 

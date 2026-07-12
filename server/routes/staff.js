@@ -82,22 +82,48 @@ router.get('/:id', async (req, res) => {
     `, [id]);
 
     // 4. Attendance History & Stats
-    const { rows: attStats } = await pool.query(`
+    const { startDate, endDate } = req.query;
+
+    let statsQuery = `
       SELECT 
         COUNT(*) FILTER (WHERE LOWER(status) = 'working' OR LOWER(status) = 'completed' OR LOWER(status) = 'present') as total_present,
         COUNT(*) FILTER (WHERE is_late = true) as total_late,
         AVG(hours_worked) FILTER (WHERE hours_worked > 0) as avg_hours
       FROM attendance
       WHERE user_id = $1
-    `, [id]);
+    `;
+    const statsParams = [id];
+    if (startDate) {
+      statsParams.push(startDate);
+      statsQuery += ` AND date >= $${statsParams.length}`;
+    }
+    if (endDate) {
+      statsParams.push(endDate);
+      statsQuery += ` AND date <= $${statsParams.length}`;
+    }
+    const { rows: attStats } = await pool.query(statsQuery, statsParams);
 
-    const { rows: attendance } = await pool.query(`
+    let attendanceQuery = `
       SELECT id, date, check_in, check_out, LOWER(status) AS status, is_late, late_minutes, hours_worked, checkin_distance, checkin_zone
       FROM attendance
       WHERE user_id = $1
-      ORDER BY date DESC
-      LIMIT 50
-    `, [id]);
+    `;
+    const attendanceParams = [id];
+    if (startDate) {
+      attendanceParams.push(startDate);
+      attendanceQuery += ` AND date >= $${attendanceParams.length}`;
+    }
+    if (endDate) {
+      attendanceParams.push(endDate);
+      attendanceQuery += ` AND date <= $${attendanceParams.length}`;
+    }
+
+    attendanceQuery += ` ORDER BY date DESC`;
+
+    if (!startDate && !endDate) {
+      attendanceQuery += ` LIMIT 50`;
+    }
+    const { rows: attendance } = await pool.query(attendanceQuery, attendanceParams);
 
     // Fetch app settings to calculate penalty deductions
     const settingsRes = await pool.query('SELECT key, value FROM app_settings');

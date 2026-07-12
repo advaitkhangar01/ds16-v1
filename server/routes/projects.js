@@ -68,8 +68,10 @@ router.get('/', authenticate, async (req, res) => {
 
     const { page, limit } = req.query;
 
-    // Admins, accounts, and back office see all projects; others only see assigned projects
-    if (req.user.role === 'admin' || req.user.role === 'accounts' || req.user.role === 'back_office') {
+    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
+    const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts';
+
+    if (isGlobal) {
       query = `
         SELECT p.*, 
           u.name as created_by_name,
@@ -83,13 +85,22 @@ router.get('/', authenticate, async (req, res) => {
         LEFT JOIN clients c ON c.id = p.client_id
         ORDER BY p.created_at DESC`;
       params = [];
-      if (limit) {
-        const pageInt = parseInt(page) || 1;
-        const limitInt = parseInt(limit);
-        const offset = (pageInt - 1) * limitInt;
-        query += ` LIMIT $1 OFFSET $2`;
-        params.push(limitInt, offset);
-      }
+    } else if (isAccounts) {
+      query = `
+        SELECT DISTINCT p.*, 
+          u.name as created_by_name,
+          c.name as client_name,
+          c.company_name as client_company,
+          (SELECT name FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_name,
+          (SELECT phone FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_phone,
+          COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]'::json) as stages
+        FROM projects p
+        LEFT JOIN project_assignments pa ON pa.project_id = p.id
+        LEFT JOIN users u ON u.id = p.created_by
+        LEFT JOIN clients c ON c.id = p.client_id
+        WHERE pa.user_id = $1 OR p.status IN ('Sanction', 'Under Sanctioning')
+        ORDER BY p.created_at DESC`;
+      params = [req.user.id];
     } else {
       query = `
         SELECT p.*, 
@@ -106,10 +117,16 @@ router.get('/', authenticate, async (req, res) => {
         WHERE pa.user_id = $1
         ORDER BY p.created_at DESC`;
       params = [req.user.id];
-      if (limit) {
-        const pageInt = parseInt(page) || 1;
-        const limitInt = parseInt(limit);
-        const offset = (pageInt - 1) * limitInt;
+    }
+
+    if (limit) {
+      const pageInt = parseInt(page) || 1;
+      const limitInt = parseInt(limit);
+      const offset = (pageInt - 1) * limitInt;
+      if (isGlobal) {
+        query += ` LIMIT $1 OFFSET $2`;
+        params.push(limitInt, offset);
+      } else {
         query += ` LIMIT $2 OFFSET $3`;
         params.push(limitInt, offset);
       }

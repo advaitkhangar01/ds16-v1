@@ -145,6 +145,7 @@ export default function InvoiceHistoryTab({ projectId, project }) {
           date: invoice.date ? String(invoice.date).split('T')[0] : '',
           dueDate: invoice.due_date ? String(invoice.due_date).split('T')[0] : '',
           billToName: invoice.client_name || '',
+          billToCompany: invoice.client_company || invoice.client_company_full || '',
           billToAddress: invoice.bill_to_address || '',
           billToGst: invoice.bill_to_gst || '',
           billToPhone: invoice.bill_to_phone || '',

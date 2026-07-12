@@ -38,9 +38,9 @@ router.post('/users', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const validRoles = ['admin', 'design_head', 'design', 'liasoning', 'civil_engineer', 'employee', 'back_office'];
+    const validRoles = ['admin', 'design_head', 'design', 'liasoning', 'civil_engineer', 'employee', 'back_office', 'project_head'];
     if (!validRoles.includes(role)) {
-      return res.status(400).json({ error: 'Role must be admin, design_head, design, liasoning, civil_engineer, employee or back_office' });
+      return res.status(400).json({ error: 'Role must be admin, design_head, design, liasoning, civil_engineer, employee, back_office or project_head' });
     }
 
     // Check duplicate username
@@ -127,9 +127,9 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Name and username are required' });
     }
 
-    const validRoles = ['admin', 'design_head', 'design', 'liasoning', 'civil_engineer', 'employee', 'back_office'];
+    const validRoles = ['admin', 'design_head', 'design', 'liasoning', 'civil_engineer', 'employee', 'back_office', 'project_head'];
     if (role && !validRoles.includes(role)) {
-      return res.status(400).json({ error: 'Role must be admin, design_head, design, liasoning, civil_engineer, employee or back_office' });
+      return res.status(400).json({ error: 'Role must be admin, design_head, design, liasoning, civil_engineer, employee, back_office or project_head' });
     }
 
     // Check duplicate username (excluding current user)

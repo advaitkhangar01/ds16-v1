@@ -116,6 +116,24 @@ export default function InvoicePage() {
     }));
   }, [selectedStageIds, projectStages]);
 
+  useEffect(() => {
+    if (formData.project_id && projects.length > 0) {
+      const proj = projects.find(p => p.id === formData.project_id);
+      if (proj && (!formData.billToName || !formData.billToCompany || !formData.billToAddress)) {
+        const client = (clients || []).find(c => c.id === proj.client_id || c.name === proj.client_name);
+        setFormData(prev => ({
+          ...prev,
+          billToName: prev.billToName || proj.client_name || '',
+          billToCompany: prev.billToCompany || client?.company_name || proj.client_company || '',
+          billToAddress: prev.billToAddress || client?.address || proj.location || '',
+          billToGst: prev.billToGst || client?.gst_number || '',
+          billToPhone: prev.billToPhone || client?.primary_contact_phone || client?.phone || proj.primary_contact_phone || '',
+          billToEmail: prev.billToEmail || client?.primary_contact_email || client?.email || ''
+        }));
+      }
+    }
+  }, [formData.project_id, projects, clients]);
+
   const previewRef = useRef(null);
   const dropdownRef = useRef(null);
   const projectDropdownRef = useRef(null);
@@ -1330,6 +1348,7 @@ export default function InvoicePage() {
                           buyerOrderNo: inv.buyer_order_no || inv.tax_details?.buyerOrderNo || '',
                           termsOfDelivery: inv.tax_details?.termsOfDelivery || '',
                           billToName: inv.client_name || '',
+                          billToCompany: inv.client_company || inv.client_company_full || '',
                           billToAddress: inv.bill_to_address || '',
                           billToGst: inv.bill_to_gst || '',
                           billToPhone: inv.bill_to_phone || '',

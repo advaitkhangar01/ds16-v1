@@ -13,7 +13,13 @@ router.get('/', authenticate, async (req, res) => {
 
     // 1. Fetch actual invoices matching filters
     let query = `
-      SELECT i.*, p.name as project_name, c.name as client_name_full, c.company_name as client_company_full
+      SELECT i.*, p.name as project_name, 
+             c.name as client_name_full, 
+             c.company_name as client_company_full,
+             c.address as bill_to_address,
+             c.gst_number as bill_to_gst,
+             c.phone as bill_to_phone,
+             c.email as bill_to_email
       FROM invoices i
       LEFT JOIN projects p ON p.id = i.project_id
       LEFT JOIN clients c ON c.id = i.client_id
@@ -233,7 +239,13 @@ router.get('/:id', authenticate, checkProjectAccess({ idIsResource: 'invoice' })
   }
   try {
     const { rows } = await pool.query(
-      `SELECT i.*, p.name as project_name, c.name as client_name_full, c.company_name as client_company_full
+      `SELECT i.*, p.name as project_name, 
+              c.name as client_name_full, 
+              c.company_name as client_company_full,
+              c.address as bill_to_address,
+              c.gst_number as bill_to_gst,
+              c.phone as bill_to_phone,
+              c.email as bill_to_email
        FROM invoices i
        LEFT JOIN projects p ON p.id = i.project_id
        LEFT JOIN clients c ON c.id = i.client_id

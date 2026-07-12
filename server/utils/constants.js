@@ -30,7 +30,8 @@ const USER_ROLES = {
   LIASONING: 'liasoning',
   CIVIL_ENGINEER: 'civil_engineer',
   EMPLOYEE: 'employee',
-  BACK_OFFICE: 'back_office'
+  BACK_OFFICE: 'back_office',
+  PROJECT_HEAD: 'project_head'
 };
 
 const DOCUMENT_TAGS = [

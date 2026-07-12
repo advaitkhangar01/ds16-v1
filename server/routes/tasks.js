@@ -79,7 +79,7 @@ router.get('/', authenticate, async (req, res) => {
       // We fetch all employees
       const { rows: employees } = await pool.query(`
         SELECT id, name, username, role, department FROM users 
-        WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer')
+        WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head')
         ORDER BY name ASC
       `);
 
@@ -107,7 +107,7 @@ router.get('/', authenticate, async (req, res) => {
         tasksQuery += ` WHERE t.status != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE) `;
       }
 
-      const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'accounts' || req.user.role === 'back_office';
+      const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'accounts' || req.user.role === 'back_office' || req.user.role === 'project_head';
 
       if (!isPrivileged) {
         tasksQuery += ` AND (t.assigned_to = $1 OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $1)) `;
@@ -211,7 +211,7 @@ router.get('/', authenticate, async (req, res) => {
       query += ` WHERE t.status != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE) `;
     }
 
-    if (req.user.role !== 'admin' && req.user.role !== 'design_head' && req.user.role !== 'accounts' && req.user.role !== 'back_office') {
+    if (req.user.role !== 'admin' && req.user.role !== 'design_head' && req.user.role !== 'accounts' && req.user.role !== 'back_office' && req.user.role !== 'project_head') {
       query += ` AND (t.assigned_to = $1 OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $1)) `;
       params.push(req.user.id);
     }
@@ -341,6 +341,9 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
     const { task_id } = req.params;
     const { status, stage, assigned_to } = req.body;
 
+    const { rows: [currentTask] } = await pool.query('SELECT status FROM tasks WHERE id = $1', [task_id]);
+    if (!currentTask) return res.status(404).json({ error: 'Task not found' });
+
     const updates = [];
     const params = [];
     let count = 1;
@@ -351,6 +354,9 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
       }
       if (status === 'passed' && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'Only admins can pass tasks' });
+      }
+      if ((currentTask.status === 'review' || currentTask.status === 'passed') && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only admins can change status of tasks in review or passed state' });
       }
       updates.push(`status = $${count++}`);
       params.push(status);

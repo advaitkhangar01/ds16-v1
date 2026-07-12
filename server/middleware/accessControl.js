@@ -15,11 +15,8 @@ const checkProjectAccess = (options = {}) => async (req, res, next) => {
     const user = req.user;
     if (!user) return res.status(401).json({ error: 'Authentication required' });
 
-    // Admins, accounts, and back office skip checks
-    if (user.role === 'admin' || user.role === 'accounts' || user.role === 'back_office') return next();
-
-    // Design heads also skip checks for tasks, since they have global task permissions
-    if (user.role === 'design_head' && options.idIsResource === 'task') return next();
+    // Global roles skip checks (admin, design_head, project_head)
+    if (user.role === 'admin' || user.role === 'design_head' || user.role === 'project_head') return next();
 
     let projectId = req.params.projectId || req.query?.project_id || req.body?.project_id;
     
@@ -90,11 +87,20 @@ const checkProjectAccess = (options = {}) => async (req, res, next) => {
       LIMIT 1
     `, [pid, user.id]);
 
-    if (rows.length === 0) {
-      return res.status(403).json({ error: 'Access denied. You are not assigned to this project.' });
+    if (rows.length > 0) {
+      return next();
     }
 
-    next();
+    // Accounts users have access to all projects in 'Sanction' or 'Under Sanctioning' status
+    const isAccounts = user.role === 'back_office' || user.role === 'accounts';
+    if (isAccounts) {
+      const { rows: projRows } = await pool.query('SELECT status FROM projects WHERE id = $1', [pid]);
+      if (projRows[0] && (projRows[0].status === 'Sanction' || projRows[0].status === 'Under Sanctioning')) {
+        return next();
+      }
+    }
+
+    return res.status(403).json({ error: 'Access denied. You are not assigned to this project.' });
   } catch (err) {
     console.error('Access control error:', err);
     res.status(500).json({ error: 'Internal server error during access verification' });

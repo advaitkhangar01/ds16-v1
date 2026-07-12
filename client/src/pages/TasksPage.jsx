@@ -176,7 +176,7 @@ export default function TasksPage() {
                   ? 'Task History (Passed)' 
                   : viewMode === 'scheduled' 
                     ? 'Scheduled Tasks (Upcoming)' 
-                    : (user?.role === 'admin' || user?.role === 'design_head' || user?.role === 'accounts' || user?.role === 'back_office')
+                    : (user?.role === 'admin' || user?.role === 'design_head' || user?.role === 'accounts' || user?.role === 'back_office' || user?.role === 'project_head')
                       ? 'Task Board (All Employees)' 
                       : 'My Task Board'}
               </h3>

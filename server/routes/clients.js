@@ -8,7 +8,8 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 // GET /api/clients - Get all clients with their primary contact and project count
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { page, limit } = req.query;
+    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
+    const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts';
 
     let query = `
       SELECT 
@@ -19,9 +20,24 @@ router.get('/', authenticate, async (req, res) => {
         (SELECT COUNT(*) FROM projects p WHERE p.client_id = c.id) as project_count
       FROM clients c
       LEFT JOIN client_contacts cc ON cc.client_id = c.id AND cc.is_primary = TRUE
-      ORDER BY c.name
     `;
     const params = [];
+
+    if (!isGlobal) {
+      query += `
+        WHERE EXISTS (
+          SELECT 1 FROM projects p
+          LEFT JOIN project_assignments pa ON pa.project_id = p.id
+          WHERE p.client_id = c.id AND (
+            pa.user_id = $1
+            OR ($2::boolean AND p.status IN ('Sanction', 'Under Sanctioning'))
+          )
+        )
+      `;
+      params.push(req.user.id, isAccounts);
+    }
+
+    query += ` ORDER BY c.name`;
 
     if (limit) {
       const pageInt = parseInt(page) || 1;
@@ -46,7 +62,25 @@ router.get('/', authenticate, async (req, res) => {
 // GET /api/clients/:id - Get full client details
 router.get('/:id', authenticate, async (req, res) => {
   const { id } = req.params;
-  try {
+    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
+    const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts';
+
+    if (!isGlobal) {
+      const { rows: accessRows } = await pool.query(`
+        SELECT 1 FROM projects p
+        LEFT JOIN project_assignments pa ON pa.project_id = p.id
+        WHERE p.client_id = $1 AND (
+          pa.user_id = $2
+          OR ($3::boolean AND p.status IN ('Sanction', 'Under Sanctioning'))
+        )
+        LIMIT 1
+      `, [id, req.user.id, isAccounts]);
+
+      if (accessRows.length === 0) {
+        return res.status(403).json({ error: 'Access denied. You do not have access to this client.' });
+      }
+    }
+
     const { rows: clientRows } = await pool.query('SELECT * FROM clients WHERE id = $1', [id]);
     if (clientRows.length === 0) return res.status(404).json({ error: 'Client not found' });
 
@@ -56,7 +90,21 @@ router.get('/:id', authenticate, async (req, res) => {
       ? await pool.query('SELECT * FROM client_banking WHERE client_id = $1 ORDER BY is_primary DESC, id ASC', [id])
       : { rows: [] };
       
-    const { rows: projects } = await pool.query('SELECT id, name, status, type FROM projects WHERE client_id = $1', [id]);
+    let projectsQuery = `SELECT id, name, status, type FROM projects WHERE client_id = $1`;
+    let projectsParams = [id];
+    if (!isGlobal) {
+      projectsQuery = `
+        SELECT DISTINCT p.id, p.name, p.status, p.type 
+        FROM projects p
+        LEFT JOIN project_assignments pa ON pa.project_id = p.id
+        WHERE p.client_id = $1 AND (
+          pa.user_id = $2
+          OR ($3::boolean AND p.status IN ('Sanction', 'Under Sanctioning'))
+        )
+      `;
+      projectsParams = [id, req.user.id, isAccounts];
+    }
+    const { rows: projects } = await pool.query(projectsQuery, projectsParams);
 
     res.json({
       client: clientRows[0],

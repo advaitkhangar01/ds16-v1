@@ -173,6 +173,7 @@ export default function UserModal({ user: initialUser, onClose, onSave }) {
                   <option value="design">Design</option>
                   <option value="design_head">Design Head</option>
                   <option value="back_office">Back Office</option>
+                  <option value="project_head">Project Head</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>

@@ -264,6 +264,20 @@ pool.query('SELECT NOW()', (err) => {
           `);
         }
 
+        // 12.5. Update users check constraint to include project_head
+        const { rows: usersRoleCheckProjectHead } = await pool.query(`
+          SELECT pg_get_constraintdef(c.oid) as def
+          FROM pg_constraint c
+          JOIN pg_class t ON c.conrelid = t.oid
+          WHERE c.conname = 'users_role_check' AND t.relname = 'users'
+        `);
+        if (usersRoleCheckProjectHead.length > 0 && !usersRoleCheckProjectHead[0].def.includes('project_head')) {
+          await pool.query(`
+            ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+            ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'design_head', 'design', 'liasoning', 'civil_engineer', 'employee', 'back_office', 'project_head'));
+          `);
+        }
+
         // 13. Auto-sync PostgreSQL serial sequences to prevent duplicate key violations (projects_pkey etc.)
         // Only run if the sequence value is actually behind the max ID to prevent concurrent write issues
         await pool.query(`

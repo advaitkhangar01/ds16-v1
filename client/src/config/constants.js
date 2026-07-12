@@ -39,7 +39,8 @@ export const USER_ROLES = {
   ADMIN: 'admin',
   EMPLOYEE: 'employee',
   ACCOUNTS: 'accounts',
-  DESIGN_HEAD: 'design_head'
+  DESIGN_HEAD: 'design_head',
+  PROJECT_HEAD: 'project_head'
 };
 
 export const VIEW_MODES = {

@@ -160,6 +160,7 @@ export default function Sidebar({ collapsed = false, onClose }) {
                user?.role === 'accounts' ? 'Accounts Dept.' :
                user?.role === 'liasoning' ? 'Liasoning' :
                user?.role === 'civil_engineer' ? 'Civil Engineer' :
+               user?.role === 'project_head' ? 'Project Head' :
                user?.role}
             </div>
           </div>

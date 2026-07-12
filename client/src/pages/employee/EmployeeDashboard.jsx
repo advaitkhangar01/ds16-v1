@@ -604,7 +604,7 @@ function TaskKanbanBoard() {
     (selectedEmployeeId === 'unassigned' && col.user_id === null)
   );
 
-  const isPrivileged = user?.role === 'admin' || user?.role === 'design_head' || user?.role === 'accounts' || user?.role === 'back_office';
+  const isPrivileged = user?.role === 'admin' || user?.role === 'design_head' || user?.role === 'accounts' || user?.role === 'back_office' || user?.role === 'project_head';
 
   return (
     <div className="card w-full">
