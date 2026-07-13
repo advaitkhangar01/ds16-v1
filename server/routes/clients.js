@@ -8,6 +8,7 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 // GET /api/clients - Get all clients with their primary contact and project count
 router.get('/', authenticate, async (req, res) => {
   try {
+    const { page, limit } = req.query;
     const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
     const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts';
 
@@ -43,7 +44,7 @@ router.get('/', authenticate, async (req, res) => {
       const pageInt = parseInt(page) || 1;
       const limitInt = parseInt(limit);
       const offset = (pageInt - 1) * limitInt;
-      query += ` LIMIT $1 OFFSET $2`;
+      query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
       params.push(limitInt, offset);
     }
 
