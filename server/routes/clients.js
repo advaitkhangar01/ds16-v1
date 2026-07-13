@@ -62,6 +62,7 @@ router.get('/', authenticate, async (req, res) => {
 // GET /api/clients/:id - Get full client details
 router.get('/:id', authenticate, async (req, res) => {
   const { id } = req.params;
+  try {
     const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
     const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts';
 

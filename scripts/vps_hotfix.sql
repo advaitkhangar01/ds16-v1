@@ -49,3 +49,7 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE INDEX IF NOT EXISTS idx_documents_project ON documents(project_id);
 CREATE INDEX IF NOT EXISTS idx_payment_stages_project ON project_payment_stages(project_id);
 CREATE INDEX IF NOT EXISTS idx_comments_project ON comments(project_id);
+
+-- 6. Normalize attendance statuses to lowercase to prevent case-sensitivity issues
+UPDATE attendance SET status = LOWER(status) WHERE status IS NOT NULL;
+
