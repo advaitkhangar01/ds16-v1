@@ -87,9 +87,12 @@ router.get('/:id', authenticate, async (req, res) => {
 
     const { rows: contacts } = await pool.query('SELECT * FROM client_contacts WHERE client_id = $1 ORDER BY is_primary DESC, id ASC', [id]);
     const { rows: addresses } = await pool.query('SELECT * FROM client_addresses WHERE client_id = $1 ORDER BY id ASC', [id]);
-    const { rows: banking } = (req.user.role === 'admin' || req.user.role === 'back_office' || req.user.role === 'accounts') 
-      ? await pool.query('SELECT * FROM client_banking WHERE client_id = $1 ORDER BY is_primary DESC, id ASC', [id])
-      : { rows: [] };
+    
+    let banking = [];
+    if (req.user.role === 'admin' || req.user.role === 'back_office' || req.user.role === 'accounts') {
+      const bankingRes = await pool.query('SELECT * FROM client_banking WHERE client_id = $1 ORDER BY is_primary DESC, id ASC', [id]);
+      banking = bankingRes.rows;
+    }
       
     let projectsQuery = `SELECT id, name, status, type FROM projects WHERE client_id = $1`;
     let projectsParams = [id];
