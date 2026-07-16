@@ -207,7 +207,7 @@ export default function StaffDetailPage() {
       <div className="space-y-6 max-w-6xl mx-auto animate-in fade-in duration-500 pb-12">
         {/* Navigation & Breadcrumbs */}
         {paramId ? (
-          <nav className="flex items-center gap-2 text-xs font-semibold">
+          <nav className="flex items-center gap-2 text-xs font-semibold no-print">
             <Link to="/admin/staff" className="text-gray-400 hover:text-primary transition-colors flex items-center gap-1">
               <ArrowLeft size={12} /> Staff Management
             </Link>
@@ -215,7 +215,7 @@ export default function StaffDetailPage() {
             <span className="text-gray-800">{employee.name}</span>
           </nav>
         ) : (
-          <nav className="flex items-center gap-2 text-xs font-semibold">
+          <nav className="flex items-center gap-2 text-xs font-semibold no-print">
             <Link to={user?.role === 'admin' || user?.role === 'back_office' || user?.role === 'accounts' || user?.department?.toLowerCase() === 'accounts' ? "/admin/dashboard" : "/employee/dashboard"} className="text-gray-400 hover:text-primary transition-colors flex items-center gap-1">
               <ArrowLeft size={12} /> Dashboard
             </Link>
@@ -257,7 +257,7 @@ export default function StaffDetailPage() {
 
           <div className="flex items-center gap-3 relative z-10 flex-wrap">
             {user?.role === 'admin' && (
-              <>
+              <div className="flex items-center gap-3 no-print">
                 <button 
                   onClick={() => setShowEditModal(true)}
                   className="btn-secondary px-4 py-2.5 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 hover:border-primary/50"
@@ -271,7 +271,7 @@ export default function StaffDetailPage() {
                   <Key size={14} className="text-amber-500" /> Reset Password
                 </button>
                 <div className="h-8 w-px bg-gray-200 mx-1" />
-              </>
+              </div>
             )}
             <div className="text-right">
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block leading-none mb-1">Contract Wages</span>
@@ -281,7 +281,7 @@ export default function StaffDetailPage() {
         </div>
 
         {/* Dashboard Subtabs */}
-        <div className="flex border-b border-gray-200 overflow-x-auto hide-scrollbar sticky top-0 bg-base z-20 pt-2">
+        <div className="flex border-b border-gray-200 overflow-x-auto hide-scrollbar sticky top-0 bg-base z-20 pt-2 no-print">
           {[
             { id: 'overview', label: 'Overview', icon: PieChart },
             { id: 'attendance', label: 'Attendance & Payroll', icon: Clock, count: attendance.length },
@@ -439,13 +439,20 @@ export default function StaffDetailPage() {
                       : 'Showing last 50 check-ins'}
                   </p>
                 </div>
-                <div className="flex gap-2">
+                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full text-[10px] font-black uppercase tracking-wider">
                     Present: {attendanceStats.total_present}
                   </span>
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-700 border border-red-100 rounded-full text-[10px] font-black uppercase tracking-wider">
                     Lates: {attendanceStats.total_late}
                   </span>
+                  <button 
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary hover:bg-primary/95 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-sm shadow-primary/20 no-print"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="mr-0.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Export PDF
+                  </button>
                 </div>
               </div>
  
@@ -471,7 +478,7 @@ export default function StaffDetailPage() {
  
               {/* Monthly Payroll Summary Row */}
               {payroll && payroll.length > 0 && (
-                <div className="space-y-3 pb-4 border-b border-gray-100">
+                <div className="space-y-3 pb-4 border-b border-gray-100 no-print">
                   <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
                     <IndianRupee size={12} className="text-primary" /> Monthly Payroll Summary
                   </h4>
@@ -524,7 +531,7 @@ export default function StaffDetailPage() {
               )}
  
               {/* Date Filters Panel */}
-              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 no-print">
                 {/* Custom Date Pickers */}
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="flex flex-col gap-1 w-full sm:w-auto">
@@ -612,7 +619,7 @@ export default function StaffDetailPage() {
                         <th className="px-6 py-4">Overtime</th>
                         <th className="px-6 py-4">Earnings</th>
                         <th className="px-6 py-4 text-center">Late/Half Day/Absent</th>
-                        <th className="px-6 py-4">Geo Location</th>
+                        <th className="px-6 py-4 no-print">Geo Location</th>
                         <th className="px-6 py-4 text-center">Status</th>
                       </tr>
                     </thead>
@@ -665,7 +672,7 @@ export default function StaffDetailPage() {
                                 {anomalyLabel}
                               </span>
                             </td>
-                            <td className="px-6 py-4">
+                            <td className="px-6 py-4 no-print">
                               {att.checkin_zone ? (
                                 <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter ${
                                   att.checkin_zone === 'strict' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-amber-50 text-amber-600 border border-amber-100'
