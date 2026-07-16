@@ -4,6 +4,8 @@
 const router = require('express').Router();
 const pool = require('../db');
 const { authenticate } = require('../middleware/auth');
+const { getISTDate } = require('../utils/date');
+const { calculatePayrollForEmployee } = require('../utils/payroll');
 
 // Access Control: Admin or Accounts role/department
 function requireAdminOrAccounts(req, res, next) {
@@ -218,6 +220,10 @@ router.get('/:id', async (req, res) => {
       ORDER BY year DESC, month DESC
     `, [id]);
 
+    const todayStr = getISTDate();
+    const [currentYear, currentMonth] = todayStr.split('-').map(Number);
+    const currentMonthPayroll = await calculatePayrollForEmployee(id, currentMonth, currentYear, settings, pool);
+
     res.json({
       employee,
       projects,
@@ -233,7 +239,8 @@ router.get('/:id', async (req, res) => {
         pending_leaves: parseInt(leaveStats[0]?.pending_leaves || 0)
       },
       leaves,
-      payroll
+      payroll,
+      currentMonthPayroll
     });
   } catch (err) {
     console.error('Staff Details GET error:', err);

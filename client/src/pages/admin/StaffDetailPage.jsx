@@ -141,7 +141,7 @@ export default function StaffDetailPage() {
 
   if (!data) return null;
 
-  const { employee, projects, tasks, attendanceStats, attendance, leaveStats, leaves, payroll } = data;
+  const { employee, projects, tasks, attendanceStats, attendance, leaveStats, leaves, payroll, currentMonthPayroll } = data;
 
   // Calculate earnings and deduction stats from attendance records
   const calculateAttendanceMetrics = () => {
@@ -174,6 +174,12 @@ export default function StaffDetailPage() {
           }
         }
       });
+    }
+
+    // Override current month metrics with exact payroll calculations if available (prevents discrepancy with dashboard)
+    if (currentMonthPayroll) {
+      earningsThisMonth = Number(currentMonthPayroll.suggested_salary || 0);
+      deductionsThisMonth = Number(currentMonthPayroll.deductions || 0);
     }
 
     return {
