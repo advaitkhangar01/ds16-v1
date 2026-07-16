@@ -5,14 +5,15 @@ import { timeAgo } from '../../utils/time';
 import toast from 'react-hot-toast';
 
 const DOCUMENT_TAGS = [
-  "Adhar Card", "Pan Card", "Tax Receipt", "K Prata", "Mobile Number", "Email Id",
-  "Final Proposal For Submission", "Sale Deed", "Layout Plan", "DP Plan Futala",
-  "Property Card", "Architectural Projection", "Indemnity Bond", "Structural Stability",
-  "शटिपूर्ती बंध", "Sanction Plan", "Center Line", "Foundation And Footing",
-  "Plinth Beam", "Plinth Slab", "First Floor Slab", "Second Floor Slab",
-  "Third Floor Slab", "Fourth Floor Slab", "Fifth Floor Slab", "Sixth Floor Slab",
-  "Seventh Floor Slab", "Brick Plan", "Electrical", "Plumbing", "Sectional Details",
-  "Elevation", "POP", "Grills And Railings", "Others"
+  "Adhar Card & Pan Card", "Tax Receipt", "K Prata", "Final Proposal For Submission",
+  "Sale Deed", "Layout Plan", "DP Plan", "Property Card", "Architectural Projection",
+  "Indemnity Bond", "Structural Stability", "Shatipurta Bandh", "Sanction Plan",
+  "Center Line", "Foundation And Footing", "Plinth Beam", "Plinth Slab", "Basement",
+  "Ground Floor", "First Floor Slab", "Second Floor Slab", "Third Floor Slab",
+  "Fourth Floor Slab", "Fifth Floor Slab", "Sixth Floor Slab", "Seventh Floor Slab",
+  "Brick Plan", "Electrical", "Plumbing", "Sectional Details", "Elevation", "POP",
+  "Grills And Railings", "Day View", "Night View", "Isometric View",
+  "3d Floor Plan view", "Walkthrough", "Completion", "Others"
 ];
 
 const FILE_SIZE_LIMITS = {
