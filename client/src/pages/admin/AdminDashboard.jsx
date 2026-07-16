@@ -586,7 +586,7 @@ function TaskKanbanBoard() {
 }
 
 // ── Accounts Financial Command Center
-function AccountsCommandCenter() {
+function AccountsCommandCenter({ sanctionProjects = [], loadingDashboard = false }) {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -645,9 +645,88 @@ function AccountsCommandCenter() {
           </a>
         ))}
       </div>
+
+      {/* Sanction Phase Projects Table */}
+      <div className="card w-full bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+          <div>
+            <h3 className="text-sm font-black text-slate-800 tracking-tight uppercase">Sanction Phase Projects</h3>
+            <p className="text-[11px] text-slate-400 font-medium mt-0.5">Projects currently in Submission/Sanctioning stage</p>
+          </div>
+          <span className="px-2 py-0.5 rounded bg-[rgba(224,90,30,0.07)] text-[10px] font-bold text-[#E05A1E] border border-[rgba(224,90,30,0.18)] uppercase tracking-wider">
+            {loadingDashboard ? '...' : `${sanctionProjects.length} Active`}
+          </span>
+        </div>
+
+        <div className="overflow-x-auto scrollbar-thin">
+          <table className="w-full text-left border-separate border-spacing-0">
+            <thead>
+              <tr className="border-b border-slate-100">
+                <th className="pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Project</th>
+                <th className="pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Client</th>
+                <th className="pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
+                <th className="pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                <th className="pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right pr-2">Active Stage</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {loadingDashboard ? (
+                [...Array(3)].map((_, i) => (
+                  <tr key={i}>
+                    <td className="py-2.5 pl-2"><div className="skeleton h-4 w-32 rounded" /></td>
+                    <td className="py-2.5"><div className="skeleton h-4 w-24 rounded" /></td>
+                    <td className="py-2.5"><div className="skeleton h-4 w-20 rounded" /></td>
+                    <td className="py-2.5"><div className="skeleton h-4 w-16 rounded" /></td>
+                    <td className="py-2.5 text-right pr-2"><div className="skeleton h-4 w-20 rounded ml-auto" /></td>
+                  </tr>
+                ))
+              ) : sanctionProjects.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-slate-400 italic text-xs">
+                    No projects are currently in the Sanction column
+                  </td>
+                </tr>
+              ) : (
+                sanctionProjects.map((p) => {
+                  const activeStage = p.stages?.find(s => s.status !== 'completed');
+                  return (
+                    <tr key={p.id} className="group hover:bg-slate-50/50 transition-colors">
+                      <td className="py-2.5 pl-2">
+                        <a 
+                          href={`/projects/${p.id}`}
+                          className="text-xs font-bold text-slate-800 hover:text-[#E05A1E] transition-colors"
+                        >
+                          {p.name}
+                        </a>
+                      </td>
+                      <td className="py-2.5 text-xs text-slate-600 font-medium">
+                        {p.client_name || '—'}
+                      </td>
+                      <td className="py-2.5 text-xs text-slate-500 font-semibold">
+                        {p.type}
+                      </td>
+                      <td className="py-2.5">
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider shadow-sm border ${
+                          p.status === 'Sanction' ? 'bg-orange-50 text-[#E05A1E] border-orange-100' : 'bg-amber-50 text-amber-600 border-amber-100'
+                        }`}>
+                          {p.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 text-xs text-[#E05A1E] font-black uppercase tracking-wider text-right pr-2">
+                        {activeStage ? activeStage.stage_name : 'N/A'}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
+
 
 export default function AdminDashboard() {
   const { isAdmin, isAccounts } = useAuth();
@@ -761,7 +840,10 @@ export default function AdminDashboard() {
 
         {/* Accounts: financial command center; Admin: task boards */}
         {isAccounts && !isAdmin ? (
-          <AccountsCommandCenter />
+          <AccountsCommandCenter 
+            sanctionProjects={data?.kanban?.sanction || []} 
+            loadingDashboard={loading}
+          />
         ) : (
           <div className="space-y-4">
             <div className="w-full">

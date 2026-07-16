@@ -775,7 +775,7 @@ export default function AccountingPage() {
       <div className="p-6 max-w-7xl mx-auto space-y-6">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold text-gray-900">Accounting Control</h1>
-          <div className="flex bg-gray-100 p-1 rounded-lg">
+          <div className="flex bg-gray-100 p-1 rounded-lg no-print">
             {['summary', 'payroll', 'expenses', 'invoices', 'month-close'].map((tab) => (
               <button 
                 key={tab}
@@ -789,7 +789,7 @@ export default function AccountingPage() {
         </div>
 
         {/* Filters Bar */}
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-wrap items-center gap-4">
+        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-wrap items-center gap-4 no-print">
           <div className="flex items-center gap-2">
             <Filter size={16} className="text-gray-400" />
             <span className="text-sm font-bold text-gray-700">Filters:</span>
@@ -1370,7 +1370,7 @@ export default function AccountingPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <div className="flex bg-gray-100 p-1 rounded-xl mr-2">
+                  <div className="flex bg-gray-100 p-1 rounded-xl mr-2 no-print">
                     <button 
                       onClick={() => setViewType('table')}
                       className={`p-1.5 rounded-lg transition-all ${viewType === 'table' ? 'bg-white shadow-sm text-primary' : 'text-gray-400 hover:text-gray-600'}`}
@@ -1386,7 +1386,7 @@ export default function AccountingPage() {
                       <LayoutDashboard size={18} />
                     </button>
                   </div>
-                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 px-3 py-2 rounded-xl">
+                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 px-3 py-2 rounded-xl no-print">
                     <Calendar size={16} className="text-gray-400" />
                     <select 
                       value={selectedMonth}
@@ -1407,11 +1407,18 @@ export default function AccountingPage() {
                       ))}
                     </select>
                   </div>
+                  <button 
+                    onClick={() => window.print()}
+                    className="flex items-center gap-2 px-3.5 py-2 bg-primary hover:bg-primary/95 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm shadow-primary/20 no-print"
+                  >
+                    <Download size={14} />
+                    Export PDF
+                  </button>
                 </div>
               </div>
 
               {/* Search & Progress Bar */}
-              <div className="flex flex-col md:flex-row items-center gap-6 pt-4 border-t border-gray-50">
+              <div className="flex flex-col md:flex-row items-center gap-6 pt-4 border-t border-gray-50 no-print">
                 <div className="relative flex-1 group w-full">
                   <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-primary transition-colors" />
                   <input 
@@ -1441,7 +1448,7 @@ export default function AccountingPage() {
             {viewType === 'kanban' ? (
               /* Kanban View */
               <>
-                <div className="flex flex-col bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden shadow-inner max-w-2xl mx-auto w-full h-[calc(100vh-420px)]">
+                <div className="flex flex-col bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden shadow-inner max-w-2xl mx-auto w-full h-[calc(100vh-420px)] no-print">
                   <div className="p-4 border-b border-slate-200 bg-white flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
@@ -1612,13 +1619,13 @@ export default function AccountingPage() {
                                           }
                                         }
                                       }}
-                                      className="text-gray-300 hover:text-primary opacity-0 group-hover/row:opacity-100 transition-opacity"
+                                      className="text-gray-300 hover:text-primary opacity-0 group-hover/row:opacity-100 transition-opacity no-print"
                                     >
                                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                     </button>
                                   )}
                                   {!processed && isAccounts && !isAdmin && (
-                                    <span title="Only Admin can edit base salary" className="text-gray-300 cursor-not-allowed opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                    <span title="Only Admin can edit base salary" className="text-gray-300 cursor-not-allowed opacity-0 group-hover/row:opacity-100 transition-opacity no-print">
                                       <Lock size={9} />
                                     </span>
                                   )}
@@ -1639,7 +1646,7 @@ export default function AccountingPage() {
                                           }
                                         }
                                       }}
-                                      className="text-gray-300 hover:text-primary opacity-0 group-hover/row:opacity-100 transition-opacity"
+                                      className="text-gray-300 hover:text-primary opacity-0 group-hover/row:opacity-100 transition-opacity no-print"
                                     >
                                       <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                     </button>
@@ -1721,26 +1728,29 @@ export default function AccountingPage() {
                                     <span className="text-[10px] font-black uppercase tracking-widest">Paid</span>
                                   </div>
                                 ) : (
-                                  <label className="relative inline-flex items-center cursor-pointer group/check">
-                                    <input 
-                                      type="checkbox"
-                                      className="sr-only"
-                                      disabled={isProcessing[emp.id]}
-                                      onChange={(e) => {
-                                        if (e.target.checked) {
-                                          handleProcessPayroll(emp, rowIncentives[emp.id] || '0');
-                                        }
-                                      }}
-                                    />
-                                    <div className={`w-5 h-5 border-2 rounded transition-all flex items-center justify-center ${isProcessing[emp.id] ? 'border-gray-200 bg-gray-50' : 'border-gray-300 group-hover/check:border-primary bg-white'}`}>
-                                      {isProcessing[emp.id] ? (
-                                        <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                                      ) : (
-                                        <div className="w-2.5 h-2.5 bg-primary rounded-sm opacity-0 transform scale-50 transition-all peer-checked:opacity-100 peer-checked:scale-100" />
-                                      )}
-                                    </div>
-                                    <span className="ml-2 text-[10px] font-bold text-gray-400 group-hover/check:text-primary transition-colors">Mark Paid</span>
-                                  </label>
+                                  <>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-600 print-only hidden">Pending</span>
+                                    <label className="relative inline-flex items-center cursor-pointer group/check no-print">
+                                      <input 
+                                        type="checkbox"
+                                        className="sr-only"
+                                        disabled={isProcessing[emp.id]}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            handleProcessPayroll(emp, rowIncentives[emp.id] || '0');
+                                          }
+                                        }}
+                                      />
+                                      <div className={`w-5 h-5 border-2 rounded transition-all flex items-center justify-center ${isProcessing[emp.id] ? 'border-gray-200 bg-gray-50' : 'border-gray-300 group-hover/check:border-primary bg-white'}`}>
+                                        {isProcessing[emp.id] ? (
+                                          <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                                        ) : (
+                                          <div className="w-2.5 h-2.5 bg-primary rounded-sm opacity-0 transform scale-50 transition-all peer-checked:opacity-100 peer-checked:scale-100" />
+                                        )}
+                                      </div>
+                                      <span className="ml-2 text-[10px] font-bold text-gray-400 group-hover/check:text-primary transition-colors">Mark Paid</span>
+                                    </label>
+                                  </>
                                 )}
                               </div>
                             </td>

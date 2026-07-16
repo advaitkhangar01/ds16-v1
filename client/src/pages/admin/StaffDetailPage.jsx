@@ -143,6 +143,49 @@ export default function StaffDetailPage() {
 
   const { employee, projects, tasks, attendanceStats, attendance, leaveStats, leaves, payroll } = data;
 
+  // Calculate earnings and deduction stats from attendance records
+  const calculateAttendanceMetrics = () => {
+    let totalEarnings = 0;
+    let totalDeduction = 0;
+    let earningsThisMonth = 0;
+    let deductionsThisMonth = 0;
+
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: 'numeric'
+    });
+
+    const [currentMonth, currentYear] = formatter.format(new Date()).split('/').map(Number);
+
+    if (attendance && attendance.length > 0) {
+      attendance.forEach(att => {
+        const earn = Number(att.earnings || 0);
+        const deduct = Number(att.deduction || 0);
+        
+        totalEarnings += earn;
+        totalDeduction += deduct;
+
+        if (att.date) {
+          const [attMonth, attYear] = formatter.format(new Date(att.date)).split('/').map(Number);
+          if (attMonth === currentMonth && attYear === currentYear) {
+            earningsThisMonth += earn;
+            deductionsThisMonth += deduct;
+          }
+        }
+      });
+    }
+
+    return {
+      totalEarnings,
+      totalDeduction,
+      earningsThisMonth,
+      deductionsThisMonth
+    };
+  };
+
+  const { totalEarnings, totalDeduction, earningsThisMonth, deductionsThisMonth } = calculateAttendanceMetrics();
+
   const roleColors = 
     employee.role === 'admin' ? 'bg-purple-50 text-purple-700 border-purple-100' :
     employee.role === 'back_office' || employee.role === 'accounts' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
@@ -235,9 +278,8 @@ export default function StaffDetailPage() {
         <div className="flex border-b border-gray-200 overflow-x-auto hide-scrollbar sticky top-0 bg-base z-20 pt-2">
           {[
             { id: 'overview', label: 'Overview', icon: PieChart },
-            { id: 'attendance', label: 'Attendance Logs', icon: Clock, count: attendance.length },
+            { id: 'attendance', label: 'Attendance & Payroll', icon: Clock, count: attendance.length },
             { id: 'projects', label: 'Projects & Tasks', icon: Briefcase, count: projects.length + tasks.length },
-            { id: 'payroll', label: 'Payroll Ledger', icon: IndianRupee, count: payroll.length },
             { id: 'leaves', label: 'Leave Requests', icon: Calendar, count: leaves.length },
           ].map(tab => (
             <button
@@ -400,7 +442,81 @@ export default function StaffDetailPage() {
                   </span>
                 </div>
               </div>
-
+ 
+              {/* Financial Metrics Tiles */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pb-4 border-b border-gray-100">
+                <div className="bg-emerald-50/40 border border-emerald-100 p-4 rounded-2xl">
+                  <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">Total Earnings</p>
+                  <span className="text-lg font-black text-emerald-700 font-mono">₹{totalEarnings.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200/60 p-4 rounded-2xl">
+                  <p className="text-[9px] font-black text-emerald-700 uppercase tracking-widest mb-1">Earnings This Month</p>
+                  <span className="text-lg font-black text-emerald-800 font-mono">₹{earningsThisMonth.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="bg-red-50/30 border border-red-100/60 p-4 rounded-2xl">
+                  <p className="text-[9px] font-black text-red-500 uppercase tracking-widest mb-1">Total Deductions</p>
+                  <span className="text-lg font-black text-red-600 font-mono">₹{totalDeduction.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="bg-red-50 border border-red-200/60 p-4 rounded-2xl">
+                  <p className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-1">Deductions This Month</p>
+                  <span className="text-lg font-black text-red-700 font-mono">₹{deductionsThisMonth.toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+ 
+              {/* Monthly Payroll Summary Row */}
+              {payroll && payroll.length > 0 && (
+                <div className="space-y-3 pb-4 border-b border-gray-100">
+                  <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                    <IndianRupee size={12} className="text-primary" /> Monthly Payroll Summary
+                  </h4>
+                  <div className="flex gap-4 overflow-x-auto pb-3 pt-1 hide-scrollbar">
+                    {payroll.map((pay) => {
+                      const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                      const isPaid = pay.status === 'paid';
+                      return (
+                        <div key={pay.id} className="min-w-[280px] bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col justify-between hover:border-primary/30 transition-colors shrink-0">
+                          <div>
+                            <div className="flex justify-between items-start mb-2">
+                              <span className="text-xs font-bold text-gray-900">{months[pay.month - 1]} {pay.year}</span>
+                              <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border ${
+                                isPaid ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'
+                              }`}>
+                                {pay.status}
+                              </span>
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between text-[11px]">
+                                <span className="text-gray-400">Base Salary</span>
+                                <span className="font-bold font-mono text-gray-800">₹{Number(pay.base_salary).toLocaleString('en-IN')}</span>
+                              </div>
+                              <div className="flex justify-between text-[11px]">
+                                <span className="text-gray-400">Bonus & Incentives</span>
+                                <span className="font-bold font-mono text-emerald-600">₹{(Number(pay.bonus) + Number(pay.incentives)).toLocaleString('en-IN')}</span>
+                              </div>
+                              <div className="flex justify-between text-[11px]">
+                                <span className="text-gray-400">Deductions</span>
+                                <span className="font-bold font-mono text-red-500">₹{Number(pay.deductions).toLocaleString('en-IN')}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="border-t border-slate-200/60 mt-3 pt-2.5 flex justify-between items-center">
+                            <div>
+                              <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block leading-none">Net Paid</span>
+                              <span className="text-sm font-black font-mono text-gray-900 mt-0.5 block">₹{Number(pay.net_paid).toLocaleString('en-IN')}</span>
+                            </div>
+                            {pay.payment_date && (
+                              <span className="text-[9px] font-medium text-slate-400 font-sans">
+                                Paid: {formatDateIST(pay.payment_date)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+ 
               {/* Date Filters Panel */}
               <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 {/* Custom Date Pickers */}
@@ -646,70 +762,6 @@ export default function StaffDetailPage() {
             </div>
           )}
 
-          {/* PAYROLL TAB */}
-          {activeTab === 'payroll' && (
-            <div className="card space-y-6">
-              <div className="flex justify-between items-center border-b border-gray-100 pb-4">
-                <div>
-                  <h3 className="text-sm font-black text-gray-800 uppercase tracking-wide">Historical Payroll Records</h3>
-                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Payout records and ledger receipts</p>
-                </div>
-              </div>
-
-              {payroll.length === 0 ? (
-                <div className="text-center py-16 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200 flex flex-col items-center">
-                  <FileText className="text-gray-300 mb-3 animate-pulse" size={32} />
-                  <p className="text-xs text-gray-400 italic">No payroll logs found for this employee.</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-200 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                        <th className="px-6 py-4">Month / Year</th>
-                        <th className="px-6 py-4">Base Salary</th>
-                        <th className="px-6 py-4">Bonus & Incentives</th>
-                        <th className="px-6 py-4 text-red-500">Deductions</th>
-                        <th className="px-6 py-4">Net Paid</th>
-                        <th className="px-6 py-4">Payment Date</th>
-                        <th className="px-6 py-4 text-center">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 font-medium text-gray-600 font-mono">
-                      {payroll.map((pay) => {
-                        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-                        return (
-                          <tr key={pay.id} className="hover:bg-gray-50/50 transition-colors text-slate-800">
-                            <td className="px-6 py-4 font-bold text-gray-900 font-sans">{months[pay.month - 1]} {pay.year}</td>
-                            <td className="px-6 py-4 font-bold">₹{Number(pay.base_salary).toLocaleString()}</td>
-                            <td className="px-6 py-4 text-emerald-600 font-bold">
-                              ₹{(Number(pay.bonus) + Number(pay.incentives)).toLocaleString()}
-                            </td>
-                            <td className="px-6 py-4 text-red-500 font-bold">
-                              ₹{Number(pay.deductions).toLocaleString()}
-                            </td>
-                            <td className="px-6 py-4 font-black text-gray-900">
-                              ₹{Number(pay.net_paid).toLocaleString()}
-                            </td>
-                            <td className="px-6 py-4 font-bold text-slate-500 font-sans">
-                              {pay.payment_date ? formatDateIST(pay.payment_date) : '—'}
-                            </td>
-                            <td className="px-6 py-4 text-center">
-                              <span className={`inline-flex px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
-                                pay.status === 'paid' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-amber-50 text-amber-700 border border-amber-100'
-                              }`}>
-                                {pay.status}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* LEAVES TAB */}
           {activeTab === 'leaves' && (
