@@ -123,6 +123,45 @@ export default function StaffDetailPage() {
     setEndDate(end);
   };
 
+  const generateMonthOptions = () => {
+    const options = [];
+    const today = new Date();
+    const formatter = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' });
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const label = formatter.format(d);
+      const valStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      options.push({ label, value: valStr, year: d.getFullYear(), month: d.getMonth() + 1 });
+    }
+    return options;
+  };
+
+  const handleMonthSelect = (valStr) => {
+    if (!valStr) {
+      handleClearFilter();
+      return;
+    }
+    const [year, month] = valStr.split('-').map(Number);
+    const startObj = new Date(year, month - 1, 1);
+    const endObj = new Date(year, month, 0);
+
+    const formatDateForInput = (dateObj) => {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+
+    const start = formatDateForInput(startObj);
+    const end = formatDateForInput(endObj);
+
+    setActivePreset(valStr);
+    setTempStartDate(start);
+    setTempEndDate(end);
+    setStartDate(start);
+    setEndDate(end);
+  };
+
   useEffect(() => {
     fetchStaffDetail(startDate, endDate);
   }, [fetchStaffDetail, startDate, endDate]);
@@ -141,7 +180,7 @@ export default function StaffDetailPage() {
 
   if (!data) return null;
 
-  const { employee, projects, tasks, attendanceStats, attendance, leaveStats, leaves, payroll, currentMonthPayroll } = data;
+  const { employee, projects, tasks, attendanceStats, attendance, leaveStats, leaves, leaveBalances = [], payroll, currentMonthPayroll } = data;
 
   // Calculate earnings and deduction stats from attendance records
   const calculateAttendanceMetrics = () => {
@@ -191,6 +230,61 @@ export default function StaffDetailPage() {
   };
 
   const { totalEarnings, totalDeduction, earningsThisMonth, deductionsThisMonth } = calculateAttendanceMetrics();
+
+  const calculateCurrentMonthLeavesTaken = () => {
+    const today = new Date();
+    const currentMonth = today.getMonth() + 1;
+    const currentYear = today.getFullYear();
+    const startOfMonth = new Date(currentYear, currentMonth - 1, 1);
+    const endOfMonth = new Date(currentYear, currentMonth, 0);
+
+    let days = 0;
+    if (leaves && leaves.length > 0) {
+      leaves.forEach(l => {
+        if (l.status === 'approved') {
+          const lStart = new Date(l.start_date);
+          const lEnd = new Date(l.end_date);
+          const overlapStart = new Date(Math.max(lStart.getTime(), startOfMonth.getTime()));
+          const overlapEnd = new Date(Math.min(lEnd.getTime(), endOfMonth.getTime()));
+          const diffMs = overlapEnd.getTime() - overlapStart.getTime();
+          if (diffMs >= 0) {
+            days += Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1;
+          }
+        }
+      });
+    }
+    return days;
+  };
+
+  const currentMonthLeavesTaken = calculateCurrentMonthLeavesTaken();
+  const latestClosedBalance = leaveBalances.length > 0 ? parseFloat(leaveBalances[0].closing_balance) : 0.0;
+  const currentMonthEarned = 1.5;
+  const estCurrentMonthClosing = Math.max(0, latestClosedBalance + currentMonthEarned - currentMonthLeavesTaken);
+  const estCurrentMonthUnpaid = Math.max(0, currentMonthLeavesTaken - (latestClosedBalance + currentMonthEarned));
+
+  const today = new Date();
+  const currentMonthNum = today.getMonth() + 1;
+  const currentYearNum = today.getFullYear();
+  const isCurrentMonthClosed = leaveBalances.some(b => b.month === currentMonthNum && b.year === currentYearNum);
+
+  const ledgerRows = [...leaveBalances];
+  if (!isCurrentMonthClosed) {
+    ledgerRows.unshift({
+      isEstimate: true,
+      month: currentMonthNum,
+      year: currentYearNum,
+      opening_balance: latestClosedBalance,
+      earned: currentMonthEarned,
+      leaves_taken: currentMonthLeavesTaken,
+      closing_balance: estCurrentMonthClosing,
+      unpaid_leaves: estCurrentMonthUnpaid,
+      status: 'Current Month (Estimate)'
+    });
+  }
+
+  const activeBalance = isCurrentMonthClosed ? latestClosedBalance : estCurrentMonthClosing;
+  const totalUnpaidLeaves = ledgerRows.reduce((sum, r) => sum + parseFloat(r.unpaid_leaves || 0), 0);
+  const monthOptions = generateMonthOptions();
 
   const roleColors = 
     employee.role === 'admin' ? 'bg-purple-50 text-purple-700 border-purple-100' :
@@ -458,22 +552,47 @@ export default function StaffDetailPage() {
  
               {/* Financial Metrics Tiles */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pb-4 border-b border-gray-100">
-                <div className="bg-emerald-50/40 border border-emerald-100 p-4 rounded-2xl">
-                  <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">Total Earnings</p>
-                  <span className="text-lg font-black text-emerald-700 font-mono">₹{totalEarnings.toLocaleString('en-IN')}</span>
-                </div>
-                <div className="bg-emerald-50 border border-emerald-200/60 p-4 rounded-2xl">
-                  <p className="text-[9px] font-black text-emerald-700 uppercase tracking-widest mb-1">Earnings This Month</p>
-                  <span className="text-lg font-black text-emerald-800 font-mono">₹{earningsThisMonth.toLocaleString('en-IN')}</span>
-                </div>
-                <div className="bg-red-50/30 border border-red-100/60 p-4 rounded-2xl">
-                  <p className="text-[9px] font-black text-red-500 uppercase tracking-widest mb-1">Total Deductions</p>
-                  <span className="text-lg font-black text-red-600 font-mono">₹{totalDeduction.toLocaleString('en-IN')}</span>
-                </div>
-                <div className="bg-red-50 border border-red-200/60 p-4 rounded-2xl">
-                  <p className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-1">Deductions This Month</p>
-                  <span className="text-lg font-black text-red-700 font-mono">₹{deductionsThisMonth.toLocaleString('en-IN')}</span>
-                </div>
+                {startDate || endDate ? (
+                  <>
+                    <div className="bg-emerald-50/40 border border-emerald-100 p-4 rounded-2xl">
+                      <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">Period Earnings</p>
+                      <span className="text-lg font-black text-emerald-700 font-mono">₹{totalEarnings.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200/60 p-4 rounded-2xl">
+                      <p className="text-[9px] font-black text-emerald-700 uppercase tracking-widest mb-1">Days Present (Period)</p>
+                      <span className="text-lg font-black text-emerald-800 font-mono">{attendanceStats.total_present} days</span>
+                    </div>
+                    <div className="bg-red-50/30 border border-red-100/60 p-4 rounded-2xl">
+                      <p className="text-[9px] font-black text-red-500 uppercase tracking-widest mb-1">Period Deductions</p>
+                      <span className="text-lg font-black text-red-600 font-mono">₹{totalDeduction.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="bg-red-50 border border-red-200/60 p-4 rounded-2xl">
+                      <p className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-1">Late Arrivals (Period)</p>
+                      <span className={`text-lg font-black font-mono ${attendanceStats.total_late > 0 ? 'text-red-700' : 'text-slate-700'}`}>
+                        {attendanceStats.total_late} times
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="bg-emerald-50/40 border border-emerald-100 p-4 rounded-2xl">
+                      <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">Total Earnings</p>
+                      <span className="text-lg font-black text-emerald-700 font-mono">₹{totalEarnings.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200/60 p-4 rounded-2xl">
+                      <p className="text-[9px] font-black text-emerald-700 uppercase tracking-widest mb-1">Earnings This Month</p>
+                      <span className="text-lg font-black text-emerald-800 font-mono">₹{earningsThisMonth.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="bg-red-50/30 border border-red-100/60 p-4 rounded-2xl">
+                      <p className="text-[9px] font-black text-red-500 uppercase tracking-widest mb-1">Total Deductions</p>
+                      <span className="text-lg font-black text-red-600 font-mono">₹{totalDeduction.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="bg-red-50 border border-red-200/60 p-4 rounded-2xl">
+                      <p className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-1">Deductions This Month</p>
+                      <span className="text-lg font-black text-red-700 font-mono">₹{deductionsThisMonth.toLocaleString('en-IN')}</span>
+                    </div>
+                  </>
+                )}
               </div>
  
               {/* Monthly Payroll Summary Row */}
@@ -532,8 +651,28 @@ export default function StaffDetailPage() {
  
               {/* Date Filters Panel */}
               <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 no-print">
-                {/* Custom Date Pickers */}
+                {/* Custom Date Pickers & Month Selector */}
                 <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex flex-col gap-1 w-full sm:w-auto">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Select Month</label>
+                    <select
+                      value={activePreset && activePreset.includes('-') ? activePreset : ''}
+                      onChange={(e) => handleMonthSelect(e.target.value)}
+                      className="input py-1.5 px-3 text-xs w-full sm:w-44 bg-white border border-slate-200 rounded-xl font-bold"
+                    >
+                      <option value="">-- Choose Month --</option>
+                      {monthOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="hidden sm:flex items-center pt-4">
+                    <span className="text-[10px] text-gray-400 font-bold uppercase">or</span>
+                  </div>
+
                   <div className="flex flex-col gap-1 w-full sm:w-auto">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Start Date</label>
                     <input 
@@ -778,57 +917,178 @@ export default function StaffDetailPage() {
 
           {/* LEAVES TAB */}
           {activeTab === 'leaves' && (
-            <div className="card space-y-6">
-              <div className="flex justify-between items-center border-b border-gray-100 pb-4">
-                <div>
-                  <h3 className="text-sm font-black text-gray-800 uppercase tracking-wide">Leave Requests History</h3>
-                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Approved, pending and rejected leave applications</p>
+            <div className="space-y-6">
+              {/* Leave Balances Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-orange-50/50 border border-orange-100 p-5 rounded-2xl shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-orange-100/30 rounded-full -mr-5 -mt-5" />
+                  <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-1 flex items-center gap-1">
+                    <Activity size={12} /> Active Leave Balance
+                  </p>
+                  <span className="text-2xl font-black text-gray-800 font-mono">
+                    {parseFloat(activeBalance).toFixed(2)} <span className="text-xs font-bold text-gray-400">days</span>
+                  </span>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-semibold">
+                    {!isCurrentMonthClosed ? 'Includes standard monthly reset allocation' : 'Final closed balance for this period'}
+                  </p>
                 </div>
-                <div className="flex gap-2">
-                  <span className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-black uppercase">
-                    Approved: {leaveStats.approved_leaves}
+                
+                <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-slate-100 rounded-full -mr-5 -mt-5" />
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+                    <Plus size={12} className="text-primary" /> Monthly Reset Addition
+                  </p>
+                  <span className="text-2xl font-black text-slate-800 font-mono">
+                    +1.50 <span className="text-xs font-bold text-slate-400">days</span>
                   </span>
-                  <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-[10px] font-black uppercase">
-                    Pending: {leaveStats.pending_leaves}
+                  <p className="text-[10px] text-slate-400 mt-1.5 font-semibold">Accumulated automatically at each monthly close</p>
+                </div>
+
+                <div className="bg-red-50/30 border border-red-100 p-5 rounded-2xl shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-red-100/10 rounded-full -mr-5 -mt-5" />
+                  <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1 flex items-center gap-1">
+                    <AlertTriangle size={12} /> Unpaid Leaves (Deducted)
+                  </p>
+                  <span className="text-2xl font-black text-red-600 font-mono">
+                    {parseFloat(totalUnpaidLeaves).toFixed(2)} <span className="text-xs font-bold text-red-400">days</span>
                   </span>
+                  <p className="text-[10px] text-red-400 mt-1.5 font-semibold">Leaves taken exceeding accumulated balance limit</p>
                 </div>
               </div>
 
-              {leaves.length === 0 ? (
-                <p className="text-xs text-gray-400 italic text-center py-16">No leave requests recorded for this employee.</p>
-              ) : (
-                <div className="space-y-4">
-                  {leaves.map((leave) => (
-                    <div key={leave.id} className="p-4 bg-gray-50 border border-gray-100 rounded-2xl">
-                      <div className="flex justify-between items-start gap-4 flex-wrap">
-                        <div>
-                          <p className="text-xs font-black text-gray-800 leading-tight">
-                            {formatDateIST(leave.start_date)} — {formatDateIST(leave.end_date)}
-                          </p>
-                          <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Reason: <span className="text-slate-600 font-medium normal-case">{leave.reason || 'Not specified'}</span></p>
-                          {leave.remarks && (
-                            <p className="text-[10px] text-amber-600 font-bold uppercase mt-1">Admin remarks: <span className="text-amber-800 font-medium normal-case">{leave.remarks}</span></p>
-                          )}
-                        </div>
+              {/* Leave Balance Ledger History */}
+              <div className="bg-white border border-gray-200 rounded-3xl p-6 shadow-sm space-y-4">
+                <div>
+                  <h4 className="text-xs font-black text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <Calendar size={13} className="text-primary" /> Leave Balance Ledger & Monthly Resets
+                  </h4>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">
+                    Tracks the evolution of leave credits and resets month-over-month
+                  </p>
+                </div>
 
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-black text-primary bg-orange-50 border border-orange-100 px-2 py-0.5 rounded uppercase">
-                            {parseFloat(leave.amount)} Day(s) ({leave.type})
-                          </span>
-                          
-                          <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest ${
-                            leave.status === 'approved' ? 'bg-emerald-50 text-emerald-700' :
-                            leave.status === 'pending' ? 'bg-amber-50 text-amber-700' :
-                            'bg-red-50 text-red-700'
-                          }`}>
-                            {leave.status}
-                          </span>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200 text-[9px] font-black uppercase tracking-widest text-gray-400">
+                        <th className="px-4 py-3">Month / Period</th>
+                        <th className="px-4 py-3 text-right">Opening Balance</th>
+                        <th className="px-4 py-3 text-right">Reset Earned</th>
+                        <th className="px-4 py-3 text-right">Leaves Taken</th>
+                        <th className="px-4 py-3 text-right">Closing Balance</th>
+                        <th className="px-4 py-3 text-right">Unpaid Leaves</th>
+                        <th className="px-4 py-3 text-center">Reset Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 font-medium text-gray-600">
+                      {ledgerRows.map((row, idx) => {
+                        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                        const periodLabel = `${months[row.month - 1]} ${row.year}`;
+                        
+                        return (
+                          <tr key={idx} className={row.isEstimate ? "bg-amber-50/20 font-semibold" : "hover:bg-gray-50/50 transition-colors"}>
+                            <td className="px-4 py-3.5">
+                              <span className={row.isEstimate ? "text-amber-700 font-bold" : "text-gray-900 font-bold"}>
+                                {periodLabel}
+                              </span>
+                              {row.isEstimate && (
+                                <span className="block text-[8px] font-black text-amber-500 uppercase tracking-tighter mt-0.5">
+                                  Current Period (Unclosed)
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3.5 text-right font-mono text-gray-500">
+                              {parseFloat(row.opening_balance).toFixed(2)}
+                            </td>
+                            <td className="px-4 py-3.5 text-right font-mono text-emerald-600 font-bold">
+                              +{parseFloat(row.earned).toFixed(2)}
+                            </td>
+                            <td className="px-4 py-3.5 text-right font-mono text-red-500">
+                              -{parseFloat(row.leaves_taken).toFixed(2)}
+                            </td>
+                            <td className="px-4 py-3.5 text-right font-mono text-gray-900 font-bold">
+                              {parseFloat(row.closing_balance).toFixed(2)}
+                            </td>
+                            <td className="px-4 py-3.5 text-right font-mono text-red-600 font-bold">
+                              {parseFloat(row.unpaid_leaves) > 0 ? `${parseFloat(row.unpaid_leaves).toFixed(2)}` : '—'}
+                            </td>
+                            <td className="px-4 py-3.5 text-center">
+                              <span className={`inline-flex px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border ${
+                                row.isEstimate 
+                                  ? 'bg-amber-50 text-amber-600 border-amber-100' 
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                              }`}>
+                                {row.isEstimate ? 'Pending Close' : 'Reset Applied'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {ledgerRows.length === 0 && (
+                        <tr>
+                          <td colSpan="7" className="px-4 py-6 text-center text-gray-400 italic">
+                            No leave balance history available yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Leave Requests History */}
+              <div className="card space-y-6">
+                <div className="flex justify-between items-center border-b border-gray-100 pb-4">
+                  <div>
+                    <h3 className="text-sm font-black text-gray-800 uppercase tracking-wide">Leave Requests History</h3>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Approved, pending and rejected leave applications</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-black uppercase">
+                      Approved: {leaveStats.approved_leaves}
+                    </span>
+                    <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-[10px] font-black uppercase">
+                      Pending: {leaveStats.pending_leaves}
+                    </span>
+                  </div>
+                </div>
+
+                {leaves.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic text-center py-16">No leave requests recorded for this employee.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {leaves.map((leave) => (
+                      <div key={leave.id} className="p-4 bg-gray-50 border border-gray-100 rounded-2xl">
+                        <div className="flex justify-between items-start gap-4 flex-wrap">
+                          <div>
+                            <p className="text-xs font-black text-gray-800 leading-tight">
+                              {formatDateIST(leave.start_date)} — {formatDateIST(leave.end_date)}
+                            </p>
+                            <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Reason: <span className="text-slate-600 font-medium normal-case">{leave.reason || 'Not specified'}</span></p>
+                            {leave.remarks && (
+                              <p className="text-[10px] text-amber-600 font-bold uppercase mt-1">Admin remarks: <span className="text-amber-800 font-medium normal-case">{leave.remarks}</span></p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] font-black text-primary bg-orange-50 border border-orange-100 px-2 py-0.5 rounded uppercase">
+                              {parseFloat(leave.amount)} Day(s) ({leave.type})
+                            </span>
+                            
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest ${
+                              leave.status === 'approved' ? 'bg-emerald-50 text-emerald-700' :
+                              leave.status === 'pending' ? 'bg-amber-50 text-amber-700' :
+                              'bg-red-50 text-red-700'
+                            }`}>
+                              {leave.status}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

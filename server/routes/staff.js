@@ -210,6 +210,14 @@ router.get('/:id', async (req, res) => {
       ORDER BY year DESC, month DESC
     `, [id]);
 
+    // 7. Leave Balance Ledger History
+    const { rows: leaveBalances } = await pool.query(`
+      SELECT id, month, year, opening_balance, earned, leaves_taken, closing_balance, unpaid_leaves, created_at
+      FROM employee_leave_balance
+      WHERE user_id = $1
+      ORDER BY year DESC, month DESC
+    `, [id]);
+
     const todayStr = getISTDate();
     const [currentYear, currentMonth] = todayStr.split('-').map(Number);
     const currentMonthPayroll = await calculatePayrollForEmployee(id, currentMonth, currentYear, settings, pool);
@@ -229,6 +237,7 @@ router.get('/:id', async (req, res) => {
         pending_leaves: parseInt(leaveStats[0]?.pending_leaves || 0)
       },
       leaves,
+      leaveBalances,
       payroll,
       currentMonthPayroll
     });
