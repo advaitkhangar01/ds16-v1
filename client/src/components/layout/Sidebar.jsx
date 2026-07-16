@@ -30,7 +30,6 @@ const ACCOUNTS_LINKS = [
   { to: '/admin/accounting', label: 'Accounting', icon: 'calculator' },
   { to: '/admin/reports', label: 'Reports', icon: 'file_spreadsheet' },
   { to: '/clients', label: 'Clients', icon: 'users' },
-  { to: '/admin/staff', label: 'Staff', icon: 'briefcase' },
   { to: '/attendance', label: 'Attendance', icon: 'clock' },
   { to: '/admin/history', label: 'History', icon: 'archive' },
 ];

@@ -102,10 +102,10 @@ function AppRoutes() {
           <ProtectedRoute adminOnly allowAccounts><ReportsPage /></ProtectedRoute>
         } />
         <Route path="/admin/staff" element={
-          <ProtectedRoute adminOnly allowAccounts><StaffPage /></ProtectedRoute>
+          <ProtectedRoute adminOnly><StaffPage /></ProtectedRoute>
         } />
         <Route path="/admin/staff/:id" element={
-          <ProtectedRoute adminOnly allowAccounts><StaffDetailPage /></ProtectedRoute>
+          <ProtectedRoute adminOnly><StaffDetailPage /></ProtectedRoute>
         } />
         <Route path="/admin/profile" element={
           <ProtectedRoute adminOnly allowAccounts><StaffDetailPage /></ProtectedRoute>

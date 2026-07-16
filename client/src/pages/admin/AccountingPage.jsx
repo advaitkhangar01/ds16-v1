@@ -812,7 +812,7 @@ export default function AccountingPage() {
             />
           </div>
 
-          {activeTab !== 'expenses' && (
+          {activeTab !== 'expenses' && activeTab !== 'payroll' && (
             <div className="flex items-center gap-2">
               <Briefcase size={14} className="text-gray-400" />
               <select 

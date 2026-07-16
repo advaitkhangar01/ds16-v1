@@ -3,23 +3,14 @@
 
 const router = require('express').Router();
 const pool = require('../db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireAdmin } = require('../middleware/auth');
 const { getISTDate } = require('../utils/date');
 const { calculatePayrollForEmployee } = require('../utils/payroll');
-
-// Access Control: Admin or Accounts role/department
-function requireAdminOrAccounts(req, res, next) {
-  const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts' || req.user.department?.toLowerCase() === 'accounts';
-  if (req.user.role !== 'admin' && !isAccounts) {
-    return res.status(403).json({ error: 'Access denied: Administrative privileges required' });
-  }
-  next();
-}
 
 router.use(authenticate);
 
 // GET /api/staff - Get all staff with quick telemetry stats
-router.get('/', requireAdminOrAccounts, async (req, res) => {
+router.get('/', requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT 
@@ -50,10 +41,9 @@ router.get('/:id', async (req, res) => {
   const { id } = req.params;
   
   const isSelf = req.user.id === parseInt(id);
-  const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts' || req.user.department?.toLowerCase() === 'accounts';
   const isAdmin = req.user.role === 'admin';
 
-  if (!isSelf && !isAdmin && !isAccounts) {
+  if (!isSelf && !isAdmin) {
     return res.status(403).json({ error: 'Access denied: You can only view your own profile.' });
   }
   try {
