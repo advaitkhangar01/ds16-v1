@@ -167,6 +167,8 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
 
         if (isLateThresholdMet) {
           isLate = true;
+        }
+        if (diffMins > 0) {
           lateMins = diffMins;
         }
       }

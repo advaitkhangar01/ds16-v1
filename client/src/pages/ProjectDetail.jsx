@@ -7,7 +7,7 @@ import AppLayout from '../components/layout/AppLayout';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { toast } from 'react-hot-toast';
-import { formatIST, formatDateIST, getISODateIST } from '../utils/time';
+import { formatIST, formatDateIST, getISODateIST, isTaskOverdue } from '../utils/time';
 import DocumentsTab from '../components/projects/DocumentsTab';
 import SitePhotographsTab from '../components/projects/SitePhotographsTab';
 import ChangeClientModal from '../components/projects/ChangeClientModal';
@@ -498,49 +498,67 @@ export default function ProjectDetail() {
               {tasks.length === 0 ? (
                 <p className="text-muted text-sm text-center py-10 col-span-2">No tasks created yet</p>
               ) : (
-                tasks.map((t) => (
-                  <div 
-                    key={t.id}
-                    onClick={() => { setSelectedTaskId(t.id); setIsTaskModalOpen(true); }}
-                    className="card hover:border-[#E05A1E]/40 hover:shadow-md cursor-pointer transition-all relative overflow-hidden group"
-                  >
-                    <div className="absolute top-0 left-0 w-1.5 h-full bg-[#E05A1E] opacity-0 group-hover:opacity-100 transition-opacity" />
-                    
-                    <div className="flex items-start justify-between gap-2">
-                    <div className="flex flex-col gap-1">
-                      <h4 className="text-sm font-bold text-[#1A1A1A] line-clamp-1 group-hover:text-[#E05A1E] transition-colors">{t.title}</h4>
-                      <p className="text-[10px] text-muted font-medium flex items-center gap-1.5">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                        {formatIST(t.created_at)}
-                      </p>
-                    </div>
-                      {t.start_date && t.start_date.substring(0, 10) > getISODateIST() ? (
-                        <span className="badge bg-amber-50 border-amber-200 text-amber-600 font-bold uppercase tracking-tight">
-                          Scheduled ({formatDateIST(t.start_date)})
-                        </span>
-                      ) : (
-                        <span className={`badge ${
-                          t.status === 'passed' ? 'badge-completed' :
-                          t.status === 'done' ? 'badge-completed' :
-                          t.status === 'in_progress' ? 'badge-in-progress' :
-                          t.status === 'review' ? 'badge-pending bg-purple-50 text-purple-600 border-purple-200' :
-                          'badge-pending'
-                        }`}>
-                          {t.status}
-                        </span>
-                      )}
-                    </div>
+                tasks.map((t) => {
+                  const isOverdue = isTaskOverdue(t);
+                  return (
+                    <div 
+                      key={t.id}
+                      onClick={() => { setSelectedTaskId(t.id); setIsTaskModalOpen(true); }}
+                      className={`card cursor-pointer transition-all relative overflow-hidden group ${
+                        isOverdue 
+                          ? 'border-red-200 hover:border-red-400 bg-red-50/10' 
+                          : 'hover:border-[#E05A1E]/40 hover:shadow-md'
+                      }`}
+                    >
+                      <div className={`absolute top-0 left-0 w-1.5 h-full transition-opacity ${
+                        isOverdue 
+                          ? 'bg-red-500 opacity-100' 
+                          : 'bg-[#E05A1E] opacity-0 group-hover:opacity-100'
+                      }`} />
+                      
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex flex-col gap-1">
+                          <h4 className="text-sm font-bold text-[#1A1A1A] line-clamp-1 group-hover:text-[#E05A1E] transition-colors">{t.title}</h4>
+                          <p className="text-[10px] text-muted font-medium flex items-center gap-1.5">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            {formatIST(t.created_at)}
+                          </p>
+                        </div>
+                        {t.start_date && t.start_date.substring(0, 10) > getISODateIST() ? (
+                          <span className="badge bg-amber-50 border-amber-200 text-amber-600 font-bold uppercase tracking-tight">
+                            Scheduled ({formatDateIST(t.start_date)})
+                          </span>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            {isOverdue && (
+                              <span className="badge bg-red-100 border-red-200 text-red-600 font-bold uppercase tracking-tight">
+                                ⚠️ Overdue
+                              </span>
+                            )}
+                            <span className={`badge ${
+                              t.status === 'passed' ? 'badge-completed' :
+                              t.status === 'done' ? 'badge-completed' :
+                              t.status === 'in_progress' ? 'badge-in-progress' :
+                              t.status === 'review' ? 'badge-pending bg-purple-50 text-purple-600 border-purple-200' :
+                              'badge-pending'
+                            }`}>
+                              {t.status}
+                            </span>
+                          </div>
+                        )}
+                      </div>
 
-                    <div className="flex items-center gap-2 mt-4 text-xs text-muted flex-wrap">
-                      {/* Stage label removed as requested */}
-                      {t.assigned_to_name && (
-                        <span className="flex items-center gap-1 font-medium">
-                          👤 {t.assigned_to_name}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2 mt-4 text-xs text-muted flex-wrap">
+                        {/* Stage label removed as requested */}
+                        {t.assigned_to_name && (
+                          <span className="flex items-center gap-1 font-medium">
+                            👤 {t.assigned_to_name}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

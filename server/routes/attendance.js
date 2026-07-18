@@ -137,15 +137,31 @@ router.post('/checkin', authenticate, async (req, res) => {
     const userId = req.user.id;
     const today  = getISTDate();
 
-    // Fetch all needed settings in one query
     const settings = await getSettings([
       'office_start_time', 'late_threshold_time', 'half_day_cutoff_time',
       'geofence_enabled', 'office_lat', 'office_lng',
       'geofence_strict_radius', 'geofence_buffer_radius', 'geofence_max_accuracy',
+      'late_threshold_mins',
     ]);
 
     const officeStartTime  = settings.office_start_time  || '10:00';
-    const lateThresholdTime = settings.late_threshold_time || '10:15';
+    let lateThresholdTime = settings.late_threshold_time;
+    if (!lateThresholdTime) {
+      try {
+        const [startH, startM] = officeStartTime.split(':').map(Number);
+        const mins = parseInt(settings.late_threshold_mins || 15);
+        if (!isNaN(startH) && !isNaN(startM)) {
+          const totalMins = startH * 60 + startM + mins;
+          const h = Math.floor(totalMins / 60) % 24;
+          const m = totalMins % 60;
+          lateThresholdTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        } else {
+          lateThresholdTime = '10:15';
+        }
+      } catch (err) {
+        lateThresholdTime = '10:15';
+      }
+    }
     const halfDayCutoff    = settings.half_day_cutoff_time || '13:00';
     const geofenceEnabled  = settings.geofence_enabled === 'true';
 

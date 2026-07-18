@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import AppLayout from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
-import { formatTimeIST, todayIST, timeAgo, formatIST } from '../../utils/time';
+import { formatTimeIST, todayIST, timeAgo, formatIST, isTaskOverdue } from '../../utils/time';
 import { mapAttendance } from '../../utils/attendance';
 import AttendanceCard from '../../components/ui/AttendanceCard';
 import toast from 'react-hot-toast';
@@ -519,31 +519,49 @@ function EmployeeTasksModal({ isOpen, onClose, employee, onOpenTask }) {
               No tasks assigned
             </div>
           ) : (
-            employee.tasks?.map((t) => (
-              <div 
-                key={t.id}
-                onClick={() => onOpenTask(t.id)}
-                className="bg-white border border-slate-200 rounded-xl p-4 hover:border-[#E05A1E]/50 hover:shadow-md cursor-pointer transition-all group relative overflow-hidden"
-              >
-                <div className="absolute top-0 left-0 w-1.5 h-full bg-[#E05A1E] opacity-0 group-hover:opacity-100 transition-opacity" />
-                <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-2 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
-                
-                <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
-                  <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
-                    {t.project_name}
-                  </span>
-                  <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
-                    t.status === 'passed' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
-                    t.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
-                    t.status === 'in_progress' ? 'bg-amber-50 border-amber-200 text-amber-600' :
-                    t.status === 'review' ? 'bg-purple-50 border-purple-200 text-purple-600' :
-                    'bg-slate-100 border-slate-200 text-slate-400'
-                  }`}>
-                    {t.status}
-                  </span>
+            employee.tasks?.map((t) => {
+              const isOverdue = isTaskOverdue(t);
+              return (
+                <div 
+                  key={t.id}
+                  onClick={() => onOpenTask(t.id)}
+                  className={`bg-white border rounded-xl p-4 hover:shadow-md cursor-pointer transition-all group relative overflow-hidden ${
+                    isOverdue 
+                      ? 'border-red-200 hover:border-red-400 bg-red-50/10' 
+                      : 'border-slate-200 hover:border-[#E05A1E]/50'
+                  }`}
+                >
+                  <div className={`absolute top-0 left-0 w-1.5 h-full transition-opacity ${
+                    isOverdue 
+                      ? 'bg-red-500 opacity-100' 
+                      : 'bg-[#E05A1E] opacity-0 group-hover:opacity-100'
+                  }`} />
+                  <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-2 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
+                  
+                  <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
+                        {t.project_name}
+                      </span>
+                      {isOverdue && (
+                        <span className="text-[9px] font-black uppercase tracking-tight bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200">
+                          ⚠️ Overdue
+                        </span>
+                      )}
+                    </div>
+                    <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
+                      t.status === 'passed' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+                      t.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+                      t.status === 'in_progress' ? 'bg-amber-50 border-amber-200 text-amber-600' :
+                      t.status === 'review' ? 'bg-purple-50 border-purple-200 text-purple-600' :
+                      'bg-slate-100 border-slate-200 text-slate-400'
+                    }`}>
+                      {t.status}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -638,31 +656,49 @@ function TaskKanbanBoard() {
                 <p className="text-[10px] text-slate-400 mt-1">No tasks assigned to you today.</p>
               </div>
             ) : (
-              myColumn.tasks?.map((t) => (
-                <div 
-                  key={t.id}
-                  onClick={() => openTask(t.id)}
-                  className="bg-white border border-slate-200 rounded-xl p-3 hover:border-[#E05A1E]/50 hover:shadow-md cursor-pointer transition-all duration-200 group relative overflow-hidden"
-                >
-                  <div className="absolute top-0 left-0 w-1.5 h-full bg-[#E05A1E]" />
-                  <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-2 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
-                  
-                  <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-slate-50 flex-wrap">
-                    <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
-                      {t.project_name}
-                    </span>
-                    <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
-                      t.status === 'passed' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
-                      t.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
-                      t.status === 'in_progress' ? 'bg-amber-50 border-amber-200 text-amber-600' :
-                      t.status === 'review' ? 'bg-purple-50 border-purple-200 text-purple-600' :
-                      'bg-slate-100 border-slate-200 text-slate-400'
-                    }`}>
-                      {t.status}
-                    </span>
+              myColumn.tasks?.map((t) => {
+                const isOverdue = isTaskOverdue(t);
+                return (
+                  <div 
+                    key={t.id}
+                    onClick={() => openTask(t.id)}
+                    className={`bg-white border rounded-xl p-3 hover:shadow-md cursor-pointer transition-all duration-200 group relative overflow-hidden ${
+                      isOverdue 
+                        ? 'border-red-200 hover:border-red-400 bg-red-50/10' 
+                        : 'border-slate-200 hover:border-[#E05A1E]/50'
+                    }`}
+                  >
+                    <div className={`absolute top-0 left-0 w-1.5 h-full transition-opacity ${
+                      isOverdue 
+                        ? 'bg-red-500 opacity-100' 
+                        : 'bg-[#E05A1E]'
+                    }`} />
+                    <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-2 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
+                    
+                    <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-slate-50 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
+                          {t.project_name}
+                        </span>
+                        {isOverdue && (
+                          <span className="text-[9px] font-black uppercase tracking-tight bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200">
+                            ⚠️ Overdue
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
+                        t.status === 'passed' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+                        t.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+                        t.status === 'in_progress' ? 'bg-amber-50 border-amber-200 text-amber-600' :
+                        t.status === 'review' ? 'bg-purple-50 border-purple-200 text-purple-600' :
+                        'bg-slate-100 border-slate-200 text-slate-400'
+                      }`}>
+                        {t.status}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

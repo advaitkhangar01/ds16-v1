@@ -5,7 +5,7 @@ import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import TaskModal from '../components/projects/TaskModal';
-import { formatIST, formatDateIST, getISODateIST } from '../utils/time';
+import { formatIST, formatDateIST, getISODateIST, isTaskOverdue } from '../utils/time';
 
 export default function TasksPage() {
   const { user } = useAuth();
@@ -228,40 +228,58 @@ export default function TasksPage() {
                     {col.tasks?.length === 0 && (
                       <div className="text-center py-12 text-slate-300 italic text-xs">No tasks</div>
                     )}
-                    {col.tasks?.map((t) => (
-                      <div 
-                        key={t.id}
-                        onClick={() => openTask(t.id)}
-                        className="bg-white border border-slate-200 rounded-xl p-3 hover:border-[#E05A1E]/50 hover:shadow-md cursor-pointer transition-all group relative overflow-hidden"
-                      >
-                        <div className="absolute top-0 left-0 w-1 h-full bg-[#E05A1E] opacity-0 group-hover:opacity-100 transition-opacity" />
-                        <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-1 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
-                        {t.start_date && t.start_date.substring(0, 10) > getISODateIST() && (
-                          <div className="text-[10px] text-amber-600 font-bold mb-1 flex items-center gap-1">
-                            📅 Starts: {formatDateIST(t.start_date)}
-                          </div>
-                        )}
-                        <p className="text-[10px] text-muted mb-2 font-medium flex items-center gap-1.5">
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                          {formatIST(t.created_at)}
-                        </p>
+                    {col.tasks?.map((t) => {
+                      const isOverdue = isTaskOverdue(t);
+                      return (
+                        <div 
+                          key={t.id}
+                          onClick={() => openTask(t.id)}
+                          className={`bg-white border rounded-xl p-3 hover:shadow-md cursor-pointer transition-all group relative overflow-hidden ${
+                            isOverdue 
+                              ? 'border-red-200 hover:border-red-400 bg-red-50/10' 
+                              : 'border-slate-200 hover:border-[#E05A1E]/50'
+                          }`}
+                        >
+                          <div className={`absolute top-0 left-0 w-1 h-full transition-opacity ${
+                            isOverdue 
+                              ? 'bg-red-500 opacity-100' 
+                              : 'bg-[#E05A1E] opacity-0 group-hover:opacity-100'
+                          }`} />
+                          <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-1 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
+                          {t.start_date && t.start_date.substring(0, 10) > getISODateIST() && (
+                            <div className="text-[10px] text-amber-600 font-bold mb-1 flex items-center gap-1">
+                              📅 Starts: {formatDateIST(t.start_date)}
+                            </div>
+                          )}
+                          <p className="text-[10px] text-muted mb-2 font-medium flex items-center gap-1.5">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            {formatIST(t.created_at)}
+                          </p>
 
-                        <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
-                          <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
-                            {t.project_name}
-                          </span>
-                          <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
-                            t.status === 'passed' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
-                            t.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
-                            t.status === 'in_progress' ? 'bg-amber-50 border-amber-200 text-amber-600' :
-                            t.status === 'review' ? 'bg-purple-50 border-purple-200 text-purple-600' :
-                            'bg-slate-100 border-slate-200 text-slate-400'
-                          }`}>
-                            {t.status}
-                          </span>
+                          <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
+                                {t.project_name}
+                              </span>
+                              {isOverdue && (
+                                <span className="text-[9px] font-black uppercase tracking-tight bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200">
+                                  ⚠️ Overdue
+                                </span>
+                              )}
+                            </div>
+                            <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
+                              t.status === 'passed' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+                              t.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+                              t.status === 'in_progress' ? 'bg-amber-50 border-amber-200 text-amber-600' :
+                              t.status === 'review' ? 'bg-purple-50 border-purple-200 text-purple-600' :
+                              'bg-slate-100 border-slate-200 text-slate-400'
+                            }`}>
+                              {t.status}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}

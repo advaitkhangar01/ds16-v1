@@ -8,13 +8,14 @@ import toast from 'react-hot-toast';
 import { UserCheck, UserX, CalendarOff, Clock, UserMinus } from 'lucide-react';
 import { ATTENDANCE_STATUS, VIEW_MODES } from '../config/constants';
 
-function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: data_hours_worked }) {
+function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: data_hours_worked, isLate: propIsLate }) {
   const officeStartTimeStr = settings?.office_start_time || '09:30';
+  const lateThresholdTimeStr = settings?.late_threshold_time;
   const lateThresholdMins = parseInt(settings?.late_threshold_mins || 15);
   const halfDayThresholdHours = parseFloat(settings?.half_day_threshold_hours || 4);
 
-  let isLate = false;
-  if (checkIn) {
+  let isLate = propIsLate;
+  if (isLate === undefined && checkIn) {
     const checkInTime = new Date(checkIn);
     // Format check-in time as HH:mm in IST
     const checkInStr = new Intl.DateTimeFormat('en-GB', {
@@ -24,11 +25,15 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
       hour12: false
     }).format(checkInTime);
 
-    const [ciH, ciM] = checkInStr.split(':').map(Number);
-    const [startH, startM] = officeStartTimeStr.split(':').map(Number);
-    
-    const diffMins = (ciH * 60 + ciM) - (startH * 60 + startM);
-    isLate = diffMins > lateThresholdMins;
+    if (lateThresholdTimeStr) {
+      isLate = checkInStr > lateThresholdTimeStr;
+    } else {
+      const [ciH, ciM] = checkInStr.split(':').map(Number);
+      const [startH, startM] = officeStartTimeStr.split(':').map(Number);
+      
+      const diffMins = (ciH * 60 + ciM) - (startH * 60 + startM);
+      isLate = diffMins > lateThresholdMins;
+    }
   }
 
   const hoursWorked = data_hours_worked || (checkIn && checkOut ? (new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60) : 0);
@@ -692,7 +697,7 @@ export default function AttendancePage() {
                           </div>
                         </td>
                         <td className="px-5 py-4">
-                          <AttendanceBadge status={r.status} checkIn={r.checkIn} checkOut={r.checkOut} settings={settings} hours_worked={r.hours_worked} />
+                          <AttendanceBadge status={r.status} checkIn={r.checkIn} checkOut={r.checkOut} settings={settings} hours_worked={r.hours_worked} isLate={r.is_late} />
                         </td>
                         <td className="px-5 py-4 text-right">
                           {r.checkin_zone ? (

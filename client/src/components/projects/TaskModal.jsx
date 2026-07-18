@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { formatTimeIST, formatIST, formatDateIST, getISODateIST, timeAgo } from '../../utils/time';
+import { formatTimeIST, formatIST, formatDateIST, getISODateIST, timeAgo, isTaskOverdue } from '../../utils/time';
 import toast from 'react-hot-toast';
 
 export default function TaskModal({ taskId, isOpen, onClose }) {
@@ -214,6 +214,33 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
                   </span>
                 )}
               </div>
+
+              {/* Completed Timestamp */}
+              {task?.completed_at && (
+                <div className="flex items-center gap-1.5 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
+                  <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-tight">Completed:</span>
+                  <span className="text-xs font-bold text-emerald-600">
+                    {formatIST(task.completed_at)}
+                  </span>
+                </div>
+              )}
+
+              {/* Reassigned Timestamp */}
+              {task?.reassigned_at && (
+                <div className="flex items-center gap-1.5 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200">
+                  <span className="text-[10px] text-amber-700 font-bold uppercase tracking-tight">Reassigned:</span>
+                  <span className="text-xs font-bold text-amber-600">
+                    {formatIST(task.reassigned_at)}
+                  </span>
+                </div>
+              )}
+
+              {/* Overdue Warning */}
+              {isTaskOverdue(task) && (
+                <div className="flex items-center gap-1.5 bg-red-50 px-2 py-1 rounded-lg border border-red-200">
+                  <span className="text-[10px] text-red-700 font-bold uppercase tracking-tight">⚠️ Overdue</span>
+                </div>
+              )}
 
               {/* Admin Actions */}
               {user?.role === 'admin' && task?.status === 'review' && (

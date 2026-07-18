@@ -84,3 +84,26 @@ export function timeAgo(dateString) {
 export function parseMentions(text) {
   return text.replace(/@(\w+)/g, '<span class="text-[#E05A1E] font-semibold">@$1</span>');
 }
+
+/**
+ * Checks if a task is overdue by more than 7 days from its start_date.
+ * A task is only overdue if it is not completed (status is neither 'passed' nor 'done').
+ */
+export function isTaskOverdue(task) {
+  if (!task || ['passed', 'done'].includes(task.status)) return false;
+  if (!task.start_date) return false;
+  try {
+    const todayStr = getISODateIST();
+    const startStr = task.start_date.substring(0, 10);
+    
+    const todayDate = new Date(todayStr);
+    const startDate = new Date(startStr);
+    
+    const diffTime = todayDate.getTime() - startDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    return diffDays > 7;
+  } catch {
+    return false;
+  }
+}

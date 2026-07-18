@@ -456,6 +456,8 @@ pool.query('SELECT NOW()', (err) => {
 
         // 20. Ensure tasks table has start_date column
         await pool.query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS start_date DATE DEFAULT CURRENT_DATE");
+        await pool.query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ");
+        await pool.query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reassigned_at TIMESTAMPTZ");
 
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {

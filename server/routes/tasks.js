@@ -341,12 +341,14 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
     const { task_id } = req.params;
     const { status, stage, assigned_to } = req.body;
 
-    const { rows: [currentTask] } = await pool.query('SELECT status FROM tasks WHERE id = $1', [task_id]);
+    const { rows: [currentTask] } = await pool.query('SELECT status, assigned_to FROM tasks WHERE id = $1', [task_id]);
     if (!currentTask) return res.status(404).json({ error: 'Task not found' });
 
     const updates = [];
     const params = [];
     let count = 1;
+    let isStatusPassing = false;
+    let isReassigning = false;
 
     if (status) {
       if (!['pending', 'in_progress', 'review', 'done', 'passed'].includes(status)) {
@@ -360,6 +362,12 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
       }
       updates.push(`status = $${count++}`);
       params.push(status);
+
+      if (status === 'passed') {
+        isStatusPassing = true;
+      } else if (status === 'in_progress' && (currentTask.status === 'review' || currentTask.status === 'passed')) {
+        isReassigning = true;
+      }
     }
 
     if (stage) {
@@ -369,12 +377,26 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
 
     if (assigned_to !== undefined) {
       updates.push(`assigned_to = $${count++}`);
-      params.push(assigned_to || null);
+      const newAssignee = assigned_to ? parseInt(assigned_to) : null;
+      params.push(newAssignee);
+      
+      // If assignment changes, it counts as reassignment
+      if (newAssignee !== currentTask.assigned_to) {
+        isReassigning = true;
+      }
     }
 
     if (req.body.start_date !== undefined) {
       updates.push(`start_date = $${count++}`);
       params.push(req.body.start_date || null);
+    }
+
+    if (isStatusPassing) {
+      updates.push(`completed_at = NOW()`);
+      updates.push(`reassigned_at = NULL`);
+    } else if (isReassigning) {
+      updates.push(`reassigned_at = NOW()`);
+      updates.push(`completed_at = NULL`);
     }
 
     if (!updates.length) {
