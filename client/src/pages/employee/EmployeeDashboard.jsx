@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import AppLayout from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
-import { formatTimeIST, todayIST, timeAgo, formatIST, isTaskOverdue, getTaskOverdueDays } from '../../utils/time';
+import { formatTimeIST, todayIST, isTaskOverdue, getTaskOverdueDays } from '../../utils/time';
 import { mapAttendance } from '../../utils/attendance';
 import AttendanceCard from '../../components/ui/AttendanceCard';
 import toast from 'react-hot-toast';

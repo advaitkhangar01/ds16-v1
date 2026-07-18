@@ -64,7 +64,7 @@ export default function ProjectDetail() {
   // New task creation state
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskAssignedTo, setNewTaskAssignedTo] = useState('');
-  const [newTaskStage, setNewTaskStage] = useState('general');
+  const newTaskStage = 'general';
   const [newTaskStartDate, setNewTaskStartDate] = useState(getISODateIST());
 
   const fetchProject = useCallback(async () => {

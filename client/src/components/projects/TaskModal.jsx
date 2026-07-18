@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { formatTimeIST, formatIST, formatDateIST, getISODateIST, timeAgo, isTaskOverdue, getTaskOverdueDays } from '../../utils/time';
+import { formatIST, formatDateIST, timeAgo, isTaskOverdue, getTaskOverdueDays } from '../../utils/time';
 import toast from 'react-hot-toast';
 
 export default function TaskModal({ taskId, isOpen, onClose }) {

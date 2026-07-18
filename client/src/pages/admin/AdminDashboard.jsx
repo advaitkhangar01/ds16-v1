@@ -1,7 +1,7 @@
 // client/src/pages/admin/AdminDashboard.jsx
 // Admin dashboard: attendance summary, today's tasks, kanban board
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -487,7 +487,6 @@ function TeamAttendanceTable({ records }) {
 
 // ── Task Kanban Board (Horizontal Scrolling Columns)
 function TaskKanbanBoard() {
-  const { user } = useAuth();
   const [kanbanData, setKanbanData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
