@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { formatTimeIST, formatIST, formatDateIST, getISODateIST, timeAgo, isTaskOverdue } from '../../utils/time';
+import { formatTimeIST, formatIST, formatDateIST, getISODateIST, timeAgo, isTaskOverdue, getTaskOverdueDays } from '../../utils/time';
 import toast from 'react-hot-toast';
 
 export default function TaskModal({ taskId, isOpen, onClose }) {
@@ -238,7 +238,7 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
               {/* Overdue Warning */}
               {isTaskOverdue(task) && (
                 <div className="flex items-center gap-1.5 bg-red-50 px-2 py-1 rounded-lg border border-red-200">
-                  <span className="text-[10px] text-red-700 font-bold uppercase tracking-tight">⚠️ Overdue</span>
+                  <span className="text-[10px] text-red-700 font-bold uppercase tracking-tight">⚠️ {getTaskOverdueDays(task)} Days Overdue</span>
                 </div>
               )}
 

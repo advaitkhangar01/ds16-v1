@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import AppLayout from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
-import { formatTimeIST, todayIST, timeAgo, formatIST, isTaskOverdue } from '../../utils/time';
+import { formatTimeIST, todayIST, timeAgo, formatIST, isTaskOverdue, getTaskOverdueDays } from '../../utils/time';
 import { mapAttendance } from '../../utils/attendance';
 import AttendanceCard from '../../components/ui/AttendanceCard';
 import toast from 'react-hot-toast';
@@ -545,7 +545,7 @@ function EmployeeTasksModal({ isOpen, onClose, employee, onOpenTask }) {
                       </span>
                       {isOverdue && (
                         <span className="text-[9px] font-black uppercase tracking-tight bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200">
-                          ⚠️ Overdue
+                          ⚠️ {getTaskOverdueDays(t)}d Overdue
                         </span>
                       )}
                     </div>
@@ -682,7 +682,7 @@ function TaskKanbanBoard() {
                         </span>
                         {isOverdue && (
                           <span className="text-[9px] font-black uppercase tracking-tight bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200">
-                            ⚠️ Overdue
+                            ⚠️ {getTaskOverdueDays(t)}d Overdue
                           </span>
                         )}
                       </div>

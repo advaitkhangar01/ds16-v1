@@ -7,7 +7,7 @@ import AppLayout from '../components/layout/AppLayout';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { toast } from 'react-hot-toast';
-import { formatIST, formatDateIST, getISODateIST, isTaskOverdue } from '../utils/time';
+import { formatIST, formatDateIST, getISODateIST, isTaskOverdue, getTaskOverdueDays } from '../utils/time';
 import DocumentsTab from '../components/projects/DocumentsTab';
 import SitePhotographsTab from '../components/projects/SitePhotographsTab';
 import ChangeClientModal from '../components/projects/ChangeClientModal';
@@ -532,7 +532,7 @@ export default function ProjectDetail() {
                           <div className="flex items-center gap-1.5">
                             {isOverdue && (
                               <span className="badge bg-red-100 border-red-200 text-red-600 font-bold uppercase tracking-tight">
-                                ⚠️ Overdue
+                                ⚠️ {getTaskOverdueDays(t)}d Overdue
                               </span>
                             )}
                             <span className={`badge ${

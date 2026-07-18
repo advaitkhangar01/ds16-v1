@@ -5,7 +5,7 @@ import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import TaskModal from '../components/projects/TaskModal';
-import { formatIST, formatDateIST, getISODateIST, isTaskOverdue } from '../utils/time';
+import { formatIST, formatDateIST, getISODateIST, isTaskOverdue, getTaskOverdueDays } from '../utils/time';
 
 export default function TasksPage() {
   const { user } = useAuth();
@@ -263,7 +263,7 @@ export default function TasksPage() {
                               </span>
                               {isOverdue && (
                                 <span className="text-[9px] font-black uppercase tracking-tight bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200">
-                                  ⚠️ Overdue
+                                  ⚠️ {getTaskOverdueDays(t)}d Overdue
                                 </span>
                               )}
                             </div>

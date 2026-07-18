@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { formatTimeIST, todayIST, isTaskOverdue } from '../../utils/time';
+import { formatTimeIST, todayIST, isTaskOverdue, getTaskOverdueDays } from '../../utils/time';
 import { mapAttendance } from '../../utils/attendance';
 import AttendanceCard from '../../components/ui/AttendanceCard';
 import toast from 'react-hot-toast';
@@ -572,7 +572,7 @@ function TaskKanbanBoard() {
                         </span>
                         {isOverdue && (
                           <span className="text-[9px] font-black uppercase tracking-tight bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200">
-                            ⚠️ Overdue
+                            ⚠️ {getTaskOverdueDays(t)}d Overdue
                           </span>
                         )}
                       </div>
