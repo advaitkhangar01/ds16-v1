@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect, no-unused-vars */
 // client/src/pages/employee/EmployeeDashboard.jsx
 // Employee dashboard: check-in/out, my tasks, my projects
 

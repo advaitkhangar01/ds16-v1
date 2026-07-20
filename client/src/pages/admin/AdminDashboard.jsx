@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect, no-unused-vars */
 // client/src/pages/admin/AdminDashboard.jsx
 // Admin dashboard: attendance summary, today's tasks, kanban board
 

@@ -172,7 +172,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
     // 5a. Total Project Value (Potential) - Only for active stages: Design Proposal, Sanction, Execution
     let incomeQuery = '';
     let incomeParams = [];
-    if (isGlobal) {
+    if (isGlobal || isAccounts) {
       incomeQuery = `
         WITH active_stages AS (
           SELECT DISTINCT ON (project_id) project_id, stage_name, status
@@ -234,7 +234,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
     // 5b. Billed/Received — scoped to the current month's invoices
     let invoiceQuery = '';
     let invoiceParams = [currentPeriodStart, currentPeriodEnd];
-    if (isGlobal) {
+    if (isGlobal || isAccounts) {
       invoiceQuery = `
         SELECT
           COALESCE(SUM(CASE WHEN date >= $1 AND date <= $2 THEN amount ELSE 0 END), 0)          AS billed,
@@ -267,7 +267,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
     // 5c. Expenses — scoped to current period (current month only)
     let expenseQuery = '';
     let expenseParams = [currentPeriodStart, currentPeriodEnd];
-    if (isGlobal) {
+    if (isGlobal || isAccounts) {
       expenseQuery = `
         SELECT COALESCE(SUM(amount), 0) as total_expense 
         FROM transactions 
@@ -349,7 +349,11 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
     const { type } = req.query;
     let items = [];
 
-    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
+    const isGlobal = req.user.role === 'admin' || 
+                     req.user.role === 'design_head' || 
+                     req.user.role === 'project_head' || 
+                     req.user.role === 'back_office' || 
+                     req.user.role === 'accounts';
 
     const today = getISTDate();
     const [year, month] = today.split('-').map(Number);
@@ -626,6 +630,7 @@ router.get('/employee', authenticate, async (req, res) => {
     // Extract month/year directly from IST date string to avoid UTC midnight parse issue
     const [year, month] = todayStr.split('-').map(Number);
     const userId = req.user.id;
+    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
 
     // 1. Today's attendance (self)
     const { rows: attRows } = await pool.query(
@@ -683,30 +688,49 @@ router.get('/employee', authenticate, async (req, res) => {
     );
 
     // 3. My projects (assigned or commented)
-    const { rows: projRows } = await pool.query(
-      `SELECT p.id, p.name, p.client_name, p.type, p.location,
+    let projQuery = `
+      SELECT p.id, p.name, p.client_name, p.type, p.location,
          COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]') as stages
        FROM projects p
-       WHERE 
-         EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = p.id AND pa.user_id = $1)
-         OR EXISTS (SELECT 1 FROM comments c WHERE c.project_id = p.id AND c.assigned_to = $1)
-       ORDER BY p.id DESC`,
-      [userId]
-    );
+    `;
+    let projParams = [];
+    if (!isGlobal) {
+      projQuery += `
+        WHERE 
+          EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = p.id AND pa.user_id = $1)
+          OR EXISTS (SELECT 1 FROM comments c WHERE c.project_id = p.id AND c.assigned_to = $1)
+      `;
+      projParams.push(userId);
+    }
+    projQuery += ` ORDER BY p.id DESC`;
+    const { rows: projRows } = await pool.query(projQuery, projParams);
 
     // 4. Project Kanban (Filtered for employee)
-    const { rows: projectRows } = await pool.query(
-      `SELECT p.id, p.name, p.client_name, p.type, p.status,
-         COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
-       FROM projects p
-       JOIN project_assignments pa ON pa.project_id = p.id
-       LEFT JOIN project_stages ps ON ps.project_id = p.id
-       WHERE pa.user_id = $1
-       GROUP BY p.id
-       ORDER BY p.created_at DESC 
-       LIMIT 100`,
-      [userId]
-    );
+    let kanbanQuery = '';
+    let kanbanParams = [];
+    if (isGlobal) {
+      kanbanQuery = `
+        SELECT p.id, p.name, p.client_name, p.type, p.status,
+           COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]') as stages
+         FROM projects p
+         ORDER BY p.created_at DESC 
+         LIMIT 100
+      `;
+    } else {
+      kanbanQuery = `
+        SELECT p.id, p.name, p.client_name, p.type, p.status,
+           COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
+         FROM projects p
+         JOIN project_assignments pa ON pa.project_id = p.id
+         LEFT JOIN project_stages ps ON ps.project_id = p.id
+         WHERE pa.user_id = $1
+         GROUP BY p.id
+         ORDER BY p.created_at DESC 
+         LIMIT 100
+      `;
+      kanbanParams.push(userId);
+    }
+    const { rows: projectRows } = await pool.query(kanbanQuery, kanbanParams);
     const kanban = { pending: [], design_proposal: [], sanction: [], execution: [], completed: [] };
     projectRows.forEach((p) => {
       const stages = p.stages || [];
