@@ -8,29 +8,8 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 // GET /api/vendors - Get all vendors grouped by category
 router.get('/', authenticate, async (req, res) => {
   try {
-    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
-    const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts';
-
-    let query = 'SELECT * FROM vendors v';
-    const params = [];
-
-    if (!isGlobal) {
-      query += `
-        WHERE EXISTS (
-          SELECT 1 FROM transactions t
-          LEFT JOIN project_assignments pa ON pa.project_id = t.project_id
-          WHERE t.vendor_id = v.id AND (
-            pa.user_id = $1
-            OR ($2::boolean AND EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.status IN ('Sanction', 'Under Sanctioning')))
-          )
-        )
-      `;
-      params.push(req.user.id, isAccounts);
-    }
-
-    query += ' ORDER BY v.category, v.name';
-
-    const { rows } = await pool.query(query, params);
+    const query = 'SELECT * FROM vendors v ORDER BY v.category, v.name';
+    const { rows } = await pool.query(query);
 
     const grouped = {};
     rows.forEach((v) => {

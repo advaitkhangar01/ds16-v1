@@ -87,7 +87,7 @@ router.get('/', authenticate, async (req, res) => {
       params = [];
     } else if (isAccounts) {
       query = `
-        SELECT DISTINCT p.*, 
+        SELECT p.*, 
           u.name as created_by_name,
           c.name as client_name,
           c.company_name as client_company,
@@ -95,10 +95,9 @@ router.get('/', authenticate, async (req, res) => {
           (SELECT phone FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_phone,
           COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]'::json) as stages
         FROM projects p
-        LEFT JOIN project_assignments pa ON pa.project_id = p.id
         LEFT JOIN users u ON u.id = p.created_by
         LEFT JOIN clients c ON c.id = p.client_id
-        WHERE pa.user_id = $1 OR p.status IN ('Sanction', 'Under Sanctioning')
+        WHERE p.status IN ('Sanction', 'Under Sanctioning') AND ($1::int IS NOT NULL OR true)
         ORDER BY p.created_at DESC`;
       params = [req.user.id];
     } else {

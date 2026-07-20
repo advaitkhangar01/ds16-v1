@@ -91,26 +91,41 @@ export function parseMentions(text) {
  */
 export function getTaskOverdueDays(task) {
   if (!task || ['passed', 'done'].includes(task.status)) return 0;
-  if (!task.start_date) return 0;
   try {
     const todayStr = getISODateIST();
-    const startStr = task.start_date.substring(0, 10);
-    
     const todayDate = new Date(todayStr);
-    const startDate = new Date(startStr);
     
-    const diffTime = todayDate.getTime() - startDate.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    if (task.due_date) {
+      const dueStr = task.due_date.substring(0, 10);
+      const dueDate = new Date(dueStr);
+      const diffTime = todayDate.getTime() - dueDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays > 0 ? diffDays : 0;
+    }
     
-    return diffDays > 0 ? diffDays : 0;
+    if (task.start_date) {
+      const startStr = task.start_date.substring(0, 10);
+      const startDate = new Date(startStr);
+      const diffTime = todayDate.getTime() - startDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays > 0 ? diffDays : 0;
+    }
+    
+    return 0;
   } catch {
     return 0;
   }
 }
 
 /**
- * Checks if a task is overdue by more than 7 days from its start_date.
+ * Checks if a task is overdue. If due_date is set, it is overdue if it is past due_date.
+ * If no due_date is set, it is overdue if it is more than 7 days past start_date.
  */
 export function isTaskOverdue(task) {
-  return getTaskOverdueDays(task) > 7;
+  if (!task) return false;
+  const overdueDays = getTaskOverdueDays(task);
+  if (task.due_date) {
+    return overdueDays > 0;
+  }
+  return overdueDays > 7;
 }

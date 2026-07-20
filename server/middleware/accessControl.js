@@ -80,6 +80,16 @@ const checkProjectAccess = (options = {}) => async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid project_id format' });
     }
 
+    // Accounts users have access to all projects in 'Sanction' or 'Under Sanctioning' status ONLY
+    const isAccounts = user.role === 'back_office' || user.role === 'accounts';
+    if (isAccounts) {
+      const { rows: projRows } = await pool.query('SELECT status FROM projects WHERE id = $1', [pid]);
+      if (projRows[0] && (projRows[0].status === 'Sanction' || projRows[0].status === 'Under Sanctioning')) {
+        return next();
+      }
+      return res.status(403).json({ error: 'Access denied. Accounts users can only access sanction stage projects.' });
+    }
+
     // Verify if employee is assigned to the project
     const { rows } = await pool.query(`
       SELECT 1 FROM project_assignments 
@@ -89,15 +99,6 @@ const checkProjectAccess = (options = {}) => async (req, res, next) => {
 
     if (rows.length > 0) {
       return next();
-    }
-
-    // Accounts users have access to all projects in 'Sanction' or 'Under Sanctioning' status
-    const isAccounts = user.role === 'back_office' || user.role === 'accounts';
-    if (isAccounts) {
-      const { rows: projRows } = await pool.query('SELECT status FROM projects WHERE id = $1', [pid]);
-      if (projRows[0] && (projRows[0].status === 'Sanction' || projRows[0].status === 'Under Sanctioning')) {
-        return next();
-      }
     }
 
     return res.status(403).json({ error: 'Access denied. You are not assigned to this project.' });

@@ -25,13 +25,19 @@ const StaffPage = lazy(() => import('./pages/admin/StaffPage'));
 const StaffDetailPage = lazy(() => import('./pages/admin/StaffDetailPage'));
 const HistoryPage = lazy(() => import('./pages/admin/HistoryPage'));
 
-function ProtectedRoute({ children, adminOnly = false, allowAccounts = false, blockAccounts = false }) {
+function ProtectedRoute({ children, adminOnly = false, allowAccounts = false, blockAccounts = false, blockProjectDesignHead = false }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   
   const isAccounts = user.role === 'back_office' || user.role === 'accounts' || user.department?.toLowerCase() === 'accounts';
+  const isProjectOrDesignHead = user.role === 'project_head' || user.role === 'design_head' || user.role === 'design';
   
+  // Block project_head / design_head from pages outside their scope
+  if (blockProjectDesignHead && isProjectOrDesignHead) {
+    return <Navigate to="/employee/dashboard" replace />;
+  }
+
   // Explicitly block accounts from certain routes (e.g. projects list)
   if (blockAccounts && isAccounts && user.role !== 'admin') {
     return <Navigate to="/admin/dashboard" replace />;
@@ -127,7 +133,7 @@ function AppRoutes() {
           <ProtectedRoute><ProjectDetail /></ProtectedRoute>
         } />
         <Route path="/attendance" element={
-          <ProtectedRoute><AttendancePage /></ProtectedRoute>
+          <ProtectedRoute blockProjectDesignHead><AttendancePage /></ProtectedRoute>
         } />
         <Route path="/tasks" element={
           <ProtectedRoute><TasksPage /></ProtectedRoute>
@@ -136,10 +142,10 @@ function AppRoutes() {
           <ProtectedRoute><VendorsPage /></ProtectedRoute>
         } />
         <Route path="/clients" element={
-          <ProtectedRoute><ClientsPage /></ProtectedRoute>
+          <ProtectedRoute blockProjectDesignHead><ClientsPage /></ProtectedRoute>
         } />
         <Route path="/clients/:id" element={
-          <ProtectedRoute><ClientDetail /></ProtectedRoute>
+          <ProtectedRoute blockProjectDesignHead><ClientDetail /></ProtectedRoute>
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -169,16 +169,26 @@ router.get('/transactions', authenticate, async (req, res) => {
     const params = [];
     let idx = 1;
 
-    if (req.user.role !== 'admin' && req.user.role !== 'accounts' && req.user.role !== 'back_office') {
-      // Employees and other roles only see transactions for projects they are assigned to
-      query += ` JOIN project_assignments pa ON pa.project_id = t.project_id `;
+    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
+    const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts';
+
+    if (!isGlobal) {
+      if (isAccounts) {
+        query += ` LEFT JOIN projects p_check ON p_check.id = t.project_id `;
+      } else {
+        query += ` JOIN project_assignments pa ON pa.project_id = t.project_id `;
+      }
     }
 
     query += ` WHERE 1=1 `;
 
-    if (req.user.role !== 'admin' && req.user.role !== 'accounts' && req.user.role !== 'back_office') {
-      query += ` AND pa.user_id = $${idx++} `;
-      params.push(req.user.id);
+    if (!isGlobal) {
+      if (isAccounts) {
+        query += ` AND (t.project_id IS NULL OR p_check.status IN ('Sanction', 'Under Sanctioning')) `;
+      } else {
+        query += ` AND pa.user_id = $${idx++} `;
+        params.push(req.user.id);
+      }
     }
 
     if (category) {
@@ -350,6 +360,8 @@ router.get('/summary', authenticate, async (req, res) => {
       // 1. Income from document amounts (Total Potential) - Only for active stages: Design Proposal, Sanction, Execution (when global)
       let incomeQuery;
       const incomeParams = [];
+      const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
+
       if (projectId) {
         incomeQuery = `SELECT COALESCE(SUM(amount), 0) as total_value FROM project_document_amounts WHERE project_id = $1`;
         incomeParams.push(projectId);
@@ -377,8 +389,11 @@ router.get('/summary', authenticate, async (req, res) => {
           SELECT COALESCE(SUM(pda.amount), 0) as total_value 
           FROM project_document_amounts pda
           JOIN project_categories pc ON pda.project_id = pc.project_id
+          JOIN projects p ON p.id = pda.project_id
           WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
+            AND ($1::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
         `;
+        incomeParams.push(isGlobal);
       }
       const incomeRes = await pool.query(incomeQuery, incomeParams);
       const totalValue = parseFloat(incomeRes.rows[0].total_value);
@@ -386,25 +401,28 @@ router.get('/summary', authenticate, async (req, res) => {
       // 2. Active Billed & Received — driven by the invoices table within the active period
       let activeInvoiceQuery = `
         SELECT
-          COALESCE(SUM(amount), 0)                                                        AS billed,
-          COALESCE(SUM(received_amount), 0)                                               AS received
-        FROM invoices
-        WHERE LOWER(status) != 'cancelled'
+          COALESCE(SUM(i.amount), 0)                                                        AS billed,
+          COALESCE(SUM(i.received_amount), 0)                                               AS received
+        FROM invoices i
+        JOIN projects p ON p.id = i.project_id
+        WHERE LOWER(i.status) != 'cancelled'
       `;
       const activeInvoiceParams = [];
       let aiIdx = 1;
       if (projectId) {
-        activeInvoiceQuery += ` AND project_id = $${aiIdx++}`;
+        activeInvoiceQuery += ` AND i.project_id = $${aiIdx++}`;
         activeInvoiceParams.push(projectId);
       }
       if (effectiveStartDate) {
-        activeInvoiceQuery += ` AND date >= $${aiIdx++}`;
+        activeInvoiceQuery += ` AND i.date >= $${aiIdx++}`;
         activeInvoiceParams.push(effectiveStartDate);
       }
       if (end_date) {
-        activeInvoiceQuery += ` AND date <= $${aiIdx++}`;
+        activeInvoiceQuery += ` AND i.date <= $${aiIdx++}`;
         activeInvoiceParams.push(end_date);
       }
+      activeInvoiceQuery += ` AND ($${aiIdx++}::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))`;
+      activeInvoiceParams.push(isGlobal);
 
       const activeInvoiceRes = await pool.query(activeInvoiceQuery, activeInvoiceParams);
       const billed = parseFloat(activeInvoiceRes.rows[0].billed);
@@ -413,22 +431,25 @@ router.get('/summary', authenticate, async (req, res) => {
       // 2.5 Cumulative Billed, Received, and Pending — driven by the invoices table globally (across all history)
       let cumulativeInvoiceQuery = `
         SELECT
-          COALESCE(SUM(amount), 0)                                                        AS cumulative_billed,
-          COALESCE(SUM(received_amount), 0)                                               AS cumulative_received,
-          COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
-        FROM invoices
-        WHERE LOWER(status) != 'cancelled'
+          COALESCE(SUM(i.amount), 0)                                                        AS cumulative_billed,
+          COALESCE(SUM(i.received_amount), 0)                                               AS cumulative_received,
+          COALESCE(SUM(CASE WHEN LOWER(i.status) != 'paid' THEN GREATEST(i.amount - i.received_amount, 0) ELSE 0 END), 0) AS pending
+        FROM invoices i
+        JOIN projects p ON p.id = i.project_id
+        WHERE LOWER(i.status) != 'cancelled'
       `;
       const cumulativeInvoiceParams = [];
       let ciIdx = 1;
       if (projectId) {
-        cumulativeInvoiceQuery += ` AND project_id = $${ciIdx++}`;
+        cumulativeInvoiceQuery += ` AND i.project_id = $${ciIdx++}`;
         cumulativeInvoiceParams.push(projectId);
       }
       if (end_date) {
-        cumulativeInvoiceQuery += ` AND date <= $${ciIdx++}`;
+        cumulativeInvoiceQuery += ` AND i.date <= $${ciIdx++}`;
         cumulativeInvoiceParams.push(end_date);
       }
+      cumulativeInvoiceQuery += ` AND ($${ciIdx++}::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))`;
+      cumulativeInvoiceParams.push(isGlobal);
 
       const cumulativeInvoiceRes = await pool.query(cumulativeInvoiceQuery, cumulativeInvoiceParams);
       const cumulativeBilled = parseFloat(cumulativeInvoiceRes.rows[0].cumulative_billed);
@@ -437,24 +458,27 @@ router.get('/summary', authenticate, async (req, res) => {
 
       // 3. Expenses from transactions (excluding vendor payments)
       let expenseQuery = `
-        SELECT COALESCE(SUM(amount), 0) as total_expense 
-        FROM transactions 
-        WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+        SELECT COALESCE(SUM(t.amount), 0) as total_expense 
+        FROM transactions t
+        LEFT JOIN projects p ON p.id = t.project_id
+        WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
       `;
       const expParams = [];
       let eIdx = 1;
       if (projectId) {
-        expenseQuery += ` AND project_id = $${eIdx++}`;
+        expenseQuery += ` AND t.project_id = $${eIdx++}`;
         expParams.push(projectId);
       }
       if (effectiveStartDate) {
-        expenseQuery += ` AND date >= $${eIdx++}`;
+        expenseQuery += ` AND t.date >= $${eIdx++}`;
         expParams.push(effectiveStartDate);
       }
       if (end_date) {
-        expenseQuery += ` AND date <= $${eIdx++}`;
+        expenseQuery += ` AND t.date <= $${eIdx++}`;
         expParams.push(end_date);
       }
+      expenseQuery += ` AND ($${eIdx++}::boolean OR p.id IS NULL OR p.status IN ('Sanction', 'Under Sanctioning'))`;
+      expParams.push(isGlobal);
       const expRes = await pool.query(expenseQuery, expParams);
       const transactionExpense = parseFloat(expRes.rows[0].total_expense);
 

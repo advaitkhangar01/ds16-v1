@@ -474,7 +474,12 @@ router.get('/today', authenticate, async (req, res) => {
          a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
          CASE
            WHEN lr.id IS NOT NULL THEN LOWER($2)
-           ELSE LOWER(COALESCE(a.status, $3))
+           ELSE 
+             CASE 
+               WHEN LOWER(a.status) = 'present' THEN 
+                 CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
+               ELSE LOWER(COALESCE(a.status, $3))
+             END
          END AS status
        FROM users u
        LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date
@@ -533,7 +538,12 @@ router.get('/all', authenticate, async (req, res) => {
          a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
          CASE
            WHEN lr.id IS NOT NULL THEN LOWER($${leaveStatusIdx})
-           ELSE LOWER(COALESCE(a.status, $${absentStatusIdx}))
+           ELSE 
+             CASE 
+               WHEN LOWER(a.status) = 'present' THEN 
+                 CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
+               ELSE LOWER(COALESCE(a.status, $${absentStatusIdx}))
+             END
          END AS status
        FROM users u
        JOIN attendance a ON a.user_id = u.id

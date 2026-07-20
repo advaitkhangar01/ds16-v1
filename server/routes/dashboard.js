@@ -219,7 +219,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
           FROM projects p
           LEFT JOIN project_assignments pa ON pa.project_id = p.id
           LEFT JOIN active_stages a ON p.id = a.project_id
-          WHERE pa.user_id = $1 OR ( $2::boolean AND p.status IN ('Sanction', 'Under Sanctioning') )
+          WHERE ($2::boolean AND p.status IN ('Sanction', 'Under Sanctioning')) OR (NOT $2::boolean AND pa.user_id = $1)
         )
         SELECT COALESCE(SUM(pda.amount), 0) as total_value 
         FROM project_document_amounts pda
@@ -252,9 +252,8 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
           COALESCE(SUM(received_amount), 0)                                                       AS all_time_received,
           COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
         FROM invoices i
-        WHERE LOWER(i.status) != 'cancelled' AND (
-          EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = i.project_id AND pa.user_id = $3)
-          OR EXISTS (SELECT 1 FROM projects p WHERE p.id = i.project_id AND p.status IN ('Sanction', 'Under Sanctioning'))
+        WHERE LOWER(i.status) != 'cancelled' AND EXISTS (
+          SELECT 1 FROM projects p WHERE p.id = i.project_id AND p.status IN ('Sanction', 'Under Sanctioning')
         )
       `;
       invoiceParams.push(req.user.id);
@@ -281,10 +280,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
         FROM transactions t
         WHERE type = 'expense' AND date >= $1 AND date <= $2
           AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
-          AND (
-            EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $3)
-            OR EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.status IN ('Sanction', 'Under Sanctioning'))
-          )
+          AND EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.status IN ('Sanction', 'Under Sanctioning'))
       `;
       expenseParams.push(req.user.id);
     }
@@ -313,10 +309,9 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
       countQuery = `
         SELECT COUNT(DISTINCT p.id) as count 
         FROM projects p
-        LEFT JOIN project_assignments pa ON pa.project_id = p.id
-        WHERE pa.user_id = $1 OR ( $2::boolean AND p.status IN ('Sanction', 'Under Sanctioning') )
+        WHERE p.status IN ('Sanction', 'Under Sanctioning')
       `;
-      countParams.push(req.user.id, isAccounts);
+      countParams = [];
     }
     const { rows: countRows } = await pool.query(countQuery, countParams);
 
@@ -354,6 +349,8 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
     const { type } = req.query;
     let items = [];
 
+    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
+
     const today = getISTDate();
     const [year, month] = today.split('-').map(Number);
     const currentPeriodStart = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -385,9 +382,10 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
         JOIN project_document_amounts pda ON p.id = pda.project_id
         JOIN project_categories pc ON p.id = pc.project_id
         WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
+          AND ($1::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
         GROUP BY p.id, p.name
         ORDER BY amount DESC
-      `);
+      `, [isGlobal]);
       items = rows;
     } else if (type === 'current') {
       const { rows: manualRes } = await pool.query(
@@ -436,6 +434,7 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
             LEFT JOIN project_received pr ON p.id = pr.project_id
             WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
               AND (COALESCE(pt.total_val, 0) - COALESCE(pr.rec_val, 0)) > 0
+              AND ($1::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
             GROUP BY p.id, p.name, pt.total_val, pr.rec_val
             ORDER BY amount DESC
           `
@@ -478,9 +477,11 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
             LEFT JOIN project_received pr ON p.id = pr.project_id
             WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
               AND (COALESCE(pt.total_val, 0) - COALESCE(pr.rec_val, 0)) > 0
+              AND ($1::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
             GROUP BY p.id, p.name, pt.total_val, pr.rec_val
             ORDER BY amount DESC
-          `
+          `,
+        [isGlobal]
       );
       items = rows;
     } else if (type === 'billed') {
@@ -492,10 +493,11 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
         WHERE LOWER(i.status) != 'cancelled'
           AND i.project_id IS NOT NULL
           AND i.date >= $1 AND i.date <= $2
+          AND ($3::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
         GROUP BY p.id, p.name
         HAVING SUM(i.amount) > 0
         ORDER BY amount DESC
-      `, [currentPeriodStart, currentPeriodEnd]);
+      `, [currentPeriodStart, currentPeriodEnd, isGlobal]);
       items = rows;
     } else if (type === 'received') {
       // Received = payments collected in the current period, grouped by project
@@ -506,10 +508,11 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
         WHERE LOWER(i.status) != 'cancelled'
           AND i.project_id IS NOT NULL
           AND i.date >= $1 AND i.date <= $2
+          AND ($3::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
         GROUP BY p.id, p.name
         HAVING SUM(i.received_amount) > 0
         ORDER BY amount DESC
-      `, [currentPeriodStart, currentPeriodEnd]);
+      `, [currentPeriodStart, currentPeriodEnd, isGlobal]);
       items = rows;
     } else if (type === 'pending') {
       // Pending = outstanding balance per project (invoice amount - received), for unpaid invoices
@@ -520,10 +523,11 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
         JOIN projects p ON p.id = i.project_id
         WHERE LOWER(i.status) NOT IN ('cancelled', 'paid')
           AND i.project_id IS NOT NULL
+          AND ($1::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
         GROUP BY p.id, p.name
         HAVING SUM(GREATEST(i.amount - i.received_amount, 0)) > 0
         ORDER BY amount DESC
-      `);
+      `, [isGlobal]);
       items = rows;
     } else if (type === 'expenses') {
       // Expenses = transactions and payroll scoped to the current month/period
@@ -534,6 +538,7 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
           LEFT JOIN projects p ON p.id = t.project_id
           WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
             AND t.date >= $1 AND t.date <= $2
+            AND ($5::boolean OR p.id IS NULL OR p.status IN ('Sanction', 'Under Sanctioning'))
           
           UNION ALL
           
@@ -562,7 +567,7 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
             AND month = $3 AND year = $4
         ) combined_expenses
         ORDER BY date DESC
-      `, [currentPeriodStart, currentPeriodEnd, month, year]);
+      `, [currentPeriodStart, currentPeriodEnd, month, year, isGlobal]);
       items = rows;
     }
 

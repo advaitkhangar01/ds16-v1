@@ -458,6 +458,8 @@ pool.query('SELECT NOW()', (err) => {
         await pool.query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS start_date DATE DEFAULT CURRENT_DATE");
         await pool.query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ");
         await pool.query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reassigned_at TIMESTAMPTZ");
+        await pool.query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high'))");
+        await pool.query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_date DATE");
 
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {

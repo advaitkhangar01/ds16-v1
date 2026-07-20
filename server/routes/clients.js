@@ -30,8 +30,8 @@ router.get('/', authenticate, async (req, res) => {
           SELECT 1 FROM projects p
           LEFT JOIN project_assignments pa ON pa.project_id = p.id
           WHERE p.client_id = c.id AND (
-            pa.user_id = $1
-            OR ($2::boolean AND p.status IN ('Sanction', 'Under Sanctioning'))
+            ($2::boolean AND p.status IN ('Sanction', 'Under Sanctioning'))
+            OR (NOT $2::boolean AND pa.user_id = $1)
           )
         )
       `;
@@ -72,8 +72,8 @@ router.get('/:id', authenticate, async (req, res) => {
         SELECT 1 FROM projects p
         LEFT JOIN project_assignments pa ON pa.project_id = p.id
         WHERE p.client_id = $1 AND (
-          pa.user_id = $2
-          OR ($3::boolean AND p.status IN ('Sanction', 'Under Sanctioning'))
+          ($3::boolean AND p.status IN ('Sanction', 'Under Sanctioning'))
+          OR (NOT $3::boolean AND pa.user_id = $2)
         )
         LIMIT 1
       `, [id, req.user.id, isAccounts]);
@@ -103,8 +103,8 @@ router.get('/:id', authenticate, async (req, res) => {
         FROM projects p
         LEFT JOIN project_assignments pa ON pa.project_id = p.id
         WHERE p.client_id = $1 AND (
-          pa.user_id = $2
-          OR ($3::boolean AND p.status IN ('Sanction', 'Under Sanctioning'))
+          ($3::boolean AND p.status IN ('Sanction', 'Under Sanctioning'))
+          OR (NOT $3::boolean AND pa.user_id = $2)
         )
       `;
       projectsParams = [id, req.user.id, isAccounts];

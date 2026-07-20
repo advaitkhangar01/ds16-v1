@@ -20,6 +20,8 @@ export default function TasksPage() {
   const [assignedTo, setAssignedTo] = useState('');
   const [viewMode, setViewMode] = useState('active'); // 'active', 'scheduled', or 'history'
   const [startDate, setStartDate] = useState(getISODateIST());
+  const [priority, setPriority] = useState('medium');
+  const [dueDate, setDueDate] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   // Discussion Modal State
@@ -62,12 +64,16 @@ export default function TasksPage() {
         title: title.trim(),
         assigned_to: assignedTo ? parseInt(assignedTo) : null,
         participants: assignedTo ? [parseInt(assignedTo)] : [],
-        start_date: startDate
+        start_date: startDate,
+        priority,
+        due_date: dueDate || null
       });
       setTitle('');
       setProjectId('');
       setAssignedTo('');
       setStartDate(getISODateIST());
+      setPriority('medium');
+      setDueDate('');
       toast.success('Task successfully assigned');
       // Refresh board
       fetchData();
@@ -78,10 +84,27 @@ export default function TasksPage() {
     }
   }
 
+  async function handleQuickStatusChange(taskId, newStatus) {
+    try {
+      await api.patch(`/tasks/${taskId}`, { status: newStatus });
+      toast.success('Task updated successfully');
+      fetchData();
+    } catch {
+      toast.error('Failed to update task status');
+    }
+  }
+
   const openTask = (taskId) => {
     setSelectedTaskId(taskId);
     setIsModalOpen(true);
   };
+
+  const allTasks = kanbanData.flatMap(col => col.tasks || []);
+  const activeCount = allTasks.filter(t => !['passed', 'done'].includes(t.status)).length;
+  const reviewCount = allTasks.filter(t => t.status === 'review').length;
+  const overdueCount = allTasks.filter(t => isTaskOverdue(t)).length;
+  const reviewTasks = allTasks.filter(t => t.status === 'review');
+  const isPrivileged = user?.role === 'admin' || user?.role === 'design_head' || user?.role === 'accounts' || user?.role === 'back_office' || user?.role === 'project_head';
 
   return (
     <AppLayout>
@@ -92,78 +115,186 @@ export default function TasksPage() {
           <p className="text-muted text-sm font-medium mt-0.5">Global productivity tracking</p>
         </div>
 
-        {/* Create Task Panel */}
-        <div className="card">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-8 h-8 rounded-lg bg-[rgba(224,90,30,0.08)] border border-[rgba(224,90,30,0.18)] flex items-center justify-center text-[#E05A1E]">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+        {/* Metrics Strip */}
+        {viewMode === 'active' && !loading && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white rounded-2xl border border-slate-100 p-5 flex items-center justify-between shadow-sm">
+              <div>
+                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Active Tasks</span>
+                <h3 className="text-2xl font-black text-slate-800 mt-1">{activeCount}</h3>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-500">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              </div>
             </div>
-            <h2 className="text-base font-black text-[#1A1A1A]">Create Separate Task</h2>
+
+            <div className="bg-white rounded-2xl border border-slate-100 p-5 flex items-center justify-between shadow-sm">
+              <div>
+                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Pending Review</span>
+                <h3 className="text-2xl font-black text-slate-800 mt-1">{reviewCount}</h3>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-500">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-100 p-5 flex items-center justify-between shadow-sm">
+              <div>
+                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Overdue Tasks</span>
+                <h3 className="text-2xl font-black text-red-600 mt-1">{overdueCount}</h3>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center text-red-500">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              </div>
+            </div>
           </div>
+        )}
 
-          <form onSubmit={handleCreateTask} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-            <div className="md:col-span-1">
-              <label className="text-[10px] font-black text-muted uppercase tracking-wider">Task Title</label>
-              <input
-                type="text"
-                className="input mt-1"
-                placeholder="Type task objective..."
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
+        {/* Pending Review Action Queue */}
+        {user?.role === 'admin' && reviewTasks.length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4 animate-fade-in">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                <h2 className="text-base font-black text-slate-800 tracking-tight">Review Action Queue</h2>
+              </div>
+              <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold">
+                {reviewTasks.length} pending
+              </span>
             </div>
 
-            <div>
-              <label className="text-[10px] font-black text-muted uppercase tracking-wider">Project Link</label>
-              <select
-                className="input mt-1"
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-              >
-                <option value="">Select Project...</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
+            <div className="divide-y divide-slate-100 max-h-[250px] overflow-y-auto pr-1">
+              {reviewTasks.map(t => (
+                <div key={t.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-slate-700 hover:text-slate-900 cursor-pointer" onClick={() => openTask(t.id)}>
+                        {t.title}
+                      </span>
+                      <span className="text-[9px] bg-slate-100 text-[#E05A1E] px-1.5 py-0.2 rounded border border-slate-200 uppercase font-black tracking-tight">
+                        {t.project_name}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-muted">
+                      Assigned to <span className="font-bold text-slate-600">{t.assigned_to_name || 'Unassigned'}</span>
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleQuickStatusChange(t.id, 'passed')}
+                      className="px-3 py-1 bg-emerald-50 hover:bg-emerald-500 border border-emerald-200 text-emerald-700 hover:text-white text-[10px] font-black uppercase tracking-wider rounded-lg transition-all"
+                    >
+                      ✓ Pass
+                    </button>
+                    <button
+                      onClick={() => handleQuickStatusChange(t.id, 'in_progress')}
+                      className="px-3 py-1 bg-red-50 hover:bg-red-500 border border-red-200 text-red-700 hover:text-white text-[10px] font-black uppercase tracking-wider rounded-lg transition-all"
+                    >
+                      ⟲ Reassign
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Create Task Panel */}
+        {isPrivileged && (
+          <div className="card">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 rounded-lg bg-[rgba(224,90,30,0.08)] border border-[rgba(224,90,30,0.18)] flex items-center justify-center text-[#E05A1E]">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+              </div>
+              <h2 className="text-base font-black text-[#1A1A1A]">Create Separate Task</h2>
             </div>
 
-            <div>
-              <label className="text-[10px] font-black text-muted uppercase tracking-wider">Assign To</label>
-              <select
-                className="input mt-1"
-                value={assignedTo}
-                onChange={(e) => setAssignedTo(e.target.value)}
-              >
-                <option value="">Unassigned</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-                ))}
-              </select>
-            </div>
+            <form onSubmit={handleCreateTask} className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
+              <div className="md:col-span-1">
+                <label className="text-[10px] font-black text-muted uppercase tracking-wider">Task Title</label>
+                <input
+                  type="text"
+                  className="input mt-1"
+                  placeholder="Type task objective..."
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </div>
 
-            <div>
-              <label className="text-[10px] font-black text-muted uppercase tracking-wider">Start Date</label>
-              <input
-                type="date"
-                className="input mt-1"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
-            </div>
+              <div>
+                <label className="text-[10px] font-black text-muted uppercase tracking-wider">Project Link</label>
+                <select
+                  className="input mt-1"
+                  value={projectId}
+                  onChange={(e) => setProjectId(e.target.value)}
+                >
+                  <option value="">Select Project...</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
 
-            {/* Removed Project Stage selection as requested */}
+              <div>
+                <label className="text-[10px] font-black text-muted uppercase tracking-wider">Assign To</label>
+                <select
+                  className="input mt-1"
+                  value={assignedTo}
+                  onChange={(e) => setAssignedTo(e.target.value)}
+                >
+                  <option value="">Unassigned</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                  ))}
+                </select>
+              </div>
 
-            <div className="md:col-span-4 flex justify-end">
-              <button
-                type="submit"
-                disabled={submitting || !title.trim() || !projectId}
-                className="btn-primary"
-              >
-                {submitting ? 'Submitting...' : 'Link & Dispatch Task'}
-              </button>
-            </div>
-          </form>
-        </div>
+              <div>
+                <label className="text-[10px] font-black text-muted uppercase tracking-wider">Start Date</label>
+                <input
+                  type="date"
+                  className="input mt-1"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-muted uppercase tracking-wider">Due Date</label>
+                <input
+                  type="date"
+                  className="input mt-1"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-muted uppercase tracking-wider">Priority</label>
+                <select
+                  className="input mt-1"
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value)}
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+
+              <div className="md:col-span-6 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={submitting || !title.trim() || !projectId}
+                  className="btn-primary"
+                >
+                  {submitting ? 'Submitting...' : 'Link & Dispatch Task'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
 
         {/* Kanban Section */}
         {loading ? (
@@ -245,10 +376,17 @@ export default function TasksPage() {
                               ? 'bg-red-500 opacity-100' 
                               : 'bg-[#E05A1E] opacity-0 group-hover:opacity-100'
                           }`} />
-                          <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-1 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
+                           <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-1 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
                           {t.start_date && t.start_date.substring(0, 10) > getISODateIST() && (
                             <div className="text-[10px] text-amber-600 font-bold mb-1 flex items-center gap-1">
                               📅 Starts: {formatDateIST(t.start_date)}
+                            </div>
+                          )}
+                          {t.due_date && (
+                            <div className={`text-[10px] font-bold mb-1 flex items-center gap-1 ${
+                              isOverdue ? 'text-red-600' : 'text-slate-500'
+                            }`}>
+                              📅 Due: {formatDateIST(t.due_date)}
                             </div>
                           )}
                           <p className="text-[10px] text-muted mb-2 font-medium flex items-center gap-1.5">
@@ -260,6 +398,13 @@ export default function TasksPage() {
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
                                 {t.project_name}
+                              </span>
+                              <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
+                                t.priority === 'high' ? 'bg-red-50 border-red-200 text-red-600' :
+                                t.priority === 'medium' ? 'bg-amber-50 border-amber-200 text-amber-600' :
+                                'bg-blue-50 border-blue-200 text-blue-600'
+                              }`}>
+                                {t.priority || 'medium'}
                               </span>
                               {isOverdue && (
                                 <span className="text-[9px] font-black uppercase tracking-tight bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200">

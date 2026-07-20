@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { formatTimeIST, todayIST, isTaskOverdue, getTaskOverdueDays } from '../../utils/time';
+import { formatTimeIST, todayIST, isTaskOverdue, getTaskOverdueDays, formatDateIST } from '../../utils/time';
 import { mapAttendance } from '../../utils/attendance';
 import AttendanceCard from '../../components/ui/AttendanceCard';
 import toast from 'react-hot-toast';
@@ -562,12 +562,26 @@ function TaskKanbanBoard() {
                         ? 'bg-red-500 opacity-100' 
                         : 'bg-[#E05A1E] opacity-0 group-hover:opacity-100'
                     }`} />
-                    <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-2 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
+                    <p className="text-xs font-bold text-slate-800 line-clamp-2 mb-1 group-hover:text-[#E05A1E] transition-colors">{t.title}</p>
+                    {t.due_date && (
+                      <div className={`text-[10px] font-bold mb-1 flex items-center gap-1 ${
+                        isOverdue ? 'text-red-600' : 'text-slate-500'
+                      }`}>
+                        📅 Due: {formatDateIST(t.due_date)}
+                      </div>
+                    )}
                     
                     <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-[9px] font-black uppercase tracking-tight bg-slate-100 text-[#E05A1E] px-1.5 py-0.5 rounded border border-slate-200">
                           {t.project_name}
+                        </span>
+                        <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
+                          t.priority === 'high' ? 'bg-red-50 border-red-200 text-red-600' :
+                          t.priority === 'medium' ? 'bg-amber-50 border-amber-200 text-amber-600' :
+                          'bg-blue-50 border-blue-200 text-blue-600'
+                        }`}>
+                          {t.priority || 'medium'}
                         </span>
                         {isOverdue && (
                           <span className="text-[9px] font-black uppercase tracking-tight bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200">

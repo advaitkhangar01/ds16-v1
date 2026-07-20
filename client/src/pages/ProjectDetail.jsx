@@ -48,6 +48,7 @@ const PROJECT_TYPES = [
 export default function ProjectDetail() {
   const { id } = useParams();
   const { user, isAdmin, isAccounts, isDesignHead } = useAuth();
+  const isPrivileged = user?.role === 'admin' || user?.role === 'design_head' || user?.role === 'accounts' || user?.role === 'back_office' || user?.role === 'project_head';
   const [project, setProject] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [users, setUsers] = useState([]);
@@ -66,6 +67,8 @@ export default function ProjectDetail() {
   const [newTaskAssignedTo, setNewTaskAssignedTo] = useState('');
   const newTaskStage = 'general';
   const [newTaskStartDate, setNewTaskStartDate] = useState(getISODateIST());
+  const [newTaskPriority, setNewTaskPriority] = useState('medium');
+  const [newTaskDueDate, setNewTaskDueDate] = useState('');
 
   const fetchProject = useCallback(async () => {
     try {
@@ -99,11 +102,15 @@ export default function ProjectDetail() {
         title: newTaskTitle.trim(),
         assigned_to: newTaskAssignedTo ? parseInt(newTaskAssignedTo) : null,
         participants: newTaskAssignedTo ? [parseInt(newTaskAssignedTo)] : [],
-        start_date: newTaskStartDate
+        start_date: newTaskStartDate,
+        priority: newTaskPriority,
+        due_date: newTaskDueDate || null
       });
       setNewTaskTitle('');
       setNewTaskAssignedTo('');
       setNewTaskStartDate(getISODateIST());
+      setNewTaskPriority('medium');
+      setNewTaskDueDate('');
       await fetchProject();
       toast.success('Task created!');
     } catch (err) {
@@ -442,56 +449,82 @@ export default function ProjectDetail() {
         {activeTab === 'tasks' && (
           <div className="space-y-6 animate-in fade-in duration-300">
             {/* Create Task Form */}
-            <div className="card">
-              <h3 className="text-base font-semibold text-[#1A1A1A] mb-4">Create New Task</h3>
-              <form onSubmit={handleCreateTask} className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-bold text-muted uppercase">Task Title</label>
-                  <input 
-                    type="text" 
-                    className="input mt-1" 
-                    placeholder="What needs to be done?"
-                    value={newTaskTitle}
-                    onChange={(e) => setNewTaskTitle(e.target.value)}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {isPrivileged && (
+              <div className="card">
+                <h3 className="text-base font-semibold text-[#1A1A1A] mb-4">Create New Task</h3>
+                <form onSubmit={handleCreateTask} className="space-y-4">
                   <div>
-                    <label className="text-[10px] font-bold text-muted uppercase">Assign To</label>
-                    <select 
-                      className="input mt-1"
-                      value={newTaskAssignedTo}
-                      onChange={(e) => setNewTaskAssignedTo(e.target.value)}
-                    >
-                      <option value="">Unassigned</option>
-                      {users.map((u) => (
-                        <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-muted uppercase">Start Date</label>
+                    <label className="text-[10px] font-bold text-muted uppercase">Task Title</label>
                     <input 
-                      type="date"
-                      className="input mt-1"
-                      value={newTaskStartDate}
-                      onChange={(e) => setNewTaskStartDate(e.target.value)}
+                      type="text" 
+                      className="input mt-1" 
+                      placeholder="What needs to be done?"
+                      value={newTaskTitle}
+                      onChange={(e) => setNewTaskTitle(e.target.value)}
                     />
                   </div>
-                </div>
 
-                <div className="flex justify-end pt-2">
-                  <button 
-                    type="submit" 
-                    disabled={submitting || !newTaskTitle.trim()} 
-                    className="btn-primary"
-                  >
-                    {submitting ? 'Creating...' : 'Create Task'}
-                  </button>
-                </div>
-              </form>
-            </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-muted uppercase">Assign To</label>
+                      <select 
+                        className="input mt-1"
+                        value={newTaskAssignedTo}
+                        onChange={(e) => setNewTaskAssignedTo(e.target.value)}
+                      >
+                        <option value="">Unassigned</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-muted uppercase">Start Date</label>
+                      <input 
+                        type="date"
+                        className="input mt-1"
+                        value={newTaskStartDate}
+                        onChange={(e) => setNewTaskStartDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-muted uppercase">Due Date</label>
+                      <input 
+                        type="date"
+                        className="input mt-1"
+                        value={newTaskDueDate}
+                        onChange={(e) => setNewTaskDueDate(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-muted uppercase">Priority</label>
+                      <select 
+                        className="input mt-1"
+                        value={newTaskPriority}
+                        onChange={(e) => setNewTaskPriority(e.target.value)}
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <button 
+                      type="submit" 
+                      disabled={submitting || !newTaskTitle.trim()} 
+                      className="btn-primary"
+                    >
+                      {submitting ? 'Creating...' : 'Create Task'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
 
             {/* Task Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -548,11 +581,24 @@ export default function ProjectDetail() {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2 mt-4 text-xs text-muted flex-wrap">
-                        {/* Stage label removed as requested */}
-                        {t.assigned_to_name && (
-                          <span className="flex items-center gap-1 font-medium">
-                            👤 {t.assigned_to_name}
+                      <div className="flex items-center gap-2 mt-4 text-xs text-muted flex-wrap justify-between w-full">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {t.assigned_to_name && (
+                            <span className="flex items-center gap-1 font-medium bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
+                              👤 {t.assigned_to_name}
+                            </span>
+                          )}
+                          <span className={`text-[9px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded border ${
+                            t.priority === 'high' ? 'bg-red-50 border-red-200 text-red-600' :
+                            t.priority === 'medium' ? 'bg-amber-50 border-amber-200 text-amber-600' :
+                            'bg-blue-50 border-blue-200 text-blue-600'
+                          }`}>
+                            {t.priority || 'medium'}
+                          </span>
+                        </div>
+                        {t.due_date && (
+                          <span className={`text-[10px] font-bold ${isOverdue ? 'text-red-600' : 'text-slate-500'}`}>
+                            📅 Due: {formatDateIST(t.due_date)}
                           </span>
                         )}
                       </div>

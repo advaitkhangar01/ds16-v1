@@ -23,17 +23,19 @@ router.post('/', authenticate, checkProjectAccess(), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { project_id, stage, title, description, assigned_to, participants, start_date } = req.body;
+    const { project_id, stage, title, description, assigned_to, participants, start_date, priority, due_date } = req.body;
 
     if (!project_id || !title?.trim()) {
       return res.status(400).json({ error: 'project_id and title are required' });
     }
 
+    const finalPriority = ['low', 'medium', 'high'].includes(priority) ? priority : 'medium';
+
     const { rows: [task] } = await client.query(`
-      INSERT INTO tasks (project_id, stage, title, description, assigned_to, created_by, status, created_at, updated_at, start_date)
-      VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), NOW(), COALESCE($7, CURRENT_DATE))
+      INSERT INTO tasks (project_id, stage, title, description, assigned_to, created_by, status, created_at, updated_at, start_date, priority, due_date)
+      VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), NOW(), COALESCE($7, CURRENT_DATE), $8, $9)
       RETURNING *
-    `, [project_id, stage || 'general', title.trim(), description || null, assigned_to || null, req.user.id, start_date || null]);
+    `, [project_id, stage || 'general', title.trim(), description || null, assigned_to || null, req.user.id, start_date || null, finalPriority, due_date || null]);
 
     // Ensure assigned_to and creator are participants
     const uniqueParticipants = new Set(participants || []);
@@ -339,7 +341,7 @@ router.post('/:task_id/messages', authenticate, checkProjectAccess({ idIsResourc
 router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task' }), async (req, res) => {
   try {
     const { task_id } = req.params;
-    const { status, stage, assigned_to } = req.body;
+    const { status, stage, assigned_to, priority, due_date } = req.body;
 
     const { rows: [currentTask] } = await pool.query('SELECT status, assigned_to FROM tasks WHERE id = $1', [task_id]);
     if (!currentTask) return res.status(404).json({ error: 'Task not found' });
@@ -389,6 +391,19 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
     if (req.body.start_date !== undefined) {
       updates.push(`start_date = $${count++}`);
       params.push(req.body.start_date || null);
+    }
+
+    if (priority) {
+      if (!['low', 'medium', 'high'].includes(priority)) {
+        return res.status(400).json({ error: 'Invalid priority' });
+      }
+      updates.push(`priority = $${count++}`);
+      params.push(priority);
+    }
+
+    if (due_date !== undefined) {
+      updates.push(`due_date = $${count++}`);
+      params.push(due_date || null);
     }
 
     if (isStatusPassing) {

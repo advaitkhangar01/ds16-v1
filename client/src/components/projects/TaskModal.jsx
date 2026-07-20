@@ -115,6 +115,26 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
     }
   }
 
+  async function handlePriorityChange(newPriority) {
+    try {
+      const { data } = await api.patch(`/tasks/${taskId}`, { priority: newPriority });
+      setTask(prev => ({ ...prev, priority: data.task.priority }));
+      toast.success('Priority updated');
+    } catch {
+      toast.error('Failed to update priority');
+    }
+  }
+
+  async function handleDueDateChange(newDate) {
+    try {
+      const { data } = await api.patch(`/tasks/${taskId}`, { due_date: newDate || null });
+      setTask(prev => ({ ...prev, due_date: data.task.due_date }));
+      toast.success('Due date updated');
+    } catch {
+      toast.error('Failed to update due date');
+    }
+  }
+
   async function handleDeleteTask() {
     if (!window.confirm(`Are you sure you want to delete this task?`)) return;
     try {
@@ -211,6 +231,47 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
                 ) : (
                   <span className="text-xs font-bold text-[#1A1A1A]">
                     {formatDateIST(task?.start_date)}
+                  </span>
+                )}
+              </div>
+
+              {/* Due Date Control */}
+              <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-muted font-bold uppercase tracking-tight">Due Date:</span>
+                {user?.role === 'admin' || task?.created_by === user?.id ? (
+                  <input
+                    type="date"
+                    className="bg-transparent text-xs font-bold text-[#1A1A1A] focus:outline-none border-none p-0 w-[110px]"
+                    value={task?.due_date ? task.due_date.substring(0, 10) : ''}
+                    onChange={(e) => handleDueDateChange(e.target.value)}
+                  />
+                ) : (
+                  <span className="text-xs font-bold text-[#1A1A1A]">
+                    {task?.due_date ? formatDateIST(task.due_date) : 'No deadline'}
+                  </span>
+                )}
+              </div>
+
+              {/* Priority Control */}
+              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${
+                task?.priority === 'high' ? 'bg-red-50 border-red-200 text-red-700' :
+                task?.priority === 'medium' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                'bg-blue-50 border-blue-200 text-blue-700'
+              }`}>
+                <span className="text-[10px] font-bold uppercase tracking-tight">Priority:</span>
+                {user?.role === 'admin' || task?.created_by === user?.id ? (
+                  <select
+                    className="bg-transparent text-xs font-bold focus:outline-none border-none p-0 pr-4"
+                    value={task?.priority || 'medium'}
+                    onChange={(e) => handlePriorityChange(e.target.value)}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                ) : (
+                  <span className="text-xs font-bold uppercase">
+                    {task?.priority || 'medium'}
                   </span>
                 )}
               </div>
