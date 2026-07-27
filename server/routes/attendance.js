@@ -527,7 +527,7 @@ router.get('/today', authenticate, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT
          u.id as user_id, u.name, u.role, u.department,
-         a.check_in, a.check_out, a.lat, a.lng, a.date, a.is_late, a.late_minutes, a.hours_worked,
+         a.check_in, a.check_out, a.lat, a.lng, COALESCE(a.date, $1::date) AS date, a.is_late, a.late_minutes, a.hours_worked,
          a.checkin_zone, a.checkin_distance, a.checkin_accuracy,
          a.is_boundary_checkin, a.checkin_verified,
          a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
@@ -578,8 +578,9 @@ router.get('/all', authenticate, async (req, res) => {
     // Automatically check out any pending records from previous days first
     await autoCheckoutPendingRecords();
 
-    const { page = 1, limit = 50, from, to } = req.query;
-    const offset = (page - 1) * limit;
+    const { page = 1, limit, from, to } = req.query;
+    const parsedLimit = limit ? parseInt(limit) : 5000;
+    const offset = (page - 1) * parsedLimit;
 
     const today = getISTDate();
     const [year, month] = today.split('-').map(Number);
@@ -658,7 +659,7 @@ router.get('/all', authenticate, async (req, res) => {
        LEFT JOIN holidays h ON h.date = ud.date
        ORDER BY ud.date DESC, a.check_in ASC NULLS LAST, ud.employee_name ASC
        LIMIT $4 OFFSET $5`,
-      [startDate, endDate, userFilterId, parseInt(limit), parseInt(offset)]
+      [startDate, endDate, userFilterId, parsedLimit, parsedOffset]
     );
 
     // Mask GPS for non-admins
@@ -668,7 +669,7 @@ router.get('/all', authenticate, async (req, res) => {
       return { ...rest, lat: null, lng: null, checkin_distance: null, checkin_zone: null, checkin_accuracy: null };
     });
 
-    res.json({ attendance: sanitizedRows, page: parseInt(page), limit: parseInt(limit) });
+    res.json({ attendance: sanitizedRows, page: parseInt(page), limit: limit ? parseInt(limit) : parsedLimit });
 
   } catch (err) {
     console.error('All attendance error:', err);
