@@ -9,32 +9,70 @@ const { authenticate, requireAdmin, requireAccounting } = require('../middleware
 router.get('/attendance', authenticate, requireAccounting, async (req, res) => {
   try {
     const { user_id, start_date, end_date } = req.query;
-    let query = `
-      SELECT 
-        a.id, a.user_id, a.date, a.check_in, a.check_out, LOWER(a.status) AS status, 
-        a.is_late, a.late_minutes, a.hours_worked, a.checkin_distance, a.checkin_zone,
-        u.name as employee_name, u.role, u.department
-      FROM attendance a
-      JOIN users u ON u.id = a.user_id
-      WHERE 1=1
-    `;
-    const params = [];
+    const { getISTDate } = require('../utils/date');
 
-    if (user_id) {
-      params.push(user_id);
-      query += ` AND a.user_id = $${params.length}`;
-    }
-    if (start_date) {
-      params.push(start_date);
-      query += ` AND a.date >= $${params.length}::date`;
-    }
-    if (end_date) {
-      params.push(end_date);
-      query += ` AND a.date <= $${params.length}::date`;
-    }
+    const today = getISTDate();
+    const [year, month] = today.split('-').map(Number);
+    const defaultStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const defaultEnd   = today;
 
-    query += ' ORDER BY a.date DESC, u.name ASC';
-    const { rows } = await pool.query(query, params);
+    const startDate = start_date || defaultStart;
+    const endDate   = end_date || defaultEnd;
+
+    const userFilterId = user_id ? parseInt(user_id) : null;
+
+    const { rows } = await pool.query(
+      `WITH date_series AS (
+         SELECT generate_series($1::date, $2::date, '1 day'::interval)::date AS date
+       ),
+       target_users AS (
+         SELECT id, name, role, department 
+         FROM users 
+         WHERE ($3::integer IS NULL OR id = $3)
+       ),
+       user_dates AS (
+         SELECT u.id AS user_id, u.name AS employee_name, u.role, u.department, d.date
+         FROM target_users u
+         CROSS JOIN date_series d
+       )
+       SELECT 
+         a.id,
+         ud.user_id,
+         ud.date,
+         a.check_in,
+         a.check_out,
+         a.is_late,
+         a.late_minutes,
+         a.hours_worked,
+         a.checkin_distance,
+         a.checkin_zone,
+         a.checkin_accuracy,
+         ud.employee_name,
+         ud.role,
+         ud.department,
+         CASE
+           WHEN a.check_in IS NOT NULL THEN
+             CASE 
+               WHEN LOWER(a.status) = 'present' THEN 
+                 CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
+               ELSE LOWER(a.status)
+             END
+           WHEN lr.id IS NOT NULL THEN 'leave'
+           WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
+           WHEN h.date IS NOT NULL THEN 'holiday'
+           ELSE 'absent'
+         END AS status
+       FROM user_dates ud
+       LEFT JOIN attendance a ON a.user_id = ud.user_id AND a.date = ud.date
+       LEFT JOIN leave_requests lr ON lr.user_id = ud.user_id
+         AND LOWER(lr.status) = 'approved'
+         AND lr.type NOT IN ('advance', 'resignation')
+         AND ud.date BETWEEN lr.start_date AND lr.end_date
+       LEFT JOIN holidays h ON h.date = ud.date
+       ORDER BY ud.date DESC, ud.employee_name ASC`,
+      [startDate, endDate, userFilterId]
+    );
+
     res.json({ success: true, data: rows });
   } catch (err) {
     console.error('Error fetching attendance reports:', err);

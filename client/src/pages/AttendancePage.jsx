@@ -50,6 +50,15 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
       </span>
     );
   }
+  if (status === 'leave') {
+    return <span className="badge bg-violet-50 text-violet-600 border-violet-200 font-bold">● On Leave</span>;
+  }
+  if (status === 'sunday') {
+    return <span className="badge bg-slate-100 text-slate-600 border-slate-200 font-bold">○ Sunday</span>;
+  }
+  if (status === 'holiday') {
+    return <span className="badge bg-indigo-50 text-indigo-600 border-indigo-200 font-bold">★ Holiday</span>;
+  }
   return <span className="badge badge-absent text-red-600">Absent</span>;
 }
 
@@ -620,6 +629,12 @@ export default function AttendancePage() {
                         } else if (record?.status === ATTENDANCE_STATUS.LEAVE) {
                           statusText = 'Leave';
                           styleClass = 'bg-violet-50 text-violet-700 border-violet-500 hover:bg-violet-100 hover:scale-105';
+                        } else if (record?.status === 'sunday') {
+                          statusText = 'Sunday';
+                          styleClass = 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200 hover:scale-105';
+                        } else if (record?.status === 'holiday') {
+                          statusText = 'Holiday';
+                          styleClass = 'bg-indigo-50 text-indigo-700 border-indigo-300 hover:bg-indigo-100 hover:scale-105';
                         }
 
                         // Filter dots based on statusFilter

@@ -532,13 +532,16 @@ router.get('/today', authenticate, async (req, res) => {
          a.is_boundary_checkin, a.checkin_verified,
          a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
          CASE
-           WHEN lr.id IS NOT NULL THEN LOWER($2)
-           ELSE 
+           WHEN a.check_in IS NOT NULL THEN
              CASE 
                WHEN LOWER(a.status) = 'present' THEN 
                  CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
-               ELSE LOWER(COALESCE(a.status, $3))
+               ELSE LOWER(a.status)
              END
+           WHEN lr.id IS NOT NULL THEN LOWER($2)
+           WHEN EXTRACT(DOW FROM $1::date) = 0 THEN 'sunday'
+           WHEN h.date IS NOT NULL THEN 'holiday'
+           ELSE LOWER(COALESCE(a.status, $3))
          END AS status
        FROM users u
        LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date
@@ -546,6 +549,7 @@ router.get('/today', authenticate, async (req, res) => {
          AND LOWER(lr.status) = LOWER($4)
          AND lr.type NOT IN ('advance', 'resignation')
          AND $1::date BETWEEN lr.start_date AND lr.end_date
+       LEFT JOIN holidays h ON h.date = $1::date
        ORDER BY a.check_in ASC NULLS LAST, u.name ASC`,
       [today, ATTENDANCE_STATUS.LEAVE, ATTENDANCE_STATUS.ABSENT, LEAVE_STATUS.APPROVED]
     );
@@ -577,43 +581,84 @@ router.get('/all', authenticate, async (req, res) => {
     const { page = 1, limit = 50, from, to } = req.query;
     const offset = (page - 1) * limit;
 
-    let dateFilter = '';
-    const params = [parseInt(limit), offset];
-    if (from && to) {
-      params.push(from, to);
-      dateFilter = `AND a.date BETWEEN $${params.length - 1} AND $${params.length}`;
+    const today = getISTDate();
+    const [year, month] = today.split('-').map(Number);
+    const defaultStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const defaultEnd   = today;
+
+    const startDate = from || defaultStart;
+    const endDate   = to || defaultEnd;
+
+    const isPrivileged = req.user.role === 'admin' || req.user.role === 'back_office' || req.user.role === 'accounts';
+    let userFilterId = null;
+    if (!isPrivileged) {
+      userFilterId = req.user.id;
+    } else if (req.query.userId) {
+      userFilterId = parseInt(req.query.userId);
     }
 
-    const leaveStatusIdx   = params.length + 1;
-    const absentStatusIdx  = params.length + 2;
-    const approvedStatusIdx = params.length + 3;
-
     const { rows } = await pool.query(
-      `SELECT
-         u.id as user_id, u.name, u.role, u.department,
-         a.check_in, a.check_out, a.lat, a.lng, a.date, a.is_late, a.late_minutes, a.hours_worked,
-         a.checkin_zone, a.checkin_distance, a.checkin_accuracy,
-         a.is_boundary_checkin, a.checkin_verified,
-         a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
+      `WITH date_series AS (
+         SELECT generate_series($1::date, $2::date, '1 day'::interval)::date AS date
+       ),
+       target_users AS (
+         SELECT id, name, role, department 
+         FROM users 
+         WHERE ($3::integer IS NULL OR id = $3)
+       ),
+       user_dates AS (
+         SELECT u.id AS user_id, u.name AS employee_name, u.role, u.department, d.date
+         FROM target_users u
+         CROSS JOIN date_series d
+       )
+       SELECT 
+         ud.user_id,
+         ud.employee_name as name,
+         ud.employee_name,
+         ud.role,
+         ud.department,
+         ud.date,
+         a.id,
+         a.check_in,
+         a.check_out,
+         a.lat,
+         a.lng,
+         a.is_late,
+         a.late_minutes,
+         a.hours_worked,
+         a.checkin_distance,
+         a.checkin_zone,
+         a.checkin_accuracy,
+         a.is_boundary_checkin,
+         a.checkin_verified,
+         a.checkout_lat,
+         a.checkout_lng,
+         a.checkout_accuracy,
+         a.checkout_distance,
+         a.checkout_zone,
+         a.checkout_outside_zone,
          CASE
-           WHEN lr.id IS NOT NULL THEN LOWER($${leaveStatusIdx})
-           ELSE 
+           WHEN a.check_in IS NOT NULL THEN
              CASE 
                WHEN LOWER(a.status) = 'present' THEN 
                  CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
-               ELSE LOWER(COALESCE(a.status, $${absentStatusIdx}))
+               ELSE LOWER(a.status)
              END
+           WHEN lr.id IS NOT NULL THEN 'leave'
+           WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
+           WHEN h.date IS NOT NULL THEN 'holiday'
+           ELSE 'absent'
          END AS status
-       FROM users u
-       JOIN attendance a ON a.user_id = u.id
-       LEFT JOIN leave_requests lr ON lr.user_id = u.id
-         AND LOWER(lr.status) = LOWER($${approvedStatusIdx})
+       FROM user_dates ud
+       LEFT JOIN attendance a ON a.user_id = ud.user_id AND a.date = ud.date
+       LEFT JOIN leave_requests lr ON lr.user_id = ud.user_id
+         AND LOWER(lr.status) = 'approved'
          AND lr.type NOT IN ('advance', 'resignation')
-         AND a.date BETWEEN lr.start_date AND lr.end_date
-       WHERE 1=1 ${dateFilter}
-       ORDER BY a.date DESC, a.check_in ASC NULLS LAST, u.name
-       LIMIT $1 OFFSET $2`,
-      [...params, ATTENDANCE_STATUS.LEAVE, ATTENDANCE_STATUS.ABSENT, LEAVE_STATUS.APPROVED]
+         AND ud.date BETWEEN lr.start_date AND lr.end_date
+       LEFT JOIN holidays h ON h.date = ud.date
+       ORDER BY ud.date DESC, a.check_in ASC NULLS LAST, ud.employee_name ASC
+       LIMIT $4 OFFSET $5`,
+      [startDate, endDate, userFilterId, parseInt(limit), parseInt(offset)]
     );
 
     // Mask GPS for non-admins

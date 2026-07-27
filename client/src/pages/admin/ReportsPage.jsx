@@ -263,7 +263,11 @@ export default function ReportsPage() {
         'Role': r.role,
         'Check-In': r.check_in ? new Date(r.check_in).toLocaleTimeString() : '—',
         'Check-Out': r.check_out ? new Date(r.check_out).toLocaleTimeString() : '—',
-        'Status': (r.status === 'working' || r.status === 'completed' || r.status === 'present') ? 'Present' : r.status === 'half_day' ? 'Half Day' : r.status === 'leave' ? 'On Leave' : 'Absent',
+        'Status': (r.status === 'working' || r.status === 'completed' || r.status === 'present') ? 'Present' :
+                  r.status === 'half_day' ? 'Half Day' :
+                  r.status === 'leave' ? 'On Leave' :
+                  r.status === 'sunday' ? 'Sunday' :
+                  r.status === 'holiday' ? 'Holiday' : 'Absent',
         'Late Arrival': r.is_late ? 'Yes' : 'No',
         'Late Minutes': r.late_minutes || 0,
         'Hours Worked': r.hours_worked || 0,
