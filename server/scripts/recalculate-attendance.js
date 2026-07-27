@@ -24,12 +24,13 @@ async function getSettings(keys) {
 }
 
 async function run() {
-  const targetDate = process.argv[2] || getISTDate();
-  console.log(`Recalculating attendance status for date: ${targetDate}`);
+  const fromDate = process.argv[2] || getISTDate();
+  const toDate = process.argv[3] || fromDate;
+  console.log(`Recalculating attendance status from: ${fromDate} to: ${toDate}`);
 
-  // Fetch all attendance records for targetDate
+  // Fetch all attendance records in date range
   const { rows: records } = await pool.query(
-    `SELECT a.id, a.user_id, a.check_in, a.check_out, a.status, a.is_late, a.late_minutes,
+    `SELECT a.id, a.user_id, a.check_in, a.check_out, a.status, a.is_late, a.late_minutes, a.date,
             u.name, u.batch_id,
             b.office_start_time AS batch_start,
             b.late_threshold_time AS batch_late,
@@ -38,12 +39,13 @@ async function run() {
      FROM attendance a
      JOIN users u ON a.user_id = u.id
      LEFT JOIN attendance_batches b ON u.batch_id = b.id
-     WHERE a.date = $1::date`,
-    [targetDate]
+     WHERE a.date >= $1::date AND a.date <= $2::date
+     ORDER BY a.date ASC, u.name ASC`,
+    [fromDate, toDate]
   );
 
   if (records.length === 0) {
-    console.log('No attendance records found for this date.');
+    console.log('No attendance records found for this date range.');
     process.exit(0);
   }
 
@@ -114,7 +116,8 @@ async function run() {
       }
     }
 
-    console.log(`User: ${r.name} (${r.id})`);
+    const formattedDate = new Date(r.date).toISOString().split('T')[0];
+    console.log(`[${formattedDate}] User: ${r.name} (${r.user_id})`);
     console.log(`  Check-In: ${checkInTimeStr} (mins: ${checkInMins})`);
     console.log(`  Check-Out: ${r.check_out ? getISTTime(r.check_out) : 'N/A'}`);
     console.log(`  Hours worked: ${hoursWorked} (min needed: ${minWorkingHours})`);
