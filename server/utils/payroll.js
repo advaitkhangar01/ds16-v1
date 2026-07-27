@@ -93,7 +93,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   // Parse settings
   let officeStartTimeStr = settings.office_start_time || '10:00';
   let lateThresholdTimeStr = settings.late_threshold_time;
-  let halfDayThresholdHours = parseFloat(settings.half_day_threshold_hours || 4);
+  let halfDayThresholdHours = parseFloat(settings.min_working_hours || settings.half_day_threshold_hours || 4);
 
   if (employeeBatch.office_start_time) {
     officeStartTimeStr = employeeBatch.office_start_time.substring(0, 5);

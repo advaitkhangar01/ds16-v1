@@ -789,10 +789,16 @@ export default function SettingsPage() {
 
                 <form onSubmit={handleUpdatePayrollSettings} className="space-y-10">
                   <section className="space-y-6">
-                    <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-100 pb-3 flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-                      Attendance Thresholds
-                    </h3>
+                    <div>
+                      <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-100 pb-3 flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                        Default Shift Thresholds (Global Fallback)
+                      </h3>
+                      <p className="text-[10px] text-gray-400 mt-2 font-medium italic">
+                        These default timings apply to all users set to "Default (Global Settings)" in the Users tab. 
+                        Employees assigned to a custom batch under the "Batches" tab will use their batch-specific thresholds instead.
+                      </p>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                       <div className="space-y-2">
                         <label className="text-xs font-black text-gray-500 uppercase tracking-tight">Office Start Time</label>
@@ -830,7 +836,11 @@ export default function SettingsPage() {
                           <input 
                             type="number"
                             value={payrollSettings.min_working_hours}
-                            onChange={(e) => setPayrollSettings({...payrollSettings, min_working_hours: e.target.value})}
+                            onChange={(e) => setPayrollSettings({
+                              ...payrollSettings,
+                              min_working_hours: e.target.value,
+                              half_day_threshold_hours: e.target.value
+                            })}
                             className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all"
                           />
                           <span className="absolute right-5 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-400 uppercase">Hours</span>
@@ -890,10 +900,15 @@ export default function SettingsPage() {
                   </section>
 
                   <section className="space-y-6">
-                    <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-100 pb-3 flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-                      Late Penalty Rule
-                    </h3>
+                    <div>
+                      <h3 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] border-b border-gray-100 pb-3 flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                        Late Penalty Rule
+                      </h3>
+                      <p className="text-[10px] text-gray-400 mt-2 font-medium italic">
+                        Late penalty rules apply globally to all employees, whether they use the default thresholds or are assigned to custom batches.
+                      </p>
+                    </div>
                     <div className="bg-orange-50/50 p-6 rounded-3xl border border-orange-100">
                       <div className="flex flex-wrap items-center gap-4">
                         <span className="text-sm font-bold text-gray-700">Every</span>
