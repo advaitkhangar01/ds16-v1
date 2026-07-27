@@ -101,6 +101,8 @@ export default function SettingsPage() {
       } else if (activeTab === 'payroll') {
         const { data } = await api.get('/settings/app');
         setPayrollSettings(prev => ({ ...prev, ...data }));
+        const { data: batchData } = await api.get('/settings/batches');
+        setBatches(batchData || []);
       } else if (activeTab === 'holidays') {
         const { data } = await api.get('/settings/holidays');
         setHolidays(data || []);
@@ -328,13 +330,7 @@ export default function SettingsPage() {
             onClick={() => setActiveTab('payroll')}
             className={`flex items-center gap-2 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'payroll' ? 'bg-white shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            <Clock size={14} /> Payroll Rules
-          </button>
-          <button 
-            onClick={() => setActiveTab('batches')}
-            className={`flex items-center gap-2 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'batches' ? 'bg-white shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <Layers size={14} /> Batches
+            <Clock size={14} /> Payroll & Batches
           </button>
           <button 
             onClick={() => setActiveTab('holidays')}
@@ -500,88 +496,6 @@ export default function SettingsPage() {
                       <tr>
                         <td colSpan={7} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">
                           No users found
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Batches Configuration */}
-          {activeTab === 'batches' && (
-            <div className="p-0 animate-in fade-in duration-300">
-              <div className="px-6 py-5 border-b border-gray-100 flex flex-wrap gap-4 justify-between items-center bg-gray-50/30">
-                <div>
-                  <h2 className="text-lg font-bold text-gray-800">Attendance Batches</h2>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Configure shifts and timings for employees</p>
-                </div>
-                <button 
-                  onClick={() => {
-                    setNewBatch({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '4' });
-                    setShowBatchModal(true);
-                  }}
-                  className="btn-primary"
-                >
-                  <Plus size={18} /> 
-                  <span className="font-bold uppercase tracking-widest text-[10px]">Add Batch</span>
-                </button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="bg-gray-50/50 border-b border-gray-200">
-                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Batch Name</th>
-                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Office Start</th>
-                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Late Threshold</th>
-                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Half Day Cutoff</th>
-                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Min Hours</th>
-                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {batches.map((b) => (
-                      <tr key={b.id} className="hover:bg-gray-50/30 transition-colors">
-                        <td className="px-6 py-4 font-bold text-gray-800">{b.name}</td>
-                        <td className="px-6 py-4 font-medium text-gray-600">{b.office_start_time.substring(0, 5)}</td>
-                        <td className="px-6 py-4 font-medium text-gray-600">{b.late_threshold_time.substring(0, 5)}</td>
-                        <td className="px-6 py-4 font-medium text-gray-600">{b.half_day_cutoff_time.substring(0, 5)}</td>
-                        <td className="px-6 py-4 font-medium text-gray-600">{b.min_working_hours} hours</td>
-                        <td className="px-6 py-4 text-center">
-                          <div className="flex justify-center gap-3">
-                            <button 
-                              onClick={() => {
-                                setEditingBatch({
-                                  id: b.id,
-                                  name: b.name,
-                                  office_start_time: b.office_start_time.substring(0, 5),
-                                  late_threshold_time: b.late_threshold_time.substring(0, 5),
-                                  half_day_cutoff_time: b.half_day_cutoff_time.substring(0, 5),
-                                  min_working_hours: b.min_working_hours
-                                });
-                                setShowEditBatchModal(true);
-                              }}
-                              className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-primary transition-all"
-                              title="Edit Batch"
-                            >
-                              <Pencil size={15} />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteBatch(b.id)}
-                              className="p-1.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600 transition-all"
-                              title="Delete Batch"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {batches.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">
-                          No batches configured. System will use default global settings.
                         </td>
                       </tr>
                     )}
@@ -939,6 +853,87 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 </form>
+              </div>
+
+              {/* Combined Batches Section */}
+              <hr className="my-10 border-gray-200" />
+              <div className="mt-4">
+                <div className="flex flex-wrap gap-4 justify-between items-center mb-6">
+                  <div>
+                    <h2 className="text-lg font-bold text-gray-800">Attendance Batches</h2>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Configure shifts and timings for employees</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setNewBatch({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '4' });
+                      setShowBatchModal(true);
+                    }}
+                    className="btn-primary"
+                  >
+                    <Plus size={18} /> 
+                    <span className="font-bold uppercase tracking-widest text-[10px]">Add Batch</span>
+                  </button>
+                </div>
+                <div className="overflow-x-auto border border-gray-200 rounded-2xl bg-white shadow-sm">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Batch Name</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Office Start</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Late Threshold</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Half Day Cutoff</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Min Hours</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {batches.map((b) => (
+                        <tr key={b.id} className="hover:bg-gray-50/30 transition-colors">
+                          <td className="px-6 py-4 font-bold text-gray-800">{b.name}</td>
+                          <td className="px-6 py-4 font-medium text-gray-600">{b.office_start_time.substring(0, 5)}</td>
+                          <td className="px-6 py-4 font-medium text-gray-600">{b.late_threshold_time.substring(0, 5)}</td>
+                          <td className="px-6 py-4 font-medium text-gray-600">{b.half_day_cutoff_time.substring(0, 5)}</td>
+                          <td className="px-6 py-4 font-medium text-gray-600">{b.min_working_hours} hours</td>
+                          <td className="px-6 py-4 text-center">
+                            <div className="flex justify-center gap-3">
+                              <button 
+                                onClick={() => {
+                                  setEditingBatch({
+                                    id: b.id,
+                                    name: b.name,
+                                    office_start_time: b.office_start_time.substring(0, 5),
+                                    late_threshold_time: b.late_threshold_time.substring(0, 5),
+                                    half_day_cutoff_time: b.half_day_cutoff_time.substring(0, 5),
+                                    min_working_hours: b.min_working_hours
+                                  });
+                                  setShowEditBatchModal(true);
+                                }}
+                                className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-primary transition-all"
+                                title="Edit Batch"
+                              >
+                                <Pencil size={15} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteBatch(b.id)}
+                                className="p-1.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600 transition-all"
+                                title="Delete Batch"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {batches.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="py-12 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">
+                            No batches configured. System will use default global settings.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}

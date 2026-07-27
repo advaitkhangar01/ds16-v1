@@ -1,7 +1,13 @@
 // server/index.js
 // Main Express entry point — DS16 backend server
 
-require('dotenv').config({ path: require('path').join(__dirname, '.env'), override: true });
+const dotenv = require('dotenv');
+const dotenvPath = require('path').join(__dirname, '.env');
+if (process.env.NODE_ENV === 'test') {
+  dotenv.config({ path: dotenvPath });
+} else {
+  dotenv.config({ path: dotenvPath, override: true });
+}
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -116,12 +122,14 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 DS16 API running on port ${PORT} (${process.env.NODE_ENV || 'development'})`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`🚀 DS16 API running on port ${PORT} (${process.env.NODE_ENV || 'development'})`);
+  });
+}
 
-// Background Tasks - Only run on the first instance in cluster mode
-const isPrimaryInstance = process.env.NODE_APP_INSTANCE === undefined || process.env.NODE_APP_INSTANCE === '0';
+// Background Tasks - Only run on the first instance in cluster mode (disabled in tests)
+const isPrimaryInstance = (process.env.NODE_APP_INSTANCE === undefined || process.env.NODE_APP_INSTANCE === '0') && process.env.NODE_ENV !== 'test';
 
 // Import and start Monthly Close Scheduler
 const { startMonthlyCloseScheduler } = require('./utils/scheduler');

@@ -1,4 +1,10 @@
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), override: true });
+const dotenv = require('dotenv');
+const dotenvPath = require('path').join(__dirname, '..', '.env');
+if (process.env.NODE_ENV === 'test') {
+  dotenv.config({ path: dotenvPath });
+} else {
+  dotenv.config({ path: dotenvPath, override: true });
+}
 const { Pool } = require('pg');
 
 const pool = new Pool({
@@ -18,8 +24,9 @@ pool.on('error', (err) => {
 
 // Note: Timezone is set at the connection level via pool options, and role-level fallback is wrapped in a safe catch.
 
-// Test connection on startup
-pool.query('SELECT NOW()', (err) => {
+// Test connection on startup (disabled in tests)
+if (process.env.NODE_ENV !== 'test') {
+  pool.query('SELECT NOW()', (err) => {
   if (err) {
     console.error('❌ DB connection failed:', err.message);
   } else {
@@ -537,5 +544,6 @@ pool.query('SELECT NOW()', (err) => {
     runMigrations();
   }
 });
+}
 
 module.exports = pool;

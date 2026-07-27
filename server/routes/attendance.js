@@ -29,6 +29,14 @@ async function getSettings(keys) {
   }
 }
 
+function timeToMinutes(timeStr) {
+  if (!timeStr) return 0;
+  const parts = timeStr.split(':');
+  const hours = parseInt(parts[0], 10) || 0;
+  const minutes = parseInt(parts[1], 10) || 0;
+  return hours * 60 + minutes;
+}
+
 // Helper: Log a failed check-in attempt
 async function logAttempt(userId, { lat, lng, accuracy, distance, zone, reason }) {
   try {
@@ -289,17 +297,20 @@ router.post('/checkin', authenticate, async (req, res) => {
     let isLate  = false;
     let lateMins = 0;
 
-    if (timeStr > halfDayCutoff) {
+    const checkInMins = timeToMinutes(timeStr);
+    const startMins = timeToMinutes(officeStartTime);
+    const lateMinsThreshold = timeToMinutes(lateThresholdTime);
+    const halfDayMinsCutoff = timeToMinutes(halfDayCutoff);
+
+    if (checkInMins > halfDayMinsCutoff) {
       status = ATTENDANCE_STATUS.HALF_DAY;
       isLate = true;
-    } else if (timeStr > lateThresholdTime) {
+    } else if (checkInMins > lateMinsThreshold) {
       isLate = true;
     }
 
-    const [startH, startM] = officeStartTime.split(':').map(Number);
-    const [nowH,   nowM  ] = timeStr.split(':').map(Number);
-    if (nowH > startH || (nowH === startH && nowM > startM)) {
-      lateMins = (nowH - startH) * 60 + (nowM - startM);
+    if (checkInMins > startMins) {
+      lateMins = checkInMins - startMins;
     }
 
     // ── Write attendance record ──────────────────────────────────────────────

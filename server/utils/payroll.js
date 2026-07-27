@@ -2,6 +2,14 @@
 const pool = require('../db');
 const { getISTDate, getISTTime } = require('./date');
 
+function timeToMinutes(timeStr) {
+  if (!timeStr) return 0;
+  const parts = timeStr.split(':');
+  const hours = parseInt(parts[0], 10) || 0;
+  const minutes = parseInt(parts[1], 10) || 0;
+  return hours * 60 + minutes;
+}
+
 /**
  * Calculates unified payroll and attendance statistics for an employee for a given month and year.
  */
@@ -173,15 +181,15 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       // Lateness: calculate on the fly for backward compatibility with manual/historical records
       if (record.check_in) {
         const checkInTimeStr = getISTTime(record.check_in);
-        const [ciH, ciM] = checkInTimeStr.split(':').map(Number);
-        const [startH, startM] = officeStartTimeStr.split(':').map(Number);
-        const diffMins = (ciH * 60 + ciM) - (startH * 60 + startM);
+        const checkInMins = timeToMinutes(checkInTimeStr);
+        const startMins = timeToMinutes(officeStartTimeStr);
+        const diffMins = checkInMins - startMins;
         
         let isLateThresholdMet = false;
         if (lateThresholdTimeStr) {
-          isLateThresholdMet = checkInTimeStr > lateThresholdTimeStr;
+          isLateThresholdMet = checkInMins > timeToMinutes(lateThresholdTimeStr);
         } else if (settings.late_threshold_time) {
-          isLateThresholdMet = checkInTimeStr > settings.late_threshold_time;
+          isLateThresholdMet = checkInMins > timeToMinutes(settings.late_threshold_time);
         } else {
           isLateThresholdMet = diffMins > lateThresholdMins;
         }
