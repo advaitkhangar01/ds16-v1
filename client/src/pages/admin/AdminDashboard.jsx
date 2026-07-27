@@ -1151,7 +1151,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* Financial Summary Section - Now part of the same grid to ensure proper flow */}
-          {!loading && isAdmin && (
+          {!loading && (isAdmin || isAccounts) && (
             <div className="lg:col-span-3 mt-1">
               <FinancialStats 
                 finances={data?.finances} 

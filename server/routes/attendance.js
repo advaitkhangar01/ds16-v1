@@ -50,8 +50,12 @@ async function autoCheckoutPendingRecords() {
     
     // Find all attendance records from previous days that have a check_in but no check_out
     const { rows } = await pool.query(
-      `SELECT a.id, a.user_id, a.check_in, a.date, LOWER(a.status) AS status
+      `SELECT a.id, a.user_id, a.check_in, a.date, LOWER(a.status) AS status,
+              b.office_start_time AS batch_start_time,
+              b.min_working_hours AS batch_min_hours
        FROM attendance a
+       JOIN users u ON a.user_id = u.id
+       LEFT JOIN attendance_batches b ON u.batch_id = b.id
        WHERE a.check_in IS NOT NULL 
          AND a.check_out IS NULL 
          AND a.date < $1::date
@@ -63,25 +67,35 @@ async function autoCheckoutPendingRecords() {
 
     // Fetch required settings for default checkout time calculation
     const settings = await getSettings(['office_start_time', 'min_working_hours']);
-    let officeStartTime = settings.office_start_time || '10:00';
-    let minWorkingHours = parseFloat(settings.min_working_hours || '4');
+    let defaultOfficeStartTime = settings.office_start_time || '10:00';
+    let defaultMinWorkingHours = parseFloat(settings.min_working_hours || '4');
 
-    // Validate officeStartTime format (HH:mm)
-    if (!/^\d{2}:\d{2}$/.test(officeStartTime)) {
-      console.warn(`[Auto-Checkout] Invalid office_start_time format: "${officeStartTime}". Falling back to "10:00".`);
-      officeStartTime = '10:00';
+    // Validate defaultOfficeStartTime format (HH:mm)
+    if (!/^\d{2}:\d{2}$/.test(defaultOfficeStartTime)) {
+      console.warn(`[Auto-Checkout] Invalid office_start_time format: "${defaultOfficeStartTime}". Falling back to "10:00".`);
+      defaultOfficeStartTime = '10:00';
     }
 
-    // Validate minWorkingHours
-    if (isNaN(minWorkingHours) || minWorkingHours < 0 || minWorkingHours > 24) {
+    // Validate defaultMinWorkingHours
+    if (isNaN(defaultMinWorkingHours) || defaultMinWorkingHours < 0 || defaultMinWorkingHours > 24) {
       console.warn(`[Auto-Checkout] Invalid min_working_hours: "${settings.min_working_hours}". Falling back to 4.`);
-      minWorkingHours = 4.0;
+      defaultMinWorkingHours = 4.0;
     }
 
-    console.log(`[Auto-Checkout] Found ${rows.length} pending records from previous days to automatically check out. Using office_start_time=${officeStartTime}, min_working_hours=${minWorkingHours}`);
+    console.log(`[Auto-Checkout] Found ${rows.length} pending records from previous days to automatically check out. Using default office_start_time=${defaultOfficeStartTime}, min_working_hours=${defaultMinWorkingHours}`);
 
     for (const r of rows) {
       const dateStr = getISTDate(r.date);
+      let officeStartTime = defaultOfficeStartTime;
+      let minWorkingHours = defaultMinWorkingHours;
+
+      if (r.batch_start_time) {
+        officeStartTime = r.batch_start_time.substring(0, 5);
+      }
+      if (r.batch_min_hours !== null && r.batch_min_hours !== undefined) {
+        minWorkingHours = parseFloat(r.batch_min_hours);
+      }
+
       const [startH, startM] = officeStartTime.split(':').map(Number);
       const startMinutes = startH * 60 + startM;
       const checkoutMinutes = startMinutes + Math.round(minWorkingHours * 60);
@@ -144,25 +158,46 @@ router.post('/checkin', authenticate, async (req, res) => {
       'late_threshold_mins',
     ]);
 
-    const officeStartTime  = settings.office_start_time  || '10:00';
+    // Fetch user's batch details (if assigned)
+    const { rows: userRows } = await pool.query(
+      `SELECT u.batch_id, 
+              b.office_start_time, 
+              b.late_threshold_time, 
+              b.half_day_cutoff_time, 
+              b.min_working_hours
+       FROM users u
+       LEFT JOIN attendance_batches b ON u.batch_id = b.id
+       WHERE u.id = $1`,
+      [userId]
+    );
+    const userBatch = userRows[0] || {};
+
+    let officeStartTime  = settings.office_start_time  || '10:00';
     let lateThresholdTime = settings.late_threshold_time;
-    if (!lateThresholdTime) {
-      try {
-        const [startH, startM] = officeStartTime.split(':').map(Number);
-        const mins = parseInt(settings.late_threshold_mins || 15);
-        if (!isNaN(startH) && !isNaN(startM)) {
-          const totalMins = startH * 60 + startM + mins;
-          const h = Math.floor(totalMins / 60) % 24;
-          const m = totalMins % 60;
-          lateThresholdTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-        } else {
+    let halfDayCutoff    = settings.half_day_cutoff_time || '13:00';
+
+    if (userBatch.office_start_time) {
+      officeStartTime = userBatch.office_start_time.substring(0, 5);
+      lateThresholdTime = userBatch.late_threshold_time.substring(0, 5);
+      halfDayCutoff = userBatch.half_day_cutoff_time.substring(0, 5);
+    } else {
+      if (!lateThresholdTime) {
+        try {
+          const [startH, startM] = officeStartTime.split(':').map(Number);
+          const mins = parseInt(settings.late_threshold_mins || 15);
+          if (!isNaN(startH) && !isNaN(startM)) {
+            const totalMins = startH * 60 + startM + mins;
+            const h = Math.floor(totalMins / 60) % 24;
+            const m = totalMins % 60;
+            lateThresholdTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+          } else {
+            lateThresholdTime = '10:15';
+          }
+        } catch (err) {
           lateThresholdTime = '10:15';
         }
-      } catch (err) {
-        lateThresholdTime = '10:15';
       }
     }
-    const halfDayCutoff    = settings.half_day_cutoff_time || '13:00';
     const geofenceEnabled  = settings.geofence_enabled === 'true';
 
     // Log IST date to help diagnose timezone issues
@@ -365,7 +400,20 @@ router.post('/checkout', authenticate, async (req, res) => {
       'geofence_strict_radius', 'geofence_buffer_radius',
     ]);
 
-    const minWorkingHours = parseFloat(settings.min_working_hours || '4');
+    // Fetch user's batch details (if assigned)
+    const { rows: userRows } = await pool.query(
+      `SELECT u.batch_id, b.min_working_hours
+       FROM users u
+       LEFT JOIN attendance_batches b ON u.batch_id = b.id
+       WHERE u.id = $1`,
+      [userId]
+    );
+    const userBatch = userRows[0] || {};
+
+    let minWorkingHours = parseFloat(settings.min_working_hours || '4');
+    if (userBatch.min_working_hours !== null && userBatch.min_working_hours !== undefined) {
+      minWorkingHours = parseFloat(userBatch.min_working_hours);
+    }
 
     const { rows: existing } = await pool.query(
       'SELECT id, check_in, check_out, LOWER(status) AS status FROM attendance WHERE user_id = $1 AND date = $2::date',

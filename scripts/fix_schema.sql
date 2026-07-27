@@ -170,3 +170,19 @@ BEGIN
     END IF;
 END $$;
 
+
+-- 15. Attendance Batches (timing groups)
+CREATE TABLE IF NOT EXISTS attendance_batches (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) UNIQUE NOT NULL,
+  office_start_time TIME NOT NULL,
+  late_threshold_time TIME NOT NULL,
+  half_day_cutoff_time TIME NOT NULL,
+  min_working_hours DECIMAL(4, 2) NOT NULL DEFAULT 4.00,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 16. Link users to batches
+ALTER TABLE users ADD COLUMN IF NOT EXISTS batch_id INTEGER REFERENCES attendance_batches(id) ON DELETE SET NULL;
+
+

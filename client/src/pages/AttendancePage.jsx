@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useAuth } from '../context/AuthContext';
 import AppLayout from '../components/layout/AppLayout';
 import api from '../api/client';
 import { formatTimeIST, formatDateIST, todayIST, getISODateIST } from '../utils/time';
@@ -53,6 +54,7 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
 }
 
 export default function AttendancePage() {
+  const { user, isAdmin, isAccounts } = useAuth();
   const getRequestTypeDetails = (type, amount) => {
     const t = type?.toLowerCase();
     if (t === 'half_day') {
@@ -176,6 +178,16 @@ export default function AttendancePage() {
     
     return filtered;
   }, [records, selectedUser, statusFilter]);
+
+  const visibleUsers = useMemo(() => {
+    if (isAdmin || isAccounts) {
+      if (selectedUser) {
+        return users.filter(u => u.id === parseInt(selectedUser));
+      }
+      return users;
+    }
+    return users.filter(u => u.id === user?.id);
+  }, [users, selectedUser, isAdmin, isAccounts, user]);
 
   // Generate complete calendar grid cells
   const cells = useMemo(() => {
@@ -378,7 +390,7 @@ export default function AttendancePage() {
               <AttendanceCard attendance={myRecord} onAction={(r) => { setMyRecord(r); fetchToday(); }} />
             </div>
             
-            {settings?.role === 'admin' && (
+            {isAdmin && (
               <div className="lg:col-span-8">
                 <div className="card h-full">
                   <div className="flex items-center gap-2 mb-4">
@@ -512,19 +524,21 @@ export default function AttendancePage() {
                </div>
              )}
 
-             <div className="flex items-center gap-2 mt-2 sm:mt-0">
-               <span className="text-xs font-bold text-muted uppercase">Employee:</span>
-               <select 
-                 value={selectedUser} 
-                 onChange={(e) => setSelectedUser(e.target.value)}
-                 className="px-3 py-1.5 text-xs font-bold rounded-md bg-white border border-[#E0E0E0] text-[#1A1A1A] focus:outline-none focus:border-[#E05A1E] transition-colors"
-               >
-                 <option value="">All Team Members</option>
-                 {users.map(u => (
-                   <option key={u.id} value={u.id}>{u.name}</option>
-                 ))}
-               </select>
-             </div>
+             {(isAdmin || isAccounts) && (
+                <div className="flex items-center gap-2 mt-2 sm:mt-0">
+                  <span className="text-xs font-bold text-muted uppercase">Employee:</span>
+                  <select 
+                    value={selectedUser} 
+                    onChange={(e) => setSelectedUser(e.target.value)}
+                    className="px-3 py-1.5 text-xs font-bold rounded-md bg-white border border-[#E0E0E0] text-[#1A1A1A] focus:outline-none focus:border-[#E05A1E] transition-colors"
+                  >
+                    <option value="">All Team Members</option>
+                    {users.map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
              <div className="bg-[#F0F0F0] p-1 rounded-lg flex mt-2 sm:mt-0">
                <button
@@ -579,7 +593,7 @@ export default function AttendancePage() {
                     </span>
                     
                     <div className="flex flex-wrap gap-1.5 mt-2">
-                      {!isFuture && (selectedUser ? users.filter(u => u.id === parseInt(selectedUser)) : users).map(u => {
+                      {!isFuture && visibleUsers.map(u => {
                         const record = dayRecords.find(r => r.user_id === u.id);
                         const isPresent = record && (
                           record.status === ATTENDANCE_STATUS.WORKING ||
@@ -750,7 +764,7 @@ export default function AttendancePage() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                <div>
                   <h3 className="text-xl font-black text-[#1A1A1A] tracking-tight">
-                    {settings?.role === 'admin' ? 'Applications & Requests' : 'My Submitted Requests'}
+                    {isAdmin ? 'Applications & Requests' : 'My Submitted Requests'}
                   </h3>
                   <p className="text-xs font-medium text-muted uppercase tracking-widest mt-1">
                     {leaveSummary.pending} Pending Review • {leaveSummary.approved} Approved
@@ -863,7 +877,7 @@ export default function AttendancePage() {
                       </p>
                       
                       {/* Admin Actions */}
-                      {l.status === 'pending' && settings?.role === 'admin' && (
+                      {l.status === 'pending' && isAdmin && (
                         <div className="flex items-center gap-2">
                           <button 
                             onClick={async () => {

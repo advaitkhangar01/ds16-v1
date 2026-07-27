@@ -16,6 +16,7 @@ import {
 
 export default function UserModal({ user: initialUser, onClose, onSave }) {
   const [loading, setLoading] = useState(false);
+  const [batches, setBatches] = useState([]);
   const [form, setForm] = useState({
     name: '',
     username: '',
@@ -24,8 +25,16 @@ export default function UserModal({ user: initialUser, onClose, onSave }) {
     department: '',
     phone: '',
     base_salary: '',
-    hourly_rate: ''
+    hourly_rate: '',
+    batch_id: ''
   });
+
+  useEffect(() => {
+    // Fetch batches list on mount
+    api.get('/settings/batches')
+      .then(({ data }) => setBatches(data || []))
+      .catch(err => console.error('Failed to load batches', err));
+  }, []);
 
   useEffect(() => {
     if (initialUser) {
@@ -37,7 +46,8 @@ export default function UserModal({ user: initialUser, onClose, onSave }) {
         department: initialUser.department || '',
         phone: initialUser.phone || '',
         base_salary: initialUser.base_salary || '',
-        hourly_rate: initialUser.hourly_rate || ''
+        hourly_rate: initialUser.hourly_rate || '',
+        batch_id: initialUser.batch_id || ''
       });
     }
   }, [initialUser]);
@@ -61,7 +71,8 @@ export default function UserModal({ user: initialUser, onClose, onSave }) {
       name: form.name.trim(),
       username: form.username.trim().toLowerCase(),
       base_salary: parseFloat(form.base_salary) || 0,
-      hourly_rate: parseFloat(form.hourly_rate) || 0
+      hourly_rate: parseFloat(form.hourly_rate) || 0,
+      batch_id: form.batch_id ? parseInt(form.batch_id) : null
     };
 
     try {
@@ -201,6 +212,22 @@ export default function UserModal({ user: initialUser, onClose, onSave }) {
                     className="w-full bg-gray-50/50 border border-gray-200 rounded-xl pl-11 pr-4 py-2.5 text-sm focus:outline-none focus:border-primary font-medium"
                   />
                 </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider block mb-1.5">Attendance Batch</label>
+                <select
+                  value={form.batch_id || ''}
+                  onChange={(e) => setForm({ ...form, batch_id: e.target.value })}
+                  className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-primary font-bold text-gray-700 outline-none"
+                >
+                  <option value="">Default (Global Settings)</option>
+                  {batches.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>

@@ -21,6 +21,7 @@ import {
   Server,
   Zap,
   Pencil,
+  Layers,
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -31,12 +32,19 @@ export default function SettingsPage() {
   const [users, setUsers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUserModal, setShowUserModal] = useState(false);
-  const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: 'employee', department: '', phone: '', base_salary: '', hourly_rate: '' });
+  const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: 'employee', department: '', phone: '', base_salary: '', hourly_rate: '', batch_id: '' });
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editingUser, setEditingUser] = useState({ id: null, name: '', username: '', role: 'employee', department: '', phone: '', base_salary: '', hourly_rate: '' });
+  const [editingUser, setEditingUser] = useState({ id: null, name: '', username: '', role: 'employee', department: '', phone: '', base_salary: '', hourly_rate: '', batch_id: '' });
   
   // Password Reset State
   const [resetModal, setResetModal] = useState({ show: false, userId: null, userName: '', newPassword: '' });
+
+  // Batches State
+  const [batches, setBatches] = useState([]);
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [showEditBatchModal, setShowEditBatchModal] = useState(false);
+  const [newBatch, setNewBatch] = useState({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '4' });
+  const [editingBatch, setEditingBatch] = useState({ id: null, name: '', office_start_time: '', late_threshold_time: '', half_day_cutoff_time: '', min_working_hours: '' });
 
   // Payroll Rules State
   const [payrollSettings, setPayrollSettings] = useState({
@@ -84,6 +92,12 @@ export default function SettingsPage() {
       if (activeTab === 'users') {
         const { data } = await api.get('/settings/users');
         setUsers(data.users || []);
+        // Fetch batches to populate selector in user modals
+        const { data: batchData } = await api.get('/settings/batches');
+        setBatches(batchData || []);
+      } else if (activeTab === 'batches') {
+        const { data } = await api.get('/settings/batches');
+        setBatches(data || []);
       } else if (activeTab === 'payroll') {
         const { data } = await api.get('/settings/app');
         setPayrollSettings(prev => ({ ...prev, ...data }));
@@ -255,6 +269,43 @@ export default function SettingsPage() {
     }
   };
 
+  // Batch Handlers
+  const handleCreateBatch = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post('/settings/batches', newBatch);
+      toast.success('Attendance batch created successfully');
+      setShowBatchModal(false);
+      setNewBatch({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '4' });
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to create batch');
+    }
+  };
+
+  const handleUpdateBatch = async (e) => {
+    e.preventDefault();
+    try {
+      await api.put(`/settings/batches/${editingBatch.id}`, editingBatch);
+      toast.success('Attendance batch updated successfully');
+      setShowEditBatchModal(false);
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update batch');
+    }
+  };
+
+  const handleDeleteBatch = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this batch? All users assigned to it will fallback to global settings.')) return;
+    try {
+      await api.delete(`/settings/batches/${id}`);
+      toast.success('Attendance batch deleted');
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to delete batch');
+    }
+  };
+
   return (
     <AppLayout>
       <div className="p-6 max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500">
@@ -278,6 +329,12 @@ export default function SettingsPage() {
             className={`flex items-center gap-2 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'payroll' ? 'bg-white shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700'}`}
           >
             <Clock size={14} /> Payroll Rules
+          </button>
+          <button 
+            onClick={() => setActiveTab('batches')}
+            className={`flex items-center gap-2 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'batches' ? 'bg-white shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <Layers size={14} /> Batches
           </button>
           <button 
             onClick={() => setActiveTab('holidays')}
@@ -346,6 +403,7 @@ export default function SettingsPage() {
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Role</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Department</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Phone</th>
+                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Batch</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Salary / Hourly</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest text-center">Actions</th>
                     </tr>
@@ -387,6 +445,13 @@ export default function SettingsPage() {
                         </td>
                         <td className="px-6 py-4 text-gray-600 font-medium">{u.department || '—'}</td>
                         <td className="px-6 py-4 text-gray-600 font-medium">{u.phone || '—'}</td>
+                        <td className="px-6 py-4 text-gray-600 font-medium">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            u.batch_name ? 'bg-orange-50 text-primary border border-orange-200' : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {u.batch_name || 'Global'}
+                          </span>
+                        </td>
                         <td className="px-6 py-4 text-gray-600">
                           <div className="font-bold">₹{Number(u.base_salary || 0).toLocaleString()}</div>
                           <div className="text-[10px] font-bold text-primary italic">₹{Number(u.hourly_rate || 0).toLocaleString()}/hr</div>
@@ -404,6 +469,7 @@ export default function SettingsPage() {
                                   phone: u.phone || '',
                                   base_salary: u.base_salary || 0,
                                   hourly_rate: u.hourly_rate || 0,
+                                  batch_id: u.batch_id || '',
                                 });
                                 setShowEditModal(true);
                               }}
@@ -432,8 +498,90 @@ export default function SettingsPage() {
                     ))}
                     {filteredUsers.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">
+                        <td colSpan={7} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">
                           No users found
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Batches Configuration */}
+          {activeTab === 'batches' && (
+            <div className="p-0 animate-in fade-in duration-300">
+              <div className="px-6 py-5 border-b border-gray-100 flex flex-wrap gap-4 justify-between items-center bg-gray-50/30">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-800">Attendance Batches</h2>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Configure shifts and timings for employees</p>
+                </div>
+                <button 
+                  onClick={() => {
+                    setNewBatch({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '4' });
+                    setShowBatchModal(true);
+                  }}
+                  className="btn-primary"
+                >
+                  <Plus size={18} /> 
+                  <span className="font-bold uppercase tracking-widest text-[10px]">Add Batch</span>
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="bg-gray-50/50 border-b border-gray-200">
+                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Batch Name</th>
+                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Office Start</th>
+                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Late Threshold</th>
+                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Half Day Cutoff</th>
+                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Min Hours</th>
+                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {batches.map((b) => (
+                      <tr key={b.id} className="hover:bg-gray-50/30 transition-colors">
+                        <td className="px-6 py-4 font-bold text-gray-800">{b.name}</td>
+                        <td className="px-6 py-4 font-medium text-gray-600">{b.office_start_time.substring(0, 5)}</td>
+                        <td className="px-6 py-4 font-medium text-gray-600">{b.late_threshold_time.substring(0, 5)}</td>
+                        <td className="px-6 py-4 font-medium text-gray-600">{b.half_day_cutoff_time.substring(0, 5)}</td>
+                        <td className="px-6 py-4 font-medium text-gray-600">{b.min_working_hours} hours</td>
+                        <td className="px-6 py-4 text-center">
+                          <div className="flex justify-center gap-3">
+                            <button 
+                              onClick={() => {
+                                setEditingBatch({
+                                  id: b.id,
+                                  name: b.name,
+                                  office_start_time: b.office_start_time.substring(0, 5),
+                                  late_threshold_time: b.late_threshold_time.substring(0, 5),
+                                  half_day_cutoff_time: b.half_day_cutoff_time.substring(0, 5),
+                                  min_working_hours: b.min_working_hours
+                                });
+                                setShowEditBatchModal(true);
+                              }}
+                              className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-primary transition-all"
+                              title="Edit Batch"
+                            >
+                              <Pencil size={15} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteBatch(b.id)}
+                              className="p-1.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600 transition-all"
+                              title="Delete Batch"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {batches.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">
+                          No batches configured. System will use default global settings.
                         </td>
                       </tr>
                     )}
@@ -1060,6 +1208,19 @@ export default function SettingsPage() {
                     className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
                   />
                 </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Attendance Batch</label>
+                  <select 
+                    value={newUser.batch_id || ''}
+                    onChange={(e) => setNewUser({...newUser, batch_id: e.target.value})}
+                    className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                  >
+                    <option value="">Default (Global Settings)</option>
+                    {batches.map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Base Salary (₹)</label>
@@ -1159,6 +1320,19 @@ export default function SettingsPage() {
                     className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
                   />
                 </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Attendance Batch</label>
+                  <select 
+                    value={editingUser.batch_id || ''}
+                    onChange={(e) => setEditingUser({...editingUser, batch_id: e.target.value})}
+                    className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                  >
+                    <option value="">Default (Global Settings)</option>
+                    {batches.map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Base Salary (₹)</label>
@@ -1218,6 +1392,141 @@ export default function SettingsPage() {
                 <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
                   <button type="button" onClick={() => setResetModal({ ...resetModal, show: false })} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
                   <button type="submit" className="px-6 py-2.5 text-sm font-bold text-white bg-primary hover:bg-[#C94E16] rounded-xl shadow-lg shadow-orange-100 transition-all active:scale-95">Reset Now</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Batch Add Modal */}
+        {showBatchModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                <h3 className="text-xl font-bold text-gray-900">Create Attendance Batch</h3>
+                <button onClick={() => setShowBatchModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+              </div>
+              <form onSubmit={handleCreateBatch} className="p-6 space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Batch Name</label>
+                  <input 
+                    type="text" required
+                    value={newBatch.name}
+                    onChange={(e) => setNewBatch({...newBatch, name: e.target.value})}
+                    placeholder="e.g. 9 AM Shift"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Office Start Time</label>
+                    <input 
+                      type="time" required
+                      value={newBatch.office_start_time}
+                      onChange={(e) => setNewBatch({...newBatch, office_start_time: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Late Threshold Time</label>
+                    <input 
+                      type="time" required
+                      value={newBatch.late_threshold_time}
+                      onChange={(e) => setNewBatch({...newBatch, late_threshold_time: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Half Day Cutoff Time</label>
+                    <input 
+                      type="time" required
+                      value={newBatch.half_day_cutoff_time}
+                      onChange={(e) => setNewBatch({...newBatch, half_day_cutoff_time: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Min Working Hours</label>
+                    <input 
+                      type="number" required step="0.5" min="1" max="24"
+                      value={newBatch.min_working_hours}
+                      onChange={(e) => setNewBatch({...newBatch, min_working_hours: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+                <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
+                  <button type="button" onClick={() => setShowBatchModal(false)} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
+                  <button type="submit" className="btn-primary px-8 py-2.5">Create Batch</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Batch Edit Modal */}
+        {showEditBatchModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                <h3 className="text-xl font-bold text-gray-900">Edit Attendance Batch</h3>
+                <button onClick={() => setShowEditBatchModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+              </div>
+              <form onSubmit={handleUpdateBatch} className="p-6 space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Batch Name</label>
+                  <input 
+                    type="text" required
+                    value={editingBatch.name}
+                    onChange={(e) => setEditingBatch({...editingBatch, name: e.target.value})}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Office Start Time</label>
+                    <input 
+                      type="time" required
+                      value={editingBatch.office_start_time}
+                      onChange={(e) => setEditingBatch({...editingBatch, office_start_time: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Late Threshold Time</label>
+                    <input 
+                      type="time" required
+                      value={editingBatch.late_threshold_time}
+                      onChange={(e) => setEditingBatch({...editingBatch, late_threshold_time: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Half Day Cutoff Time</label>
+                    <input 
+                      type="time" required
+                      value={editingBatch.half_day_cutoff_time}
+                      onChange={(e) => setEditingBatch({...editingBatch, half_day_cutoff_time: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Min Working Hours</label>
+                    <input 
+                      type="number" required step="0.5" min="1" max="24"
+                      value={editingBatch.min_working_hours}
+                      onChange={(e) => setEditingBatch({...editingBatch, min_working_hours: e.target.value})}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+                <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
+                  <button type="button" onClick={() => setShowEditBatchModal(false)} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
+                  <button type="submit" className="btn-primary px-8 py-2.5">Save Changes</button>
                 </div>
               </form>
             </div>

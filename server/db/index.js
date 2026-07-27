@@ -461,6 +461,74 @@ pool.query('SELECT NOW()', (err) => {
         await pool.query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high'))");
         await pool.query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_date DATE");
 
+        // 21. Attendance Batches table and foreign key setup
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS attendance_batches (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100) UNIQUE NOT NULL,
+            office_start_time TIME NOT NULL,
+            late_threshold_time TIME NOT NULL,
+            half_day_cutoff_time TIME NOT NULL,
+            min_working_hours DECIMAL(4, 2) NOT NULL DEFAULT 4.00,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+          );
+        `);
+        const { rows: batchCount } = await pool.query('SELECT COUNT(*) FROM attendance_batches');
+        if (parseInt(batchCount[0].count) === 0) {
+          await pool.query(`
+            INSERT INTO attendance_batches (name, office_start_time, late_threshold_time, half_day_cutoff_time, min_working_hours) VALUES
+            ('9 AM Batch', '09:00:00', '09:15:00', '13:00:00', 4.00),
+            ('10 AM Batch', '10:00:00', '10:15:00', '13:00:00', 4.00),
+            ('11 AM Batch', '11:00:00', '11:15:00', '14:00:00', 4.00)
+          `);
+        }
+        await pool.query(`
+          ALTER TABLE users 
+          ADD COLUMN IF NOT EXISTS batch_id INTEGER REFERENCES attendance_batches(id) ON DELETE SET NULL
+        `);
+
+        // 22. Tenants and Daily Reports tables
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS tenants (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+          );
+        `);
+
+        await pool.query(`
+          INSERT INTO tenants (id, name) VALUES (1, 'Default Tenant') ON CONFLICT (id) DO NOTHING;
+        `);
+
+        await pool.query(`
+          ALTER TABLE users 
+          ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id) ON DELETE SET NULL DEFAULT 1;
+        `);
+
+        await pool.query(`
+          UPDATE users SET tenant_id = 1 WHERE tenant_id IS NULL;
+        `);
+
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS daily_reports (
+            id SERIAL PRIMARY KEY,
+            tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE DEFAULT 1,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE NOT NULL,
+            date DATE NOT NULL DEFAULT CURRENT_DATE,
+            work_done TEXT NOT NULL,
+            blockers TEXT NULL,
+            next_day_plan TEXT NULL,
+            hours_worked DECIMAL(5, 2) DEFAULT 8.00,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW(),
+            CONSTRAINT uq_daily_reports_tenant_user_date UNIQUE (tenant_id, user_id, date)
+          );
+        `);
+
+        await pool.query(`
+          CREATE INDEX IF NOT EXISTS idx_daily_reports_user_date ON daily_reports(tenant_id, user_id, date);
+        `);
+
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
         console.error('❌ Migration failed:', mErr.message);

@@ -8,11 +8,22 @@ const { getISTDate, getISTTime } = require('./date');
 async function calculatePayrollForEmployee(userId, month, year, settings, dbPool = pool) {
   // 1. Fetch employee
   const { rows: userRows } = await dbPool.query(
-    'SELECT id, name, department, role, base_salary, hourly_rate FROM users WHERE id = $1',
+    'SELECT id, name, department, role, base_salary, hourly_rate, batch_id FROM users WHERE id = $1',
     [userId]
   );
   const employee = userRows[0];
   if (!employee) return null;
+
+  let employeeBatch = {};
+  if (employee.batch_id) {
+    const { rows: batchRows } = await dbPool.query(
+      'SELECT office_start_time, late_threshold_time, half_day_cutoff_time, min_working_hours FROM attendance_batches WHERE id = $1',
+      [employee.batch_id]
+    );
+    if (batchRows.length > 0) {
+      employeeBatch = batchRows[0];
+    }
+  }
 
   const baseSalary = parseFloat(employee.base_salary || 0);
   const hourlyRate = parseFloat(employee.hourly_rate || 0);
@@ -80,10 +91,18 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   }
 
   // Parse settings
-  const officeStartTimeStr = settings.office_start_time || '10:00';
+  let officeStartTimeStr = settings.office_start_time || '10:00';
+  let lateThresholdTimeStr = settings.late_threshold_time;
+  let halfDayThresholdHours = parseFloat(settings.half_day_threshold_hours || 4);
+
+  if (employeeBatch.office_start_time) {
+    officeStartTimeStr = employeeBatch.office_start_time.substring(0, 5);
+    lateThresholdTimeStr = employeeBatch.late_threshold_time.substring(0, 5);
+    halfDayThresholdHours = parseFloat(employeeBatch.min_working_hours || 4);
+  }
+
   const lateThresholdMins = parseInt(settings.late_threshold_mins || 15);
   const latePenaltyAmount = parseFloat(settings.late_penalty_amount || 0);
-  const halfDayThresholdHours = parseFloat(settings.half_day_threshold_hours || 4);
   const halfDayPenaltyPercent = parseFloat(settings.half_day_penalty_percent || 50);
   const latePenaltyRuleCount = parseInt(settings.late_penalty_rule_count || 3);
   const latePenaltyRuleDays = parseFloat(settings.late_penalty_rule_days || 0.5);
@@ -159,7 +178,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
         const diffMins = (ciH * 60 + ciM) - (startH * 60 + startM);
         
         let isLateThresholdMet = false;
-        if (settings.late_threshold_time) {
+        if (lateThresholdTimeStr) {
+          isLateThresholdMet = checkInTimeStr > lateThresholdTimeStr;
+        } else if (settings.late_threshold_time) {
           isLateThresholdMet = checkInTimeStr > settings.late_threshold_time;
         } else {
           isLateThresholdMet = diffMins > lateThresholdMins;

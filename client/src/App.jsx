@@ -24,6 +24,7 @@ const ReportsPage = lazy(() => import('./pages/admin/ReportsPage'));
 const StaffPage = lazy(() => import('./pages/admin/StaffPage'));
 const StaffDetailPage = lazy(() => import('./pages/admin/StaffDetailPage'));
 const HistoryPage = lazy(() => import('./pages/admin/HistoryPage'));
+const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage'));
 
 function ProtectedRoute({ children, adminOnly = false, allowAccounts = false, blockAccounts = false, blockProjectDesignHead = false }) {
   const { user, loading } = useAuth();
@@ -126,6 +127,9 @@ function AppRoutes() {
         } />
 
         {/* Shared */}
+        <Route path="/daily-reports" element={
+          <ProtectedRoute><DailyReportsPage /></ProtectedRoute>
+        } />
         <Route path="/projects" element={
           <ProtectedRoute blockAccounts><ProjectsPage /></ProtectedRoute>
         } />

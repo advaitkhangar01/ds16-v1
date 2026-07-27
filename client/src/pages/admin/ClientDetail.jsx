@@ -12,7 +12,7 @@ import LinkProjectModal from '../../components/clients/LinkProjectModal';
 import ClientModal from '../../components/clients/ClientModal';
 
 export default function ClientDetail() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isAccounts } = useAuth();
   const { id } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
@@ -140,13 +140,15 @@ export default function ClientDetail() {
               </button>
             )}
             <div className="h-8 w-px bg-[#E0E0E0] mx-1" />
-            <button 
-              onClick={() => navigate('/projects', { state: { preSelectClientId: client.id } })}
-              className="btn-primary px-4 py-2 text-xs shadow-lg shadow-orange-100"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              New Project
-            </button>
+            {!isAccounts && (
+              <button 
+                onClick={() => navigate('/projects', { state: { preSelectClientId: client.id } })}
+                className="btn-primary px-4 py-2 text-xs shadow-lg shadow-orange-100"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New Project
+              </button>
+            )}
           </div>
         </div>
 
@@ -243,7 +245,9 @@ export default function ClientDetail() {
                {projects.length === 0 ? (
                  <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-[#E0E0E0]">
                     <p className="text-muted text-sm">No projects linked to this client yet.</p>
-                    <button onClick={() => navigate('/projects')} className="btn-primary mt-4 mx-auto text-xs">Create First Project</button>
+                    {!isAccounts && (
+                      <button onClick={() => navigate('/projects')} className="btn-primary mt-4 mx-auto text-xs">Create First Project</button>
+                    )}
                  </div>
                ) : (
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

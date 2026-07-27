@@ -227,9 +227,37 @@ export default function AccountingPage() {
   const [isClosingMonth, setIsClosingMonth] = useState(false);
   const [isUnlockingMonth, setIsUnlockingMonth] = useState(false);
 
+  const activeCategoriesList = useMemo(() => {
+    const list = [...EXPENSE_CATEGORIES];
+    expenses.forEach(exp => {
+      if (exp.category) {
+        const trimmedLower = exp.category.trim().toLowerCase();
+        if (trimmedLower !== 'vendor_payment') {
+          let normalized = exp.category;
+          if (trimmedLower === 'salary' || trimmedLower === 'salaries') {
+            normalized = 'Salaries';
+          } else if (trimmedLower === 'incentive' || trimmedLower === 'incentives') {
+            normalized = 'Incentives';
+          } else {
+            const match = list.find(c => c.toLowerCase() === trimmedLower);
+            if (match) {
+              normalized = match;
+            } else {
+              normalized = exp.category.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            }
+          }
+          if (!list.includes(normalized)) {
+            list.push(normalized);
+          }
+        }
+      }
+    });
+    return list;
+  }, [expenses]);
+
   const groupedExpenses = useMemo(() => {
     const groups = {};
-    EXPENSE_CATEGORIES.forEach(cat => groups[cat] = []);
+    activeCategoriesList.forEach(cat => groups[cat] = []);
     
     expenses.forEach(exp => {
       // 1. Filter by selected month and year
@@ -248,8 +276,8 @@ export default function AccountingPage() {
       } else if (trimmedLower === 'incentive' || trimmedLower === 'incentives') {
         cat = 'Incentives';
       } else {
-        // Find match in EXPENSE_CATEGORIES case-insensitively
-        const match = EXPENSE_CATEGORIES.find(c => c.toLowerCase() === trimmedLower);
+        // Find match in activeCategoriesList case-insensitively
+        const match = activeCategoriesList.find(c => c.toLowerCase() === trimmedLower);
         if (match) {
           cat = match;
         }
@@ -262,7 +290,7 @@ export default function AccountingPage() {
       });
     });
     return groups;
-  }, [expenses, selectedMonth, selectedYear]);
+  }, [expenses, selectedMonth, selectedYear, activeCategoriesList]);
 
   const categoryTotals = useMemo(() => {
     const totals = {};
@@ -271,6 +299,15 @@ export default function AccountingPage() {
     });
     return totals;
   }, [groupedExpenses]);
+
+  const grandTotal = useMemo(() => {
+    return Object.entries(categoryTotals).reduce((sum, [cat, total]) => {
+      if (auditedCategories[cat]) {
+        return sum + total;
+      }
+      return sum;
+    }, 0);
+  }, [categoryTotals, auditedCategories]);
 
   useEffect(() => {
     fetchProjects();
@@ -1090,7 +1127,7 @@ export default function AccountingPage() {
                       required
                     >
                       <option value="">-- Select Category --</option>
-                      {EXPENSE_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                      {activeCategoriesList.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
@@ -1207,7 +1244,7 @@ export default function AccountingPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EBEBEB]">
-                    {EXPENSE_CATEGORIES.map((cat, idx) => {
+                    {activeCategoriesList.map((cat, idx) => {
                       const items = groupedExpenses[cat] || [];
                       const total = categoryTotals[cat] || 0;
 
@@ -1318,8 +1355,13 @@ export default function AccountingPage() {
                               )) : '-'}
                             </div>
                           </td>
-                          <td className="py-3 px-4 align-top text-right text-xs font-black font-mono text-slate-800">
-                            ₹ {total.toLocaleString('en-IN')}
+                          <td className="py-3 px-4 align-top text-right text-xs font-mono text-slate-800 font-black">
+                            <span className={auditedCategories[cat] ? "text-slate-800" : "text-gray-400 line-through decoration-red-400/50 mr-1"}>
+                              ₹ {total.toLocaleString('en-IN')}
+                            </span>
+                            {!auditedCategories[cat] && total > 0 && (
+                              <span className="text-[9px] font-bold text-amber-500 block mt-0.5 no-print">Pending Audit</span>
+                            )}
                           </td>
                           <td className="py-3 px-4 text-center align-top">
                             <div className="flex flex-col items-center justify-center gap-1 mt-0.5">
@@ -1343,7 +1385,7 @@ export default function AccountingPage() {
                       <td className="py-3 px-4" colSpan={3}><div className="text-right text-[10px] uppercase text-muted">Grand Total</div></td>
                       <td className="py-3 px-4"></td>
                       <td className="py-3 px-4 text-right text-sm text-[#E05A1E] font-mono font-black">
-                        ₹ {Object.values(categoryTotals).reduce((sum, val) => sum + val, 0).toLocaleString('en-IN')}
+                        ₹ {grandTotal.toLocaleString('en-IN')}
                       </td>
                       <td></td>
                     </tr>

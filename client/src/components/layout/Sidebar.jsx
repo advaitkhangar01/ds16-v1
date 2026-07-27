@@ -15,6 +15,7 @@ const ADMIN_LINKS = [
   { to: '/clients', label: 'Clients', icon: 'users' },
   { to: '/admin/staff', label: 'Staff', icon: 'briefcase' },
   { to: '/attendance', label: 'Attendance', icon: 'clock' },
+  { to: '/daily-reports', label: 'Daily Reports', icon: 'file_spreadsheet' },
   { to: '/admin/invoice', label: 'Invoice', icon: 'receipt' },
   { to: '/admin/accounting', label: 'Accounting', icon: 'calculator' },
   {to: '/admin/reports', label: 'Reports', icon: 'file_spreadsheet'},
@@ -32,6 +33,7 @@ const ACCOUNTS_LINKS = [
   { to: '/admin/reports', label: 'Reports', icon: 'file_spreadsheet' },
   { to: '/clients', label: 'Clients', icon: 'users' },
   { to: '/attendance', label: 'Attendance', icon: 'clock' },
+  { to: '/daily-reports', label: 'Daily Reports', icon: 'file_spreadsheet' },
   { to: '/admin/history', label: 'History', icon: 'archive' },
 ];
 
@@ -41,6 +43,7 @@ const EMP_LINKS = [
   { to: '/projects', label: 'My Projects', icon: 'folder' },
   { to: '/tasks', label: 'Tasks', icon: 'check_square' },
   { to: '/attendance', label: 'Attendance', icon: 'clock' },
+  { to: '/daily-reports', label: 'Daily Reports', icon: 'file_spreadsheet' },
   { to: '/clients', label: 'Clients', icon: 'users' },
   { to: '/vendors', label: 'Vendors', icon: 'tool' },
 ];
@@ -51,6 +54,7 @@ const PROJECT_DESIGN_HEAD_LINKS = [
   { to: '/employee/profile', label: 'My Profile', icon: 'user' },
   { to: '/projects', label: 'Projects', icon: 'folder' },
   { to: '/tasks', label: 'Tasks', icon: 'check_square' },
+  { to: '/daily-reports', label: 'Daily Reports', icon: 'file_spreadsheet' },
   { to: '/vendors', label: 'Vendors', icon: 'tool' },
 ];
 

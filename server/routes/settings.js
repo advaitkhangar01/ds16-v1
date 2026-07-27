@@ -16,7 +16,10 @@ router.use(authenticate);
 router.get('/users', requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, username, role, department, phone, base_salary, hourly_rate, created_at FROM users ORDER BY name ASC'
+      `SELECT u.id, u.name, u.username, u.role, u.department, u.phone, u.base_salary, u.hourly_rate, u.batch_id, u.created_at, b.name as batch_name 
+       FROM users u
+       LEFT JOIN attendance_batches b ON u.batch_id = b.id
+       ORDER BY u.name ASC`
     );
     res.json({ users: rows });
   } catch (err) {
@@ -28,7 +31,7 @@ router.get('/users', requireAdmin, async (req, res) => {
 // ─── Admin: Create user ──────────────────────────────────────────────────────
 router.post('/users', requireAdmin, async (req, res) => {
   try {
-    const { name, username, password, role, department, phone, base_salary, hourly_rate } = req.body;
+    const { name, username, password, role, department, phone, base_salary, hourly_rate, batch_id } = req.body;
 
     if (!name?.trim() || !username?.trim() || !password?.trim()) {
       return res.status(400).json({ error: 'Name, username and password are required' });
@@ -55,10 +58,10 @@ router.post('/users', requireAdmin, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const { rows } = await pool.query(
-      `INSERT INTO users (name, username, password_hash, role, department, phone, base_salary, hourly_rate)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, name, username, role, department, phone, base_salary, hourly_rate, created_at`,
-      [name.trim(), username.toLowerCase().trim(), passwordHash, role, department?.trim() || null, phone?.trim() || null, parseFloat(base_salary) || 0, parseFloat(hourly_rate) || 0]
+      `INSERT INTO users (name, username, password_hash, role, department, phone, base_salary, hourly_rate, batch_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, name, username, role, department, phone, base_salary, hourly_rate, batch_id, created_at`,
+      [name.trim(), username.toLowerCase().trim(), passwordHash, role, department?.trim() || null, phone?.trim() || null, parseFloat(base_salary) || 0, parseFloat(hourly_rate) || 0, batch_id ? parseInt(batch_id) : null]
     );
 
     res.status(201).json(rows[0]);
@@ -121,7 +124,7 @@ router.patch('/users/:id/reset-password', requireAdmin, async (req, res) => {
 router.patch('/users/:id', requireAdmin, async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
-    const { name, username, role, department, phone, base_salary, hourly_rate } = req.body;
+    const { name, username, role, department, phone, base_salary, hourly_rate, batch_id } = req.body;
 
     if (!name?.trim() || !username?.trim()) {
       return res.status(400).json({ error: 'Name and username are required' });
@@ -143,9 +146,9 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
 
     const { rows } = await pool.query(
       `UPDATE users 
-       SET name = $1, username = $2, role = $3, department = $4, phone = $5, base_salary = $6, hourly_rate = $7
-       WHERE id = $8
-       RETURNING id, name, username, role, department, phone, base_salary, hourly_rate, created_at`,
+       SET name = $1, username = $2, role = $3, department = $4, phone = $5, base_salary = $6, hourly_rate = $7, batch_id = $8
+       WHERE id = $9
+       RETURNING id, name, username, role, department, phone, base_salary, hourly_rate, batch_id, created_at`,
       [
         name.trim(), 
         username.toLowerCase().trim(), 
@@ -154,6 +157,7 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
         phone?.trim() || null, 
         parseFloat(base_salary) || 0, 
         parseFloat(hourly_rate) || 0,
+        batch_id ? parseInt(batch_id) : null,
         userId
       ]
     );
@@ -211,7 +215,7 @@ router.patch('/change-password', async (req, res) => {
 
 // ─── Admin: App Settings ─────────────────────────────────────────────────────
 
-router.get('/app', requireAdmin, async (req, res) => {
+router.get('/app', async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM app_settings ORDER BY key ASC');
     const settings = rows.reduce((acc, row) => {
@@ -323,6 +327,94 @@ router.delete('/factory-reset', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('Settings: factory reset error:', err);
     res.status(500).json({ error: 'Factory reset failed. Database was rolled back.' });
+  }
+});
+
+// ─── Admin: Attendance Batches CRUD ──────────────────────────────────────────
+
+// 1. Get all batches
+router.get('/batches', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM attendance_batches ORDER BY name ASC');
+    res.json(rows);
+  } catch (err) {
+    console.error('Settings: fetch batches error:', err);
+    res.status(500).json({ error: 'Failed to fetch attendance batches' });
+  }
+});
+
+// 2. Create batch
+router.post('/batches', requireAdmin, async (req, res) => {
+  try {
+    const { name, office_start_time, late_threshold_time, half_day_cutoff_time, min_working_hours } = req.body;
+
+    if (!name?.trim() || !office_start_time || !late_threshold_time || !half_day_cutoff_time) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO attendance_batches (name, office_start_time, late_threshold_time, half_day_cutoff_time, min_working_hours)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [name.trim(), office_start_time, late_threshold_time, half_day_cutoff_time, parseFloat(min_working_hours) || 4.00]
+    );
+
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('Settings: create batch error:', err);
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Batch name already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create attendance batch' });
+  }
+});
+
+// 3. Update batch
+router.put('/batches/:id', requireAdmin, async (req, res) => {
+  try {
+    const batchId = parseInt(req.params.id);
+    const { name, office_start_time, late_threshold_time, half_day_cutoff_time, min_working_hours } = req.body;
+
+    if (!name?.trim() || !office_start_time || !late_threshold_time || !half_day_cutoff_time) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE attendance_batches
+       SET name = $1, office_start_time = $2, late_threshold_time = $3, half_day_cutoff_time = $4, min_working_hours = $5
+       WHERE id = $6
+       RETURNING *`,
+      [name.trim(), office_start_time, late_threshold_time, half_day_cutoff_time, parseFloat(min_working_hours) || 4.00, batchId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Settings: update batch error:', err);
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Batch name already exists' });
+    }
+    res.status(500).json({ error: 'Failed to update attendance batch' });
+  }
+});
+
+// 4. Delete batch
+router.delete('/batches/:id', requireAdmin, async (req, res) => {
+  try {
+    const batchId = parseInt(req.params.id);
+    const { rowCount } = await pool.query('DELETE FROM attendance_batches WHERE id = $1', [batchId]);
+
+    if (rowCount === 0) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+
+    res.json({ message: 'Batch deleted successfully' });
+  } catch (err) {
+    console.error('Settings: delete batch error:', err);
+    res.status(500).json({ error: 'Failed to delete attendance batch' });
   }
 });
 

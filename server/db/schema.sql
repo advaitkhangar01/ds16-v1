@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash VARCHAR(255) NOT NULL,
   base_salary DECIMAL(15, 2) DEFAULT 0,
   hourly_rate DECIMAL(15, 2) DEFAULT 0,
+  batch_id INTEGER REFERENCES attendance_batches(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -365,4 +366,15 @@ CREATE INDEX IF NOT EXISTS idx_payment_stages_project ON project_payment_stages(
 CREATE INDEX IF NOT EXISTS idx_comments_project ON comments(project_id);
 CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id);
 CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date);
+
+-- 26. Attendance Batches
+CREATE TABLE IF NOT EXISTS attendance_batches (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) UNIQUE NOT NULL,
+  office_start_time TIME NOT NULL,
+  late_threshold_time TIME NOT NULL,
+  half_day_cutoff_time TIME NOT NULL,
+  min_working_hours DECIMAL(4, 2) NOT NULL DEFAULT 4.00,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
