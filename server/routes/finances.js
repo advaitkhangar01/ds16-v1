@@ -169,7 +169,7 @@ router.get('/transactions', authenticate, async (req, res) => {
     const params = [];
     let idx = 1;
 
-    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
+    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head' || req.user.role === 'back_office' || req.user.role === 'accounts';
     const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts';
 
     if (!isGlobal) {
@@ -360,7 +360,7 @@ router.get('/summary', authenticate, async (req, res) => {
       // 1. Income from document amounts (Total Potential) - Only for active stages: Design Proposal, Sanction, Execution (when global)
       let incomeQuery;
       const incomeParams = [];
-      const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
+      const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head' || req.user.role === 'back_office' || req.user.role === 'accounts';
 
       if (projectId) {
         incomeQuery = `SELECT COALESCE(SUM(amount), 0) as total_value FROM project_document_amounts WHERE project_id = $1`;
