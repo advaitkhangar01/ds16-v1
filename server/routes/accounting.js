@@ -104,7 +104,7 @@ router.get('/expenses/audits', async (req, res) => {
 });
 
 // Update audit status
-router.post('/expenses/audits', async (req, res) => {
+router.post('/expenses/audits', requireAdmin, async (req, res) => {
   const { category, month, year, is_verified } = req.body;
   try {
     const { rows } = await pool.query(

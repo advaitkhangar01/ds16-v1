@@ -1390,7 +1390,8 @@ export default function AccountingPage() {
                                 type="checkbox" 
                                 checked={!!auditedCategories[cat]} 
                                 onChange={() => toggleAudit(cat)} 
-                                className="w-4 h-4 rounded border-gray-300 text-[#E05A1E] focus:ring-[#E05A1E] cursor-pointer" 
+                                disabled={!isAdmin}
+                                className={`w-4 h-4 rounded border-gray-300 text-[#E05A1E] focus:ring-[#E05A1E] ${!isAdmin ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`} 
                               />
                               {auditedCategories[cat] && (
                                 <CheckCircle2 size={12} className="text-emerald-500 animate-in zoom-in duration-200" />
