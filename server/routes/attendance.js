@@ -74,10 +74,9 @@ async function autoCheckoutPendingRecords() {
     if (rows.length === 0) return;
 
     // Fetch required settings for default checkout time calculation
-    const settings = await getSettings(['office_start_time', 'min_working_hours', 'half_day_threshold_hours']);
+    const settings = await getSettings(['office_start_time', 'min_working_hours']);
     let defaultOfficeStartTime = settings.office_start_time || '10:00';
     let defaultMinWorkingHours = parseFloat(settings.min_working_hours || '4');
-    let halfDayThreshold = parseFloat(settings.half_day_threshold_hours || '4');
 
     // Validate defaultOfficeStartTime format (HH:mm)
     if (!/^\d{2}:\d{2}$/.test(defaultOfficeStartTime)) {
@@ -129,11 +128,12 @@ async function autoCheckoutPendingRecords() {
       hoursWorked = parseFloat(hoursWorked.toFixed(2));
       
       let newStatus = r.status ? r.status.toLowerCase() : 'completed';
-      if (hoursWorked < halfDayThreshold) {
-        newStatus = 'half_day';
-      } else if (newStatus === 'working' || newStatus === 'present') {
+      // Half-day is determined ONLY by check-in time (already set during check-in).
+      // Auto-checkout only transitions working/present → completed; never overrides half_day.
+      if (newStatus === 'working' || newStatus === 'present') {
         newStatus = 'completed';
       }
+      // If status is already 'half_day' (checked in after half-day cutoff), keep it.
 
       await pool.query(
         `UPDATE attendance SET
@@ -408,7 +408,6 @@ router.post('/checkout', authenticate, async (req, res) => {
 
     const settings = await getSettings([
       'min_working_hours',
-      'half_day_threshold_hours',
       'office_lat', 'office_lng',
       'geofence_strict_radius', 'geofence_buffer_radius',
     ]);
@@ -422,13 +421,6 @@ router.post('/checkout', authenticate, async (req, res) => {
       [userId]
     );
     const userBatch = userRows[0] || {};
-
-    let minWorkingHours = parseFloat(settings.min_working_hours || '4');
-    if (userBatch.min_working_hours !== null && userBatch.min_working_hours !== undefined) {
-      minWorkingHours = parseFloat(userBatch.min_working_hours);
-    }
-    
-    let halfDayThreshold = parseFloat(settings.half_day_threshold_hours || settings.min_working_hours || '4');
 
     const { rows: existing } = await pool.query(
       'SELECT id, check_in, check_out, LOWER(status) AS status FROM attendance WHERE user_id = $1 AND date = $2::date',
@@ -455,8 +447,14 @@ router.post('/checkout', authenticate, async (req, res) => {
     let newStatus = (existing[0].status || ATTENDANCE_STATUS.WORKING).toLowerCase();
     const currentStatusLower = newStatus;
 
-    if (hoursWorked < halfDayThreshold) {
-      newStatus = ATTENDANCE_STATUS.HALF_DAY;
+    // Half-day is determined ONLY by check-in time (already set during check-in when
+    // check-in time > half_day_cutoff_time). Checkout only finalises the status:
+    //   half_day  → stays half_day  (late enough that check-in set it)
+    //   working / present → completed
+    // We never override based on hours worked, because a late-arrival employee
+    // (is_late=true, status=working) who works a full shift must end as 'completed'.
+    if (currentStatusLower === ATTENDANCE_STATUS.HALF_DAY) {
+      newStatus = ATTENDANCE_STATUS.HALF_DAY; // keep as-is
     } else if (currentStatusLower === ATTENDANCE_STATUS.WORKING || currentStatusLower === 'present') {
       newStatus = ATTENDANCE_STATUS.COMPLETED;
     }

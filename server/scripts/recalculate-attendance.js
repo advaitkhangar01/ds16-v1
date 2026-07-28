@@ -64,7 +64,6 @@ async function run() {
     let lateThresholdTime = settings.late_threshold_time;
     let halfDayCutoff = settings.half_day_cutoff_time || '13:00';
     let minWorkingHours = parseFloat(settings.min_working_hours || '4');
-    let halfDayThreshold = parseFloat(settings.half_day_threshold_hours || settings.min_working_hours || '4');
 
     if (r.batch_start) {
       officeStartTime = r.batch_start.substring(0, 5);
@@ -104,15 +103,18 @@ async function run() {
       lateMins = checkInMins - startMins;
     }
 
-    // If checked out, evaluate working hours
+    // If checked out, finalise status
     let hoursWorked = 0;
     if (r.check_out) {
       hoursWorked = (new Date(r.check_out) - new Date(r.check_in)) / (1000 * 60 * 60);
       if (isNaN(hoursWorked) || hoursWorked < 0) hoursWorked = 0;
       hoursWorked = parseFloat(hoursWorked.toFixed(2));
 
-      if (hoursWorked < halfDayThreshold) {
-        status = ATTENDANCE_STATUS.HALF_DAY;
+      // Half-day is determined ONLY by check-in time (already evaluated above).
+      // Never override based on hours worked — a late-arrival who works a full
+      // shift must end as 'completed', not half_day.
+      if (status === ATTENDANCE_STATUS.HALF_DAY) {
+        // keep — checked in after half_day_cutoff_time
       } else if (status === ATTENDANCE_STATUS.WORKING || status === 'present') {
         status = ATTENDANCE_STATUS.COMPLETED;
       }
