@@ -825,14 +825,22 @@ export default function StaffDetailPage() {
                                 <span className="block text-[9px] text-gray-400 font-mono mt-0.5">{parseFloat(att.checkin_distance).toFixed(1)}m from office</span>
                               )}
                             </td>
-                            <td className="px-6 py-4 text-center">
+                             <td className="px-6 py-4 text-center">
                               <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
                                 att.status === 'working' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
                                 att.status === 'completed' ? 'bg-blue-50 text-blue-600 border-blue-100' :
                                 att.status === 'half_day' ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                                att.status === 'leave' ? 'bg-violet-50 text-violet-600 border-violet-100 font-bold' :
+                                att.status === 'sunday' ? 'bg-slate-100 text-slate-600 border-slate-200 font-bold' :
+                                att.status === 'holiday' ? 'bg-indigo-50 text-indigo-600 border-indigo-100 font-bold' :
                                 'bg-red-50 text-red-500 border-red-100'
                               }`}>
-                                {att.status === 'working' ? 'Present' : att.status === 'completed' ? 'Done' : att.status === 'half_day' ? 'Half Day' : att.status}
+                                {att.status === 'working' ? 'Present' : 
+                                 att.status === 'completed' ? 'Done' : 
+                                 att.status === 'half_day' ? 'Half Day' : 
+                                 att.status === 'leave' ? 'On Leave' : 
+                                 att.status === 'sunday' ? 'Sunday' : 
+                                 att.status === 'holiday' ? 'Holiday' : 'Absent'}
                               </span>
                             </td>
                           </tr>

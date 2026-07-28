@@ -74,9 +74,10 @@ async function autoCheckoutPendingRecords() {
     if (rows.length === 0) return;
 
     // Fetch required settings for default checkout time calculation
-    const settings = await getSettings(['office_start_time', 'min_working_hours']);
+    const settings = await getSettings(['office_start_time', 'min_working_hours', 'half_day_threshold_hours']);
     let defaultOfficeStartTime = settings.office_start_time || '10:00';
     let defaultMinWorkingHours = parseFloat(settings.min_working_hours || '4');
+    let halfDayThreshold = parseFloat(settings.half_day_threshold_hours || '4');
 
     // Validate defaultOfficeStartTime format (HH:mm)
     if (!/^\d{2}:\d{2}$/.test(defaultOfficeStartTime)) {
@@ -128,7 +129,7 @@ async function autoCheckoutPendingRecords() {
       hoursWorked = parseFloat(hoursWorked.toFixed(2));
       
       let newStatus = r.status ? r.status.toLowerCase() : 'completed';
-      if (hoursWorked < minWorkingHours) {
+      if (hoursWorked < halfDayThreshold) {
         newStatus = 'half_day';
       } else if (newStatus === 'working' || newStatus === 'present') {
         newStatus = 'completed';
@@ -407,6 +408,7 @@ router.post('/checkout', authenticate, async (req, res) => {
 
     const settings = await getSettings([
       'min_working_hours',
+      'half_day_threshold_hours',
       'office_lat', 'office_lng',
       'geofence_strict_radius', 'geofence_buffer_radius',
     ]);
@@ -425,6 +427,8 @@ router.post('/checkout', authenticate, async (req, res) => {
     if (userBatch.min_working_hours !== null && userBatch.min_working_hours !== undefined) {
       minWorkingHours = parseFloat(userBatch.min_working_hours);
     }
+    
+    let halfDayThreshold = parseFloat(settings.half_day_threshold_hours || settings.min_working_hours || '4');
 
     const { rows: existing } = await pool.query(
       'SELECT id, check_in, check_out, LOWER(status) AS status FROM attendance WHERE user_id = $1 AND date = $2::date',
@@ -451,7 +455,7 @@ router.post('/checkout', authenticate, async (req, res) => {
     let newStatus = (existing[0].status || ATTENDANCE_STATUS.WORKING).toLowerCase();
     const currentStatusLower = newStatus;
 
-    if (hoursWorked < minWorkingHours) {
+    if (hoursWorked < halfDayThreshold) {
       newStatus = ATTENDANCE_STATUS.HALF_DAY;
     } else if (currentStatusLower === ATTENDANCE_STATUS.WORKING || currentStatusLower === 'present') {
       newStatus = ATTENDANCE_STATUS.COMPLETED;
@@ -531,18 +535,18 @@ router.get('/today', authenticate, async (req, res) => {
          a.checkin_zone, a.checkin_distance, a.checkin_accuracy,
          a.is_boundary_checkin, a.checkin_verified,
          a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
-         CASE
-           WHEN a.check_in IS NOT NULL THEN
-             CASE 
-               WHEN LOWER(a.status) = 'present' THEN 
-                 CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
-               ELSE LOWER(a.status)
-             END
-           WHEN lr.id IS NOT NULL THEN LOWER($2)
-           WHEN EXTRACT(DOW FROM $1::date) = 0 THEN 'sunday'
-           WHEN h.date IS NOT NULL THEN 'holiday'
-           ELSE LOWER(COALESCE(a.status, $3))
-         END AS status
+          CASE
+            WHEN a.id IS NOT NULL THEN
+              CASE 
+                WHEN LOWER(COALESCE(a.status, '')) = 'present' THEN 
+                  CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
+                ELSE LOWER(COALESCE(a.status, 'working'))
+              END
+            WHEN lr.id IS NOT NULL THEN LOWER($2)
+            WHEN EXTRACT(DOW FROM $1::date) = 0 THEN 'sunday'
+            WHEN h.date IS NOT NULL THEN 'holiday'
+            ELSE LOWER($3)
+          END AS status
        FROM users u
        LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date
        LEFT JOIN leave_requests lr ON lr.user_id = u.id
@@ -638,18 +642,18 @@ router.get('/all', authenticate, async (req, res) => {
          a.checkout_distance,
          a.checkout_zone,
          a.checkout_outside_zone,
-         CASE
-           WHEN a.check_in IS NOT NULL THEN
-             CASE 
-               WHEN LOWER(a.status) = 'present' THEN 
-                 CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
-               ELSE LOWER(a.status)
-             END
-           WHEN lr.id IS NOT NULL THEN 'leave'
-           WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
-           WHEN h.date IS NOT NULL THEN 'holiday'
-           ELSE 'absent'
-         END AS status
+          CASE
+            WHEN a.id IS NOT NULL THEN
+              CASE 
+                WHEN LOWER(COALESCE(a.status, '')) = 'present' THEN 
+                  CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
+                ELSE LOWER(COALESCE(a.status, 'working'))
+              END
+            WHEN lr.id IS NOT NULL THEN 'leave'
+            WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
+            WHEN h.date IS NOT NULL THEN 'holiday'
+            ELSE 'absent'
+          END AS status
        FROM user_dates ud
        LEFT JOIN attendance a ON a.user_id = ud.user_id AND a.date = ud.date
        LEFT JOIN leave_requests lr ON lr.user_id = ud.user_id

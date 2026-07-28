@@ -53,7 +53,8 @@ async function run() {
     'office_start_time',
     'late_threshold_time',
     'half_day_cutoff_time',
-    'min_working_hours'
+    'min_working_hours',
+    'half_day_threshold_hours'
   ]);
 
   for (const r of records) {
@@ -63,6 +64,7 @@ async function run() {
     let lateThresholdTime = settings.late_threshold_time;
     let halfDayCutoff = settings.half_day_cutoff_time || '13:00';
     let minWorkingHours = parseFloat(settings.min_working_hours || '4');
+    let halfDayThreshold = parseFloat(settings.half_day_threshold_hours || settings.min_working_hours || '4');
 
     if (r.batch_start) {
       officeStartTime = r.batch_start.substring(0, 5);
@@ -109,7 +111,7 @@ async function run() {
       if (isNaN(hoursWorked) || hoursWorked < 0) hoursWorked = 0;
       hoursWorked = parseFloat(hoursWorked.toFixed(2));
 
-      if (hoursWorked < minWorkingHours) {
+      if (hoursWorked < halfDayThreshold) {
         status = ATTENDANCE_STATUS.HALF_DAY;
       } else if (status === ATTENDANCE_STATUS.WORKING || status === 'present') {
         status = ATTENDANCE_STATUS.COMPLETED;

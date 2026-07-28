@@ -106,7 +106,6 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   if (employeeBatch.office_start_time) {
     officeStartTimeStr = employeeBatch.office_start_time.substring(0, 5);
     lateThresholdTimeStr = employeeBatch.late_threshold_time.substring(0, 5);
-    halfDayThresholdHours = parseFloat(employeeBatch.min_working_hours || 4);
   }
 
   const lateThresholdMins = parseInt(settings.late_threshold_mins || 15);
@@ -211,6 +210,15 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       } else if (status === 'absent') {
         unmarkedAbsentCount++;
         dayStatus = 'absent';
+      } else if (status === 'leave') {
+        leavesCount++;
+        dayStatus = 'leave';
+      } else if (status === 'sunday') {
+        sundaysCount++;
+        dayStatus = 'sunday';
+      } else if (status === 'holiday') {
+        holidaysCount++;
+        dayStatus = 'holiday';
       } else {
         fullDaysWorked++;
         dayStatus = 'present';

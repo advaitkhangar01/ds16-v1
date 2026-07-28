@@ -42,6 +42,8 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
          COUNT(*) FILTER (WHERE a.check_out IS NOT NULL AND a.date = $1::date) AS checked_out,
          COUNT(*) FILTER (
            WHERE a.check_in IS NULL 
+             AND EXTRACT(DOW FROM $1::date) != 0
+             AND NOT EXISTS (SELECT 1 FROM holidays WHERE date = $1::date)
              AND NOT EXISTS (
                SELECT 1 FROM leave_requests lr 
                WHERE lr.user_id = u.id 
@@ -641,6 +643,33 @@ router.get('/employee', authenticate, async (req, res) => {
       [userId, todayStr]
     );
 
+    // 1a. Query today's status (accounting for leave, Sunday, holiday, absent, etc. if not checked in)
+    const { rows: todayStatusRows } = await pool.query(
+      `SELECT 
+         CASE
+           WHEN a.id IS NOT NULL THEN
+             CASE 
+               WHEN LOWER(COALESCE(a.status, '')) = 'present' THEN 
+                 CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
+               ELSE LOWER(COALESCE(a.status, 'working'))
+             END
+           WHEN lr.id IS NOT NULL THEN 'leave'
+           WHEN EXTRACT(DOW FROM $2::date) = 0 THEN 'sunday'
+           WHEN h.date IS NOT NULL THEN 'holiday'
+           ELSE 'absent'
+         END AS status
+       FROM users u
+       LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $2::date
+       LEFT JOIN leave_requests lr ON lr.user_id = u.id
+         AND LOWER(lr.status) = 'approved'
+         AND lr.type NOT IN ('advance', 'resignation')
+         AND $2::date BETWEEN lr.start_date AND lr.end_date
+       LEFT JOIN holidays h ON h.date = $2::date
+       WHERE u.id = $1`,
+      [userId, todayStr]
+    );
+    const todayStatus = todayStatusRows[0]?.status || 'absent';
+
     // 1b. Team attendance summary (for stats, separating leaves from absences)
     const { rows: teamStatsRows } = await pool.query(
       `SELECT
@@ -648,6 +677,8 @@ router.get('/employee', authenticate, async (req, res) => {
          COUNT(*) FILTER (WHERE a.check_out IS NOT NULL AND a.date = $1::date) AS checked_out,
          COUNT(*) FILTER (
            WHERE a.check_in IS NULL 
+             AND EXTRACT(DOW FROM $1::date) != 0
+             AND NOT EXISTS (SELECT 1 FROM holidays WHERE date = $1::date)
              AND NOT EXISTS (
                SELECT 1 FROM leave_requests lr 
                WHERE lr.user_id = u.id 
@@ -754,6 +785,7 @@ router.get('/employee', authenticate, async (req, res) => {
 
     res.json({
       attendance: attRows[0] || {},
+      today_status: todayStatus,
       team_stats: {
         present:     parseInt(teamStats.present),
         checked_out: parseInt(teamStats.checked_out),

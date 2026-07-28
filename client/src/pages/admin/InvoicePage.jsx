@@ -35,7 +35,8 @@ const INITIAL_FORM = {
   bankName: 'RANAPRATAP NAGAR',
   branch: '',
   upiId: '',
-  dueDate: ''
+  dueDate: '',
+  tdsPercent: 10
 };
 
 const ITEM_CATALOG = [
@@ -52,11 +53,11 @@ export default function InvoicePage() {
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [isGenerating, setIsGenerating] = useState(false);
   const [clients, setClients] = useState([]);
-  const [clientSearch, setClientSearch] = useState('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const [showClientModal, setShowClientModal] = useState(false);
   const [isGstEnabled, setIsGstEnabled] = useState(true);
   const [isIgst, setIsIgst] = useState(false);
+  const [isTdsEnabled, setIsTdsEnabled] = useState(false);
   const [showBankDetails, setShowBankDetails] = useState(true);
   const [showCatalog, setShowCatalog] = useState(false);
   const [signatureData, setSignatureData] = useState(null);
@@ -190,6 +191,7 @@ export default function InvoicePage() {
             setFormData(parsed);
             setIsGstEnabled(parsed.cgstPercent > 0 || parsed.igstPercent > 0);
             setIsIgst(parsed.igstPercent > 0 && parsed.cgstPercent === 0);
+            setIsTdsEnabled(parsed.tax_details?.isTdsEnabled ?? parsed.isTdsEnabled ?? false);
           } else {
             localStorage.removeItem('ds16_invoice_draft');
             fetchNextInvoiceNumber();
@@ -301,6 +303,7 @@ export default function InvoicePage() {
 
       setIsGstEnabled(inv.tax_details?.isGstEnabled ?? true);
       setIsIgst(inv.tax_details?.isIgst ?? false);
+      setIsTdsEnabled(inv.tax_details?.isTdsEnabled ?? false);
       // Restore the archived signature onto the canvas
       if (inv.signature_data) {
         setTimeout(() => restoreSignatureToCanvas(inv.signature_data), 100);
@@ -422,6 +425,9 @@ export default function InvoicePage() {
           igstPercent: formData.igstPercent,
           isGstEnabled,
           isIgst,
+          isTdsEnabled,
+          tdsPercent: formData.tdsPercent,
+          tdsAmount: calculateTotals().tdsAmount,
           referenceNoAndDate: formData.refNo,
           otherReferences: formData.otherReferences,
           buyerOrderNo: formData.buyerOrderNo,
@@ -498,7 +504,7 @@ export default function InvoicePage() {
   const calculateTotals = () => {
     // Phase 3.2: Guard against malformed items from corrupted localStorage
     if (!formData || !Array.isArray(formData.items) || formData.items.length === 0) {
-      return { subtotal: 0, cgst: 0, sgst: 0, igst: 0, grandTotal: 0 };
+      return { subtotal: 0, cgst: 0, sgst: 0, igst: 0, grandTotal: 0, tdsAmount: 0, netReceivable: 0 };
     }
     const subtotal = formData.items.reduce((acc, item) => {
       const qty = Number(item.quantity) || 0;
@@ -513,10 +519,13 @@ export default function InvoicePage() {
         sgst = subtotal * ((Number(formData.sgstPercent) || 0) / 100);
       }
     }
-    return { subtotal, cgst, sgst, igst, grandTotal: Math.round(subtotal + cgst + sgst + igst) };
+    const grandTotal = Math.round(subtotal + cgst + sgst + igst);
+    const tdsAmount = isTdsEnabled ? Math.round(subtotal * ((Number(formData.tdsPercent) || 0) / 100)) : 0;
+    const netReceivable = grandTotal - tdsAmount;
+    return { subtotal, cgst, sgst, igst, grandTotal, tdsAmount, netReceivable };
   };
 
-  const { subtotal, cgst, sgst, igst, grandTotal } = calculateTotals();
+  const { subtotal, cgst, sgst, igst, grandTotal, tdsAmount, netReceivable } = calculateTotals();
 
   const getProjectName = () => {
     if (formData.project_id) {
@@ -653,7 +662,7 @@ export default function InvoicePage() {
     setSignatureData(base64);
   };
 
-  const filteredClients = (Array.isArray(clients) ? clients : []).filter(c => (c.name || '').toLowerCase().includes(clientSearch.toLowerCase()));
+  const filteredClients = (Array.isArray(clients) ? clients : []).filter(c => (c.name || '').toLowerCase().includes((formData.billToName || '').toLowerCase()));
 
   const handleProjectSelect = (p) => {
     const client = (Array.isArray(clients) ? clients : []).find(c => c.id === p.client_id || c.name === p.client_name);
@@ -814,8 +823,12 @@ export default function InvoicePage() {
                   </div>
                   <input 
                     type="text" 
-                    value={clientSearch || formData.billToName}
-                    onChange={(e) => { setClientSearch(e.target.value); setIsClientDropdownOpen(true); }}
+                    value={formData.billToName}
+                    onChange={(e) => { 
+                      const val = e.target.value;
+                      setFormData(prev => ({ ...prev, billToName: val }));
+                      setIsClientDropdownOpen(true); 
+                    }}
                     onFocus={() => setIsClientDropdownOpen(true)}
                     className="input"
                     placeholder="Search or type client name..."
@@ -836,7 +849,6 @@ export default function InvoicePage() {
                               billToEmail: c.primary_contact_email || c.email || '' 
                             }));
                             setIsClientDropdownOpen(false);
-                            setClientSearch('');
                           }}
                           className="p-3 hover:bg-gray-50 cursor-pointer rounded-lg transition-all text-sm font-medium text-gray-800"
                         >
@@ -991,14 +1003,39 @@ export default function InvoicePage() {
                   <div className="w-1 h-4 bg-[#E05A1E] rounded-full"></div>
                   <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Taxes & Banking</h3>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase">GST</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" checked={isGstEnabled} onChange={() => setIsGstEnabled(!isGstEnabled)} className="sr-only peer" />
-                    <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#E05A1E]"></div>
-                  </label>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">GST</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={isGstEnabled} onChange={() => setIsGstEnabled(!isGstEnabled)} className="sr-only peer" />
+                      <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#E05A1E]"></div>
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">TDS</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={isTdsEnabled} onChange={() => setIsTdsEnabled(!isTdsEnabled)} className="sr-only peer" />
+                      <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#E05A1E]"></div>
+                    </label>
+                  </div>
                 </div>
               </div>
+
+              {isTdsEnabled && (
+                <div className="flex gap-3 p-3 bg-gray-50 border border-gray-100 rounded-xl justify-between items-center">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase">TDS Rate (%)</label>
+                  <select 
+                    name="tdsPercent" 
+                    value={formData.tdsPercent} 
+                    onChange={handleChange} 
+                    className="text-xs bg-white border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-[#E05A1E]"
+                  >
+                    <option value="1">1% (Contractors)</option>
+                    <option value="2">2% (Services)</option>
+                    <option value="10">10% (Technical/Professional)</option>
+                  </select>
+                </div>
+              )}
 
               {isGstEnabled && (
                 <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
@@ -1148,22 +1185,22 @@ export default function InvoicePage() {
             </table>
 
             {/* Buyer (Bill to) Header & Box */}
-            <div className="w-full bg-gray-100 text-[#1A1A1A] px-3 py-1 text-[8px] font-black uppercase tracking-wider border border-black border-t-0">
-              Buyer (Bill to) - {formData.billToCompany || formData.billToName || 'CLIENT NAME'}
+            <div className="w-full bg-gray-100 text-black px-3 py-1 text-[8px] font-black uppercase tracking-wider border border-black border-t-0">
+              Buyer (Bill to) - {formData.billToCompany && formData.billToName ? `${formData.billToName} (${formData.billToCompany})` : (formData.billToName || formData.billToCompany || 'CLIENT NAME')}
             </div>
-            <div className="w-full border border-black border-t-0 p-3 text-[10px] space-y-1 leading-normal font-bold">
+            <div className="w-full border border-black border-t-0 p-3 text-[10px] space-y-1.5 leading-normal font-bold">
               {formData.billToCompany ? (
                 <>
-                  <div className="text-base font-black text-gray-900 leading-none mb-1">{formData.billToCompany}</div>
-                  <div className="text-xs text-gray-600 font-semibold mb-1">Attn: {formData.billToName}</div>
+                  <div className="text-base font-black text-black leading-none mb-1">{formData.billToName || 'CLIENT NAME'}</div>
+                  <div className="text-xs text-gray-800 font-bold mb-1">Company: {formData.billToCompany}</div>
                 </>
               ) : (
-                <div className="text-base font-black text-gray-900 leading-none mb-1">{formData.billToName || 'CLIENT NAME'}</div>
+                <div className="text-base font-black text-black leading-none mb-1">{formData.billToName || 'CLIENT NAME'}</div>
               )}
-              <div className="text-gray-600 font-medium whitespace-pre-wrap">{formData.billToAddress || 'Client Address Not Provided'}</div>
-              <div className="grid grid-cols-2 gap-4 pt-1 text-[8px]">
-                {formData.billToGst && <p><span className="text-gray-400 uppercase font-black">GSTIN:</span> {formData.billToGst}</p>}
-                {formData.billToPhone && <p><span className="text-gray-400 uppercase font-black">Phone:</span> {formData.billToPhone}</p>}
+              <div className="text-black font-medium whitespace-pre-wrap">{formData.billToAddress || 'Client Address Not Provided'}</div>
+              <div className="grid grid-cols-2 gap-4 pt-1 text-[8px] text-black">
+                {formData.billToGst && <p><span className="font-black text-gray-900">GSTIN:</span> {formData.billToGst}</p>}
+                {formData.billToPhone && <p><span className="font-black text-gray-900">Phone:</span> {formData.billToPhone}</p>}
               </div>
             </div>
 
@@ -1223,6 +1260,20 @@ export default function InvoicePage() {
                   <td className="py-2 border-r border-black text-center text-[8px]">Rupees</td>
                   <td className="py-2 px-3 text-right text-[#E05A1E] font-black text-sm font-mono">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 </tr>
+                {isTdsEnabled && (
+                  <>
+                    <tr className="border-b border-black">
+                      <td className="py-1.5 border-r border-black" colSpan={4}></td>
+                      <td className="py-1.5 border-r border-black text-center font-black uppercase text-[7px] text-red-600">TDS Deduction @ {formData.tdsPercent}%</td>
+                      <td className="py-1.5 px-3 text-right font-black font-mono text-red-600">-₹{tdsAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                    <tr className="bg-emerald-50 font-black border-b border-black">
+                      <td className="py-2 px-3 uppercase text-[8px] tracking-wider text-emerald-800" colSpan={4}>NET RECEIVABLE</td>
+                      <td className="py-2 border-r border-black text-center text-[8px] text-emerald-800">Net Payable</td>
+                      <td className="py-2 px-3 text-right text-emerald-700 font-black text-sm font-mono">₹{netReceivable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  </>
+                )}
               </tbody>
             </table>
 
@@ -1273,8 +1324,8 @@ export default function InvoicePage() {
 
             {/* Total Amount in Words Banner */}
             <div className="w-full bg-gray-500 text-white px-3 py-1 text-[8px] font-black uppercase tracking-wider border border-black border-t-0 flex items-center justify-between">
-              <span>Total Amount (in words):</span>
-              <span className="font-extrabold">{convertNumberToWords(grandTotal).toUpperCase()} ONLY</span>
+              <span>{isTdsEnabled ? 'Net Amount Payable (in words):' : 'Total Amount (in words):'}</span>
+              <span className="font-extrabold">{convertNumberToWords(isTdsEnabled ? netReceivable : grandTotal).toUpperCase()} ONLY</span>
             </div>
 
             {/* Accounts Details & Legal Declaration */}
@@ -1362,9 +1413,11 @@ export default function InvoicePage() {
                           cgstPercent: inv.tax_details?.cgstPercent ?? 9,
                           sgstPercent: inv.tax_details?.sgstPercent ?? 9,
                           igstPercent: inv.tax_details?.igstPercent ?? 18,
+                          tdsPercent: inv.tax_details?.tdsPercent ?? 10,
                         });
                         setIsGstEnabled(inv.tax_details?.isGstEnabled ?? true);
                         setIsIgst(inv.tax_details?.isIgst ?? false);
+                        setIsTdsEnabled(inv.tax_details?.isTdsEnabled ?? false);
                         // Phase 2: Restore archived signature to canvas
                         if (inv.signature_data) {
                           setTimeout(() => restoreSignatureToCanvas(inv.signature_data), 50);

@@ -95,27 +95,55 @@ router.get('/:id', async (req, res) => {
     }
     const { rows: attStats } = await pool.query(statsQuery, statsParams);
 
-    let attendanceQuery = `
-      SELECT id, date, check_in, check_out, LOWER(status) AS status, is_late, late_minutes, hours_worked, checkin_distance, checkin_zone
-      FROM attendance
-      WHERE user_id = $1
-    `;
-    const attendanceParams = [id];
-    if (startDate) {
-      attendanceParams.push(startDate);
-      attendanceQuery += ` AND date >= $${attendanceParams.length}`;
-    }
-    if (endDate) {
-      attendanceParams.push(endDate);
-      attendanceQuery += ` AND date <= $${attendanceParams.length}`;
-    }
+    const todayStrVal = getISTDate();
+    const [yearVal, monthVal] = todayStrVal.split('-').map(Number);
+    const defaultStart = `${yearVal}-${String(monthVal).padStart(2, '0')}-01`;
+    const defaultEnd   = todayStrVal;
 
-    attendanceQuery += ` ORDER BY date DESC`;
+    const startDateVal = startDate || defaultStart;
+    const endDateVal   = endDate || defaultEnd;
 
-    if (!startDate && !endDate) {
-      attendanceQuery += ` LIMIT 50`;
-    }
-    const { rows: attendance } = await pool.query(attendanceQuery, attendanceParams);
+    const { rows: attendance } = await pool.query(
+      `WITH date_series AS (
+         SELECT generate_series($2::date, $3::date, '1 day'::interval)::date AS date
+       ),
+       user_dates AS (
+         SELECT $1::integer AS user_id, d.date
+         FROM date_series d
+       )
+       SELECT 
+         a.id,
+         ud.user_id,
+         ud.date,
+         a.check_in,
+         a.check_out,
+         a.is_late,
+         a.late_minutes,
+         a.hours_worked,
+         a.checkin_distance,
+         a.checkin_zone,
+          CASE
+            WHEN a.id IS NOT NULL THEN
+              CASE 
+                WHEN LOWER(COALESCE(a.status, '')) = 'present' THEN 
+                  CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
+                ELSE LOWER(COALESCE(a.status, 'working'))
+              END
+            WHEN lr.id IS NOT NULL THEN 'leave'
+            WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
+            WHEN h.date IS NOT NULL THEN 'holiday'
+            ELSE 'absent'
+          END AS status
+       FROM user_dates ud
+       LEFT JOIN attendance a ON a.user_id = ud.user_id AND a.date = ud.date
+       LEFT JOIN leave_requests lr ON lr.user_id = ud.user_id
+         AND LOWER(lr.status) = 'approved'
+         AND lr.type NOT IN ('advance', 'resignation')
+         AND ud.date BETWEEN lr.start_date AND lr.end_date
+       LEFT JOIN holidays h ON h.date = ud.date
+       ORDER BY ud.date DESC`,
+      [id, startDateVal, endDateVal]
+    );
 
     // Fetch app settings to calculate penalty deductions
     const settingsRes = await pool.query('SELECT key, value FROM app_settings');
@@ -169,6 +197,9 @@ router.get('/:id', async (req, res) => {
         } else if (statusLower === 'half_day') {
           earnings = dailyWage;
           deduction = dailyWage * (halfDayPenaltyPercent / 100);
+        } else if (statusLower === 'leave' || statusLower === 'sunday' || statusLower === 'holiday') {
+          earnings = dailyWage;
+          deduction = 0;
         } else {
           earnings = dailyWage;
           if (att.is_late) {

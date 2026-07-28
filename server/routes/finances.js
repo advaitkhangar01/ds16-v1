@@ -433,7 +433,7 @@ router.get('/summary', authenticate, async (req, res) => {
         SELECT
           COALESCE(SUM(i.amount), 0)                                                        AS cumulative_billed,
           COALESCE(SUM(i.received_amount), 0)                                               AS cumulative_received,
-          COALESCE(SUM(CASE WHEN LOWER(i.status) != 'paid' THEN GREATEST(i.amount - i.received_amount, 0) ELSE 0 END), 0) AS pending
+          COALESCE(SUM(CASE WHEN LOWER(i.status) != 'paid' THEN GREATEST(i.amount - i.received_amount - COALESCE((i.tax_details->>'tdsAmount')::numeric, 0), 0) ELSE 0 END), 0) AS pending
         FROM invoices i
         JOIN projects p ON p.id = i.project_id
         WHERE LOWER(i.status) != 'cancelled'

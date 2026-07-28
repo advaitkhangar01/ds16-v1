@@ -117,7 +117,7 @@ function GpsStatusDot({ state }) {
 }
 
 // ─── AttendanceStatus ─────────────────────────────────────────────────────────
-function AttendanceStatus({ attendance, onAction }) {
+function AttendanceStatus({ attendance, todayStatus, onAction }) {
   const [loading,   setLoading ]  = useState(false);
   const [gpsState,  setGpsState]  = useState('idle'); // 'idle' | 'fetching' | 'ok' | 'error'
   const [lastZone,  setLastZone]  = useState(attendance?.checkinZone || null);
@@ -227,7 +227,12 @@ function AttendanceStatus({ attendance, onAction }) {
         <div>
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Attendance Status</p>
           <p className="text-xs font-bold uppercase tracking-tight">
-            {!hasIn ? 'Not Checked In' : hasOut ? 'Day Completed' : 'Shift Active'}
+            {!hasIn ? (
+              todayStatus === 'sunday' ? 'Sunday (Weekly Off)' :
+              todayStatus === 'holiday' ? 'Holiday' :
+              todayStatus === 'leave' ? 'On Approved Leave' :
+              'Not Checked In'
+            ) : hasOut ? 'Day Completed' : 'Shift Active'}
           </p>
           {/* Zone badge shown after check-in */}
           {hasIn && lastZone && (
@@ -887,6 +892,7 @@ export default function EmployeeDashboard() {
             <div className="flex-1 max-w-4xl">
               <AttendanceStatus 
                 attendance={data?.attendance} 
+                todayStatus={data?.today_status} 
                 onAction={fetchData} 
               />
             </div>

@@ -159,6 +159,8 @@ export default function InvoiceHistoryTab({ projectId, project }) {
           cgstPercent: invoice.tax_details?.cgstPercent ?? 9,
           sgstPercent: invoice.tax_details?.sgstPercent ?? 9,
           igstPercent: invoice.tax_details?.igstPercent ?? 18,
+          tdsPercent: invoice.tax_details?.tdsPercent ?? 10,
+          isTdsEnabled: invoice.tax_details?.isTdsEnabled ?? false,
         } 
       } 
     });

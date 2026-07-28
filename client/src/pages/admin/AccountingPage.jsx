@@ -173,6 +173,7 @@ export default function AccountingPage() {
     let totalPrincipal = 0;
     let totalGst = 0;
     let totalGrand = 0;
+    let totalTds = 0;
 
     filteredInvoicesList.forEach(inv => {
       const amount = parseFloat(inv.amount || 0);
@@ -184,6 +185,8 @@ export default function AccountingPage() {
 
       const taxDetails = inv.tax_details || {};
       const isGstEnabled = taxDetails.isGstEnabled !== false;
+      const tds = parseFloat(taxDetails.tdsAmount || 0);
+      totalTds += tds;
 
       if (!isGstEnabled) {
         totalPrincipal += amount;
@@ -213,7 +216,8 @@ export default function AccountingPage() {
     return {
       principal: totalPrincipal,
       gst: totalGst,
-      grand: totalGrand
+      grand: totalGrand,
+      tds: totalTds
     };
   }, [filteredInvoicesList]);
 
@@ -2045,6 +2049,7 @@ export default function AccountingPage() {
                     <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date / Due Date</th>
                     <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Principal</th>
                     <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">GST</th>
+                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">TDS</th>
                     <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Total Amount</th>
                     <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Received</th>
                     <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Pending</th>
@@ -2055,7 +2060,7 @@ export default function AccountingPage() {
                 <tbody className="divide-y divide-gray-100">
                   {loadingInvoices ? (
                     <tr>
-                      <td colSpan="12" className="px-2 py-12 text-center">
+                      <td colSpan="13" className="px-2 py-12 text-center">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <div className="w-8 h-8 border-2 border-[#E05A1E] border-t-transparent rounded-full animate-spin" />
                           <p className="text-gray-400 text-xs italic">Loading invoice history...</p>
@@ -2128,6 +2133,9 @@ export default function AccountingPage() {
                           </td>
                           <td className="px-2 py-2 text-right font-mono text-xs font-semibold text-gray-500 whitespace-nowrap">
                             ₹{gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-2 py-2 text-right font-mono text-xs font-semibold text-red-500 whitespace-nowrap">
+                            ₹{parseFloat(inv.tax_details?.tdsAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="px-2 py-2 text-right font-mono text-xs font-bold text-gray-900 whitespace-nowrap">
                             ₹{amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -2217,7 +2225,7 @@ export default function AccountingPage() {
                   })}
                   {!loadingInvoices && filteredInvoicesList.length === 0 && (
                     <tr>
-                      <td colSpan="12" className="px-2 py-12 text-center text-gray-400 italic text-sm">
+                      <td colSpan="13" className="px-2 py-12 text-center text-gray-400 italic text-sm">
                         {invoiceFilter === 'received' ? 'No received (fully paid) invoices found.' : 
                          invoiceFilter === 'pending' ? 'No pending invoices found.' : 
                          'No invoice history available. Use the Invoice Editor to create new invoices.'}
@@ -2238,6 +2246,9 @@ export default function AccountingPage() {
                       </td>
                       <td className="px-2 py-2 text-right font-mono text-xs font-bold text-gray-600">
                         ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-2 py-2 text-right font-mono text-xs font-bold text-red-600">
+                        ₹{invoiceTotalsBreakdown.tds.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="px-2 py-2 text-right font-mono text-xs font-bold text-[#E05A1E]">
                         ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

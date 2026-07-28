@@ -50,18 +50,18 @@ router.get('/attendance', authenticate, requireAccounting, async (req, res) => {
          ud.employee_name,
          ud.role,
          ud.department,
-         CASE
-           WHEN a.check_in IS NOT NULL THEN
-             CASE 
-               WHEN LOWER(a.status) = 'present' THEN 
-                 CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
-               ELSE LOWER(a.status)
-             END
-           WHEN lr.id IS NOT NULL THEN 'leave'
-           WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
-           WHEN h.date IS NOT NULL THEN 'holiday'
-           ELSE 'absent'
-         END AS status
+          CASE
+            WHEN a.id IS NOT NULL THEN
+              CASE 
+                WHEN LOWER(COALESCE(a.status, '')) = 'present' THEN 
+                  CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
+                ELSE LOWER(COALESCE(a.status, 'working'))
+              END
+            WHEN lr.id IS NOT NULL THEN 'leave'
+            WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
+            WHEN h.date IS NOT NULL THEN 'holiday'
+            ELSE 'absent'
+          END AS status
        FROM user_dates ud
        LEFT JOIN attendance a ON a.user_id = ud.user_id AND a.date = ud.date
        LEFT JOIN leave_requests lr ON lr.user_id = ud.user_id

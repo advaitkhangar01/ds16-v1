@@ -9,7 +9,8 @@ export default function RecordPaymentModal({ invoice, onClose, onSave }) {
 
   const totalAmount = parseFloat(invoice.amount || 0);
   const alreadyReceived = parseFloat(invoice.received_amount || 0);
-  const remainingBalance = Math.max(0, totalAmount - alreadyReceived);
+  const tdsAmount = parseFloat(invoice.tax_details?.tdsAmount || 0);
+  const remainingBalance = Math.max(0, totalAmount - alreadyReceived - tdsAmount);
 
   useEffect(() => {
     // Default to the full remaining balance
@@ -74,11 +75,17 @@ export default function RecordPaymentModal({ invoice, onClose, onSave }) {
 
           <hr className="border-[#F0F0F0]" />
 
-          <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+          <div className={`grid ${tdsAmount > 0 ? 'grid-cols-4' : 'grid-cols-3'} gap-2 pt-1 text-center`}>
             <div className="p-2 bg-white rounded-xl border border-gray-100">
               <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Total bill</p>
               <p className="text-xs font-black text-gray-800 mt-0.5">₹{totalAmount.toLocaleString('en-IN')}</p>
             </div>
+            {tdsAmount > 0 && (
+              <div className="p-2 bg-red-50/50 rounded-xl border border-red-100/50">
+                <p className="text-[9px] text-red-500 font-bold uppercase tracking-wider">TDS</p>
+                <p className="text-xs font-black text-red-600 mt-0.5">₹{tdsAmount.toLocaleString('en-IN')}</p>
+              </div>
+            )}
             <div className="p-2 bg-white rounded-xl border border-gray-100">
               <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Received</p>
               <p className="text-xs font-black text-emerald-600 mt-0.5">₹{alreadyReceived.toLocaleString('en-IN')}</p>

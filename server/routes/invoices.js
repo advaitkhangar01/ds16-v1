@@ -64,10 +64,11 @@ router.get('/', authenticate, async (req, res) => {
       const isCancelled = (inv.status || '').toLowerCase() === 'cancelled';
       const amt = parseFloat(inv.amount || 0);
       const received = parseFloat(inv.received_amount || 0);
+      const tds = parseFloat(inv.tax_details?.tdsAmount || 0);
       return {
         ...inv,
         received_amount: received,
-        pending_amount: isCancelled ? 0 : Math.max(0, amt - received),
+        pending_amount: isCancelled ? 0 : Math.max(0, amt - received - tds),
         is_payment_stage: false
       };
     });
@@ -305,9 +306,10 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
     }
 
     // Calculate received_amount
+    const tdsAmount = parseFloat(tax_details?.tdsAmount || 0);
     let parsedReceivedAmount = 0;
     if (resolvedStatus === 'paid') {
-      parsedReceivedAmount = parsedAmount;
+      parsedReceivedAmount = Math.max(0, parsedAmount - tdsAmount);
     } else if (received_amount !== undefined && received_amount !== null) {
       parsedReceivedAmount = parseFloat(received_amount);
       if (isNaN(parsedReceivedAmount) || parsedReceivedAmount < 0) {
@@ -359,7 +361,7 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
         [
           'income',
           'project_receipt',
-          parsedAmount,
+          Math.max(0, parsedAmount - tdsAmount),
           `Invoice ${invoice_no} - ${client_name}`,
           project_id,
           invoice_no,
@@ -457,6 +459,9 @@ router.patch('/:id/status', authenticate, requireAccounting, async (req, res) =>
     if (status) {
       updates.push(`status = $${idx++}`);
       params.push(status);
+      if (status === 'paid') {
+        updates.push(`received_amount = amount - COALESCE((tax_details->>'tdsAmount')::numeric, 0)`);
+      }
     }
     if (signature_data !== undefined) {
       updates.push(`signature_data = $${idx++}`);
@@ -623,7 +628,8 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, async (req, res) 
 
     const amount = parseFloat(invoice.amount || 0);
     const received = parseFloat(invoice.received_amount || 0);
-    const remainingAmount = Math.max(0, amount - received);
+    const tds = parseFloat(invoice.tax_details?.tdsAmount || 0);
+    const remainingAmount = Math.max(0, amount - received - tds);
 
     if (remainingAmount <= 0) {
       return res.status(400).json({ error: 'Invoice has no remaining balance to pay.' });
@@ -649,9 +655,9 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, async (req, res) 
       ]
     );
 
-    // Step 2: Mark invoice as paid and set received_amount to full amount
+    // Step 2: Mark invoice as paid and set received_amount to full amount - tds
     const { rows: updatedRows } = await client.query(
-      `UPDATE invoices SET status = 'paid', received_amount = amount WHERE id = $1 RETURNING *`,
+      `UPDATE invoices SET status = 'paid', received_amount = amount - COALESCE((tax_details->>'tdsAmount')::numeric, 0) WHERE id = $1 RETURNING *`,
       [id]
     );
 
@@ -724,7 +730,8 @@ router.post('/:id/record-payment', authenticate, requireAccounting, async (req, 
 
     const totalAmount = parseFloat(invoice.amount || 0);
     const alreadyReceived = parseFloat(invoice.received_amount || 0);
-    const remainingBalance = Math.max(0, totalAmount - alreadyReceived);
+    const tds = parseFloat(invoice.tax_details?.tdsAmount || 0);
+    const remainingBalance = Math.max(0, totalAmount - alreadyReceived - tds);
 
     if (paymentAmount > remainingBalance + 0.01) {
       return res.status(400).json({ 
@@ -754,9 +761,9 @@ router.post('/:id/record-payment', authenticate, requireAccounting, async (req, 
 
     // Step 2: Update received amount on invoice
     const newReceived = alreadyReceived + paymentAmount;
-    const isFullyPaid = Math.abs(totalAmount - newReceived) < 0.01 || newReceived >= totalAmount;
+    const isFullyPaid = Math.abs(totalAmount - (newReceived + tds)) < 0.01 || (newReceived + tds) >= totalAmount;
     const newStatus = isFullyPaid ? 'paid' : invoice.status;
-    const finalReceived = isFullyPaid ? totalAmount : newReceived;
+    const finalReceived = isFullyPaid ? (totalAmount - tds) : newReceived;
 
     const { rows: updatedRows } = await client.query(
       `UPDATE invoices SET status = $1, received_amount = $2 WHERE id = $3 RETURNING *`,
