@@ -13,7 +13,8 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
   const officeStartTimeStr = settings?.office_start_time || '09:30';
   const lateThresholdTimeStr = settings?.late_threshold_time;
   const lateThresholdMins = parseInt(settings?.late_threshold_mins || 15);
-  const halfDayThresholdHours = parseFloat(settings?.min_working_hours || settings?.half_day_threshold_hours || 4);
+  // Prefer half_day_threshold_hours; fall back to min_working_hours only if the former is absent
+  const halfDayThresholdHours = parseFloat(settings?.half_day_threshold_hours || settings?.min_working_hours || 4);
 
   let isLate = propIsLate;
   if (isLate === undefined && checkIn) {
@@ -37,8 +38,9 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
     }
   }
 
-  const hoursWorked = data_hours_worked || (checkIn && checkOut ? (new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60) : 0);
-  const isHalfDay = status === 'half_day' || (checkIn && checkOut && hoursWorked > 0 && hoursWorked < halfDayThresholdHours);
+  // Trust the server's status for half_day — don't recalculate from hours in the frontend,
+  // as that causes a collision with the late-arrival path (both use hoursWorked < threshold).
+  const isHalfDay = status === 'half_day';
 
   if (isHalfDay) {
     return <span className="badge bg-sky-50 text-sky-600 border-sky-200 font-bold">◑ Half Day</span>;

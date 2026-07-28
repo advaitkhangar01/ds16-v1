@@ -584,7 +584,7 @@ router.get('/all', authenticate, async (req, res) => {
 
     const { page = 1, limit, from, to } = req.query;
     const parsedLimit = limit ? parseInt(limit) : 5000;
-    const offset = (page - 1) * parsedLimit;
+    const parsedOffset = (page - 1) * parsedLimit;
 
     const today = getISTDate();
     const [year, month] = today.split('-').map(Number);
