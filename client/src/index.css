@@ -32,19 +32,20 @@
 
   /* Premium Scrollbar */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
   ::-webkit-scrollbar-track {
-    background: #F1F3F6;
+    background: #E8EBF0;
+    border-radius: 9999px;
   }
   ::-webkit-scrollbar-thumb {
-    background: #D4D8E0;
+    background: #9AA3B0;
     border-radius: 9999px;
-    border: 1px solid #F1F3F6;
+    border: 2px solid #E8EBF0;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #BCC2CE;
+    background: #6B7585;
   }
 }
 

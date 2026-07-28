@@ -834,7 +834,7 @@ export default function AccountingPage() {
 
   return (
     <AppLayout>
-      <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div className="p-6 max-w-screen-2xl mx-auto space-y-6">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold text-gray-900">Accounting Control</h1>
           <div className="flex bg-gray-100 p-1 rounded-lg no-print">
@@ -2038,23 +2038,23 @@ export default function AccountingPage() {
               </div>
             )}
             
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+            <div className="overflow-x-auto" style={{ scrollbarWidth: 'auto', scrollbarColor: '#9AA3B0 #E8EBF0' }}>
+              <table className="w-full text-left border-collapse" style={{ minWidth: '900px' }}>
                 <thead>
                   <tr className="bg-gray-50/30">
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">S.No.</th>
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Invoice No</th>
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Client</th>
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Project</th>
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date / Due Date</th>
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Principal</th>
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">GST</th>
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">TDS</th>
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Total Amount</th>
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Received</th>
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Pending</th>
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Status</th>
-                    <th className="px-2 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest w-10">S.No.</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Invoice No</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Client</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Project</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date / Due Date</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Principal</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">GST</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">TDS</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Total Amount</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Received</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Pending</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Status</th>
+                    <th className="px-3 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -2102,18 +2102,18 @@ export default function AccountingPage() {
 
                       return (
                         <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
-                          <td className="px-2 py-2 text-xs font-semibold text-gray-500">
+                          <td className="px-3 py-3 text-xs font-semibold text-gray-500">
                             {index + 1}
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="px-3 py-3">
                             <span className="font-mono font-bold text-xs text-[#E05A1E]">
                               {inv.invoice_no}
                             </span>
                           </td>
-                          <td className="px-2 py-2 text-xs font-semibold text-gray-700">
+                          <td className="px-3 py-3 text-xs font-semibold text-gray-700">
                             {inv.client_name_full || inv.client_name || '-'}
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="px-3 py-3">
                             {inv.project_name ? (
                               <span className="px-1.5 py-0.5 bg-gray-100 text-gray-700 text-[9px] font-black uppercase tracking-wider rounded">
                                  {inv.project_name}
@@ -2122,36 +2122,36 @@ export default function AccountingPage() {
                               <span className="text-gray-400 text-xs italic">No Project</span>
                             )}
                           </td>
-                          <td className="px-2 py-2 text-xs text-gray-500 whitespace-nowrap">
+                          <td className="px-3 py-3 text-xs text-gray-500 whitespace-nowrap">
                             <div className="flex flex-col gap-0.5">
                               <span>{inv.is_payment_stage ? 'Initiated' : 'Issued'}: {new Date(inv.date).toLocaleDateString()}</span>
                               {!inv.is_payment_stage && inv.due_date && <span className="text-[10px] text-gray-400">Due: {new Date(inv.due_date).toLocaleDateString()}</span>}
                             </div>
                           </td>
-                          <td className="px-2 py-2 text-right font-mono text-xs font-semibold text-gray-600 whitespace-nowrap">
+                          <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-gray-600 whitespace-nowrap">
                             ₹{principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono text-xs font-semibold text-gray-500 whitespace-nowrap">
+                          <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-gray-500 whitespace-nowrap">
                             ₹{gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono text-xs font-semibold text-red-500 whitespace-nowrap">
+                          <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-red-500 whitespace-nowrap">
                             ₹{parseFloat(inv.tax_details?.tdsAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono text-xs font-bold text-gray-900 whitespace-nowrap">
+                          <td className="px-3 py-3 text-right font-mono text-xs font-bold text-gray-900 whitespace-nowrap">
                             ₹{amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono text-xs font-bold text-emerald-600 whitespace-nowrap">
+                          <td className="px-3 py-3 text-right font-mono text-xs font-bold text-emerald-600 whitespace-nowrap">
                             ₹{parseFloat(inv.received_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono text-xs font-bold text-orange-600 whitespace-nowrap">
+                          <td className="px-3 py-3 text-right font-mono text-xs font-bold text-orange-600 whitespace-nowrap">
                             ₹{parseFloat(inv.pending_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           </td>
-                        <td className="px-2 py-2 text-center whitespace-nowrap">
+                        <td className="px-3 py-3 text-center whitespace-nowrap">
                           <span className={`inline-block px-1.5 py-0.5 border rounded-full text-[9px] font-bold uppercase tracking-wider ${statusColor}`}>
                             {inv.is_payment_stage ? 'Payment Stage' : inv.status}
                           </span>
                         </td>
-                        <td className="px-2 py-2">
+                        <td className="px-3 py-3">
                           <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                             {inv.is_payment_stage ? (
                               ['bill generated', 'bill delivered', 'paid'].includes(inv.stage_status?.toLowerCase()) ? (
@@ -2236,27 +2236,27 @@ export default function AccountingPage() {
                 {filteredInvoicesList.length > 0 && (
                   <tfoot className="bg-gray-50/85 font-bold border-t-2 border-gray-200">
                     <tr className="border-b border-gray-100/50">
-                      <td className="px-2 py-2 text-xs font-bold text-gray-500 uppercase" colSpan={5}>
+                      <td className="px-3 py-3 text-xs font-bold text-gray-500 uppercase" colSpan={5}>
                         <div className="flex items-center gap-4">
                           <span>Total of {filteredInvoicesList.length} {filteredInvoicesList.length === 1 ? 'Invoice' : 'Invoices'}</span>
                         </div>
                       </td>
-                      <td className="px-2 py-2 text-right font-mono text-xs font-bold text-gray-700">
+                      <td className="px-3 py-3 text-right font-mono text-xs font-bold text-gray-700">
                         ₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-2 py-2 text-right font-mono text-xs font-bold text-gray-600">
+                      <td className="px-3 py-3 text-right font-mono text-xs font-bold text-gray-600">
                         ₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-2 py-2 text-right font-mono text-xs font-bold text-red-600">
+                      <td className="px-3 py-3 text-right font-mono text-xs font-bold text-red-600">
                         ₹{invoiceTotalsBreakdown.tds.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-2 py-2 text-right font-mono text-xs font-bold text-[#E05A1E]">
+                      <td className="px-3 py-3 text-right font-mono text-xs font-bold text-[#E05A1E]">
                         ₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-2 py-2 text-right font-mono text-xs font-bold text-emerald-600">
+                      <td className="px-3 py-3 text-right font-mono text-xs font-bold text-emerald-600">
                         ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-2 py-2 text-right font-mono text-xs font-bold text-orange-600">
+                      <td className="px-3 py-3 text-right font-mono text-xs font-bold text-orange-600">
                         ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td colSpan={2}></td>
