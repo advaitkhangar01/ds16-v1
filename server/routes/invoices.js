@@ -2,6 +2,7 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
+const { getISTDate } = require('../utils/date');
 
 // GET /api/invoices - List all invoices
 router.get('/', authenticate, async (req, res) => {
@@ -341,7 +342,8 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
       client_name, 
       client_company || null, 
       parsedAmount, 
-      date || new Date(), 
+      // E3: use IST date string when no date provided (avoids UTC day-shift on VPS)
+      date || getISTDate(), 
       JSON.stringify(items), 
       JSON.stringify(tax_details || {}), 
       resolvedStatus,
@@ -724,6 +726,7 @@ router.post('/:id/record-payment', authenticate, requireAccounting, async (req, 
       return res.status(400).json({ error: 'Invoice is already fully paid' });
     }
 
+    // E4: Same guard as mark-paid — partial payments also insert into transactions which require project_id
     if (!invoice.project_id) {
       return res.status(400).json({ error: 'Invoice has no linked project. Cannot record income.' });
     }

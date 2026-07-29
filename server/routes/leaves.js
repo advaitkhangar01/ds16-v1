@@ -41,12 +41,23 @@ router.post('/', authenticate, async (req, res) => {
     const { start_date, end_date, type, reason, amount } = req.body;
     const userId = req.user.id;
 
-    if (!start_date || !type) {
+    // I1: Validate that start_date is a real, parseable date
+    if (!start_date || isNaN(new Date(start_date).getTime())) {
+      return res.status(400).json({ error: 'A valid start_date is required (YYYY-MM-DD)' });
+    }
+
+    if (!type) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     // Set end_date same as start_date for single-day items if missing
     let finalEndDate = end_date || start_date;
+
+    // I2: Ensure end_date is not before start_date
+    if (new Date(finalEndDate) < new Date(start_date)) {
+      return res.status(400).json({ error: 'End date cannot be before start date' });
+    }
+
     let finalAmount = 0;
 
     // Enforce amount for advance requests

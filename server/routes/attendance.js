@@ -187,8 +187,30 @@ router.post('/checkin', authenticate, async (req, res) => {
 
     if (userBatch.office_start_time) {
       officeStartTime = userBatch.office_start_time.substring(0, 5);
-      lateThresholdTime = userBatch.late_threshold_time.substring(0, 5);
-      halfDayCutoff = userBatch.half_day_cutoff_time.substring(0, 5);
+      // C1: guard against null late_threshold_time on the batch row
+      if (userBatch.late_threshold_time) {
+        lateThresholdTime = userBatch.late_threshold_time.substring(0, 5);
+      } else {
+        // Compute from batch office_start_time + settings late_threshold_mins
+        try {
+          const [startH, startM] = officeStartTime.split(':').map(Number);
+          const mins = parseInt(settings.late_threshold_mins || 15);
+          if (!isNaN(startH) && !isNaN(startM)) {
+            const totalMins = startH * 60 + startM + mins;
+            const h = Math.floor(totalMins / 60) % 24;
+            const m = totalMins % 60;
+            lateThresholdTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+          } else {
+            lateThresholdTime = lateThresholdTime || '10:15';
+          }
+        } catch (_) {
+          lateThresholdTime = lateThresholdTime || '10:15';
+        }
+      }
+      // C2: guard against null half_day_cutoff_time on the batch row
+      halfDayCutoff = userBatch.half_day_cutoff_time
+        ? userBatch.half_day_cutoff_time.substring(0, 5)
+        : halfDayCutoff;
     } else {
       if (!lateThresholdTime) {
         try {
@@ -697,7 +719,8 @@ router.post('/manual', authenticate, requireAdmin, async (req, res) => {
 
     let hours_worked = 0;
     if (check_in && check_out) {
-      hours_worked = (new Date(check_out) - new Date(check_in)) / (1000 * 60 * 60);
+      // C4: guard against negative hours when check_out < check_in
+      hours_worked = Math.max(0, (new Date(check_out) - new Date(check_in)) / (1000 * 60 * 60));
     }
 
     let row;
@@ -731,14 +754,15 @@ router.post('/manual', authenticate, requireAdmin, async (req, res) => {
 // ─── GET /api/attendance/attempts — Admin view failed attempts ────────────────
 router.get('/attempts', authenticate, requireAdmin, async (req, res) => {
   try {
-    const { limit = 50 } = req.query;
+    // C5: cap limit to prevent excessive DB reads
+    const parsedLimit = Math.min(Math.max(1, parseInt(req.query.limit) || 50), 500);
     const { rows } = await pool.query(
       `SELECT aa.*, u.name as user_name
        FROM attendance_attempts aa
        LEFT JOIN users u ON u.id = aa.user_id
        ORDER BY aa.attempted_at DESC
        LIMIT $1`,
-      [parseInt(limit)]
+      [parsedLimit]
     );
     res.json({ attempts: rows });
   } catch (err) {

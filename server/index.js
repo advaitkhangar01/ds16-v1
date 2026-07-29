@@ -9,6 +9,7 @@ if (process.env.NODE_ENV === 'test') {
   dotenv.config({ path: dotenvPath, override: true });
 }
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -63,6 +64,17 @@ app.use(
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Rate limiting — login endpoint only (brute-force protection)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,                   // max 10 attempts per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again after 15 minutes.' },
+  skip: () => process.env.NODE_ENV === 'test', // skip in tests
+});
+app.use('/api/auth/login', loginLimiter);
 
 // Request logging (combined in prod, dev in dev)
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));

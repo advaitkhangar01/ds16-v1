@@ -230,9 +230,24 @@ router.get('/app', async (req, res) => {
 });
 
 router.post('/app', requireAdmin, async (req, res) => {
+  // K2: Only allow known settings keys to be written
+  const ALLOWED_SETTINGS_KEYS = new Set([
+    'office_start_time', 'late_threshold_time', 'half_day_cutoff_time',
+    'late_threshold_mins', 'min_working_hours',
+    'geofence_enabled', 'office_lat', 'office_lng',
+    'geofence_strict_radius', 'geofence_buffer_radius', 'geofence_max_accuracy',
+    'late_penalty_amount', 'half_day_penalty_percent',
+    'company_name', 'company_address', 'company_phone', 'company_email',
+    'company_gst', 'company_website', 'company_logo',
+    'overtime_threshold_hour',
+  ]);
+
   try {
     const settings = req.body; // { key: value, ... }
     for (const [key, value] of Object.entries(settings)) {
+      if (!ALLOWED_SETTINGS_KEYS.has(key)) {
+        return res.status(400).json({ error: `Unknown setting key: "${key}". Contact a developer to add new setting keys.` });
+      }
       await pool.query(
         'INSERT INTO app_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value',
         [key, String(value)]
@@ -244,6 +259,7 @@ router.post('/app', requireAdmin, async (req, res) => {
     res.status(500).json({ error: 'Failed to update settings' });
   }
 });
+
 
 // ─── Admin: Holidays ─────────────────────────────────────────────────────────
 

@@ -86,6 +86,7 @@ router.get('/', authenticate, async (req, res) => {
         ORDER BY p.created_at DESC`;
       params = [];
     } else if (isAccounts) {
+      // D1: Removed dead ($1::int IS NOT NULL OR true) condition that always evaluated to TRUE
       query = `
         SELECT p.*, 
           u.name as created_by_name,
@@ -97,9 +98,9 @@ router.get('/', authenticate, async (req, res) => {
         FROM projects p
         LEFT JOIN users u ON u.id = p.created_by
         LEFT JOIN clients c ON c.id = p.client_id
-        WHERE p.status IN ('Sanction', 'Under Sanctioning') AND ($1::int IS NOT NULL OR true)
+        WHERE p.status IN ('Sanction', 'Under Sanctioning')
         ORDER BY p.created_at DESC`;
-      params = [req.user.id];
+      params = [];
     } else {
       query = `
         SELECT p.*, 
@@ -122,11 +123,12 @@ router.get('/', authenticate, async (req, res) => {
       const pageInt = parseInt(page) || 1;
       const limitInt = parseInt(limit);
       const offset = (pageInt - 1) * limitInt;
-      if (isGlobal) {
-        query += ` LIMIT $1 OFFSET $2`;
+      if (isGlobal || isAccounts) {
+        // D1: accounts now starts with empty params like isGlobal, use $1/$2
+        query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
         params.push(limitInt, offset);
       } else {
-        query += ` LIMIT $2 OFFSET $3`;
+        query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
         params.push(limitInt, offset);
       }
     }
@@ -191,7 +193,16 @@ router.get('/:id', authenticate, checkProjectAccess(), async (req, res) => {
 });
 
 // PATCH /api/projects/:id (update project details)
+// D3: Restricted to admin, design_head, and project_head roles
 router.patch('/:id', authenticate, async (req, res) => {
+  // Role check — employees and accounts staff cannot modify project details
+  const canEdit = req.user.role === 'admin'
+    || req.user.role === 'design_head'
+    || req.user.role === 'project_head';
+  if (!canEdit) {
+    return res.status(403).json({ error: 'Admin, Design Head, or Project Head access required to modify projects' });
+  }
+
   const db_client = await pool.connect();
   try {
     const { status, area_sq_ft, structural_engineer, type, location, name, client_id } = req.body;

@@ -211,6 +211,11 @@ router.patch('/:id', authenticate, async (req, res) => {
 
   const hasAccountingAccess = req.user.role === 'admin' || req.user.role === 'accounts' || req.user.role === 'back_office' || req.user.department?.toLowerCase() === 'accounts';
 
+  // G2: Only admin/accounting roles may edit client records
+  if (!hasAccountingAccess) {
+    return res.status(403).json({ error: 'Admin or Accounting access required to modify client records' });
+  }
+
   const client_db = await pool.connect();
   try {
     await client_db.query('BEGIN');

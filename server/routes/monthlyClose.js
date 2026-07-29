@@ -240,12 +240,19 @@ router.get('/preview', requireAccounting, async (req, res) => {
     const categoriesToLock = catRes.rows.filter(r => !r.is_verified).length;
     const alreadyLocked = catRes.rows.filter(r => r.is_verified).length;
 
-    // 4. Leave request calculations
-    let totalLeaveDays = 0;
-    for (const emp of empRes.rows) {
-      const leaves = await calculateLeavesTaken(emp.id, month, year);
-      totalLeaveDays += leaves;
-    }
+    // 4. J2: Replace per-employee N+1 loop with a single bulk SQL aggregation
+    const monthStartLv = `${year}-${String(month).padStart(2, '0')}-01`;
+    const monthEndLv   = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
+    const { rows: leaveAggRows } = await pool.query(
+      `SELECT COALESCE(SUM(
+         LEAST(end_date::date, $2::date) - GREATEST(start_date::date, $1::date) + 1
+       ), 0) AS total_days
+       FROM leave_requests
+       WHERE status = 'approved'
+         AND NOT (end_date < $1 OR start_date > $2)`,
+      [monthStartLv, monthEndLv]
+    );
+    const totalLeaveDays = parseFloat(leaveAggRows[0]?.total_days || 0);
 
     // 5. Aggregate financial data
     const financials = await generateSnapshot(month, year);
@@ -600,7 +607,12 @@ router.post('/relock', requireAdmin, async (req, res) => {
  */
 router.delete('/:month/:year', requireAdmin, async (req, res) => {
   const month = parseInt(req.params.month);
-  const year = parseInt(req.params.year);
+  const year  = parseInt(req.params.year);
+
+  // J3: Validate params to avoid confusing DB errors on bad input
+  if (isNaN(month) || isNaN(year) || month < 1 || month > 12 || year < 2020) {
+    return res.status(400).json({ error: 'Valid month (1-12) and year (≥2020) are required' });
+  }
 
   const client = await pool.connect();
   try {

@@ -450,7 +450,7 @@ export default function StaffDetailPage() {
                   </div>
                   <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Late Arrivals</p>
-                    <span className="text-xl font-black text-red-500 font-mono">{attendanceStats.total_late} times</span>
+                    <span className="text-xl font-black text-red-500 font-mono">{attendanceStats.this_month_late} times</span>
                   </div>
                 </div>
 

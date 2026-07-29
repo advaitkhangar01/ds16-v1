@@ -56,13 +56,23 @@ router.get('/expenses', async (req, res) => {
 // Add new expense with receipt
 router.post('/expenses', upload.single('receipt'), checkPeriodLock, async (req, res) => {
   const { category, amount, date, description } = req.body;
+
+  // L1: Validate required fields before INSERT
+  if (!category || !String(category).trim()) {
+    return res.status(400).json({ error: 'Category is required' });
+  }
+  const parsedAmount = parseFloat(amount);
+  if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    return res.status(400).json({ error: 'Amount must be a positive number' });
+  }
+
   const receipt_url = req.file ? `/uploads/expenses/${req.file.filename}` : null;
   const unlockId = req.period_unlock_id || null;
   
   try {
     const { rows } = await pool.query(
       'INSERT INTO office_expenses (category, amount, date, description, receipt_url, period_unlock_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [category, amount, date || new Date(), description, receipt_url, unlockId]
+      [category.trim(), parsedAmount, date || new Date(), description, receipt_url, unlockId]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -73,7 +83,11 @@ router.post('/expenses', upload.single('receipt'), checkPeriodLock, async (req, 
 // Delete expense
 router.delete('/expenses/:id', requireAdmin, async (req, res) => {
   try {
-    await pool.query('DELETE FROM office_expenses WHERE id = $1', [req.params.id]);
+    // L2: return 404 if expense doesn't exist
+    const { rowCount } = await pool.query('DELETE FROM office_expenses WHERE id = $1', [req.params.id]);
+    if (rowCount === 0) {
+      return res.status(404).json({ error: 'Expense not found' });
+    }
     res.json({ message: 'Expense deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -164,6 +178,21 @@ router.get('/payroll/employees', async (req, res) => {
 // Update employee base salary or hourly rate (accounting or admin)
 router.put('/payroll/employees/:id', async (req, res) => {
   const { base_salary, hourly_rate } = req.body;
+
+  // L3: Validate that salary fields are non-negative numbers before saving
+  if (base_salary !== undefined && base_salary !== null) {
+    const v = parseFloat(base_salary);
+    if (isNaN(v) || v < 0) {
+      return res.status(400).json({ error: 'base_salary must be a non-negative number' });
+    }
+  }
+  if (hourly_rate !== undefined && hourly_rate !== null) {
+    const v = parseFloat(hourly_rate);
+    if (isNaN(v) || v < 0) {
+      return res.status(400).json({ error: 'hourly_rate must be a non-negative number' });
+    }
+  }
+
   try {
     const { rows } = await pool.query(
       "UPDATE users SET base_salary = COALESCE($1, base_salary), hourly_rate = COALESCE($2, hourly_rate) WHERE id = $3 AND role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head') RETURNING id, name, base_salary, hourly_rate",

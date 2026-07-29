@@ -5,6 +5,14 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
+// Helper: check if user has accounting/admin role
+function hasVendorWriteAccess(user) {
+  return user.role === 'admin'
+    || user.role === 'accounts'
+    || user.role === 'back_office'
+    || user.department?.toLowerCase() === 'accounts';
+}
+
 // GET /api/vendors - Get all vendors grouped by category
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -24,8 +32,28 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
+// M1 FIX: GET /api/vendors/categories must be declared BEFORE GET /:id
+// otherwise Express matches "categories" as the :id param value
+// GET /api/vendors/categories - Get distinct categories
+router.get('/categories', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT DISTINCT category FROM vendors ORDER BY category'
+    );
+    res.json({ categories: rows.map((r) => r.category) });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // POST /api/vendors - Create a new vendor
+// M2: Restricted to admin and accounting roles
 router.post('/', authenticate, async (req, res) => {
+  // M2: Only admin/accounting may create vendors
+  if (!hasVendorWriteAccess(req.user)) {
+    return res.status(403).json({ error: 'Admin or Accounting access required to create vendors' });
+  }
+
   const { name, category, phone, email, remarks } = req.body;
   if (!name || !category) {
     return res.status(400).json({ error: 'Name and category are required' });
@@ -46,7 +74,13 @@ router.post('/', authenticate, async (req, res) => {
 });
 
 // PATCH /api/vendors/:id - Update a vendor
+// M2: Restricted to admin and accounting roles
 router.patch('/:id', authenticate, async (req, res) => {
+  // M2: Only admin/accounting may edit vendors
+  if (!hasVendorWriteAccess(req.user)) {
+    return res.status(403).json({ error: 'Admin or Accounting access required to update vendors' });
+  }
+
   const { id } = req.params;
   const { name, category, phone, email, remarks } = req.body;
 
@@ -80,18 +114,6 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
     res.json({ message: 'Vendor deleted successfully' });
   } catch (err) {
     console.error('Vendors DELETE error:', err);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// GET /api/vendors/categories - Get distinct categories
-router.get('/categories', authenticate, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      'SELECT DISTINCT category FROM vendors ORDER BY category'
-    );
-    res.json({ categories: rows.map((r) => r.category) });
-  } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });

@@ -118,6 +118,16 @@ router.get('/:id', async (req, res) => {
       [id, thisMonthStart, thisMonthEnd]
     );
 
+    // This-month late arrivals count (always current calendar month, IST)
+    const { rows: thisMonthLateStats } = await pool.query(
+      `SELECT COUNT(*) as this_month_late
+       FROM attendance
+       WHERE user_id = $1
+         AND date >= $2 AND date <= $3
+         AND is_late = true`,
+      [id, thisMonthStart, thisMonthEnd]
+    );
+
     const todayStrVal = getISTDate();
     const [yearVal, monthVal] = todayStrVal.split('-').map(Number);
     const defaultStart = `${yearVal}-${String(monthVal).padStart(2, '0')}-01`;
@@ -285,7 +295,8 @@ router.get('/:id', async (req, res) => {
         total_late: parseInt(attStats[0]?.total_late || 0),
         avg_hours: parseFloat(attStats[0]?.avg_hours || 0).toFixed(1),
         all_time_checkins: parseInt(allTimeStats[0]?.all_time_checkins || 0),
-        this_month_checkins: parseInt(thisMonthStats[0]?.this_month_checkins || 0)
+        this_month_checkins: parseInt(thisMonthStats[0]?.this_month_checkins || 0),
+        this_month_late: parseInt(thisMonthLateStats[0]?.this_month_late || 0)
       },
       attendance: processedAttendance,
       leaveStats: {

@@ -710,7 +710,11 @@ router.get('/charts', authenticate, async (req, res) => {
 // DELETE /api/finances/transactions/:id
 router.delete('/transactions/:id', authenticate, requireAdmin, checkPeriodLock, async (req, res) => {
   try {
-    await pool.query('DELETE FROM transactions WHERE id = $1', [req.params.id]);
+    // F3: return 404 if the transaction does not exist
+    const { rowCount } = await pool.query('DELETE FROM transactions WHERE id = $1', [req.params.id]);
+    if (rowCount === 0) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
     res.json({ message: 'Transaction deleted' });
   } catch (err) {
     console.error('Delete transaction error:', err);
