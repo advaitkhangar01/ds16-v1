@@ -233,7 +233,7 @@ router.get('/preview', requireAccounting, async (req, res) => {
        )
        SELECT ac.category, COALESCE(ea.is_verified, FALSE) as is_verified
        FROM active_categories ac
-       LEFT JOIN expense_audits ea ON ea.category = ac.category AND ea.month = $3 AND ea.year = $4`,
+       LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(ac.category) AND ea.month = $3 AND ea.year = $4`,
       [monthStart, monthEnd, month, year]
     );
 
@@ -382,7 +382,7 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
     for (const catRow of categoryRes.rows) {
       await client.query(
         `INSERT INTO expense_audits (category, month, year, is_verified, verified_by, verified_at)
-         VALUES ($1, $2, $3, TRUE, $4, NOW())
+         VALUES (LOWER($1), $2, $3, TRUE, $4, NOW())
          ON CONFLICT (category, month, year) 
          DO UPDATE SET is_verified = TRUE, verified_by = EXCLUDED.verified_by, verified_at = NOW()`,
         [catRow.category, month, year, closedByUserId]

@@ -103,7 +103,7 @@ router.get('/expenses/audits', async (req, res) => {
   const { month, year } = req.query;
   try {
     const { rows } = await pool.query(
-      'SELECT category, is_verified FROM expense_audits WHERE month = $1 AND year = $2',
+      'SELECT LOWER(category) as category, is_verified FROM expense_audits WHERE month = $1 AND year = $2',
       [month, year]
     );
     // Return as a simple object { categoryName: is_verified }
@@ -123,7 +123,7 @@ router.post('/expenses/audits', requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO expense_audits (category, month, year, is_verified, verified_by)
-       VALUES ($1, $2, $3, $4, $5)
+       VALUES (LOWER($1), $2, $3, $4, $5)
        ON CONFLICT (category, month, year) 
        DO UPDATE SET is_verified = EXCLUDED.is_verified, verified_at = NOW()
        RETURNING *`,
