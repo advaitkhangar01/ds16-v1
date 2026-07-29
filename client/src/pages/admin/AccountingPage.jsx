@@ -327,7 +327,7 @@ export default function AccountingPage() {
 
   const grandTotal = useMemo(() => {
     return Object.entries(categoryTotals).reduce((sum, [cat, total]) => {
-      if (auditedCategories[cat]) {
+      if (auditedCategories[cat.toLowerCase()]) {
         return sum + total;
       }
       return sum;
@@ -429,15 +429,20 @@ export default function AccountingPage() {
     try {
       // For auditing, we use the selectedMonth/Year from the payroll filter or current date if not set
       const { data } = await api.get(`/accounting/expenses/audits?month=${selectedMonth}&year=${selectedYear}`);
-      setAuditedCategories(data);
+      const normalizedData = {};
+      Object.entries(data).forEach(([key, val]) => {
+        normalizedData[key.toLowerCase()] = val;
+      });
+      setAuditedCategories(normalizedData);
     } catch (err) {
       console.error('Failed to load audits');
     }
   };
 
   const toggleAudit = async (category) => {
-    const newVal = !auditedCategories[category];
-    setAuditedCategories(prev => ({ ...prev, [category]: newVal }));
+    const catLower = category.toLowerCase();
+    const newVal = !auditedCategories[catLower];
+    setAuditedCategories(prev => ({ ...prev, [catLower]: newVal }));
     
     try {
       await api.post('/accounting/expenses/audits', {
@@ -449,7 +454,7 @@ export default function AccountingPage() {
     } catch (err) {
       toast.error('Failed to save audit status');
       // Revert local state
-      setAuditedCategories(prev => ({ ...prev, [category]: !newVal }));
+      setAuditedCategories(prev => ({ ...prev, [catLower]: !newVal }));
     }
   };
 
@@ -1381,10 +1386,10 @@ export default function AccountingPage() {
                             </div>
                           </td>
                           <td className="py-3 px-4 align-top text-right text-xs font-mono text-slate-800 font-black">
-                            <span className={auditedCategories[cat] ? "text-slate-800" : "text-gray-400 line-through decoration-red-400/50 mr-1"}>
+                            <span className={auditedCategories[cat.toLowerCase()] ? "text-slate-800" : "text-gray-400 line-through decoration-red-400/50 mr-1"}>
                               ₹ {total.toLocaleString('en-IN')}
                             </span>
-                            {!auditedCategories[cat] && total > 0 && (
+                            {!auditedCategories[cat.toLowerCase()] && total > 0 && (
                               <span className="text-[9px] font-bold text-amber-500 block mt-0.5 no-print">Pending Audit</span>
                             )}
                           </td>
@@ -1392,12 +1397,12 @@ export default function AccountingPage() {
                             <div className="flex flex-col items-center justify-center gap-1 mt-0.5">
                               <input 
                                 type="checkbox" 
-                                checked={!!auditedCategories[cat]} 
+                                checked={!!auditedCategories[cat.toLowerCase()]} 
                                 onChange={() => toggleAudit(cat)} 
                                 disabled={!isAdmin}
                                 className={`w-4 h-4 rounded border-gray-300 text-[#E05A1E] focus:ring-[#E05A1E] ${!isAdmin ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`} 
                               />
-                              {auditedCategories[cat] && (
+                              {auditedCategories[cat.toLowerCase()] && (
                                 <CheckCircle2 size={12} className="text-emerald-500 animate-in zoom-in duration-200" />
                               )}
                             </div>
