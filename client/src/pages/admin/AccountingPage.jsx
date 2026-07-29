@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import jsPDF from 'jspdf';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import AppLayout from '../../components/layout/AppLayout';
@@ -13,7 +14,7 @@ import {
   TrendingUp, TrendingDown, IndianRupee, Briefcase, 
   Download, Calendar, Filter, ArrowUpRight, ArrowDownRight,
   Activity, Receipt, Trash2, FileText, CheckCircle2, Plus, X, Lock,
-  LayoutList, LayoutDashboard, CreditCard, Clock, Search
+  LayoutList, LayoutDashboard, CreditCard, Clock, Search, Printer
 } from 'lucide-react';
 import FinancialBreakdownModal from '../../components/dashboard/FinancialBreakdownModal';
 import RecordPaymentModal from '../../components/projects/RecordPaymentModal';
@@ -156,6 +157,9 @@ export default function AccountingPage() {
   const [unbilledStages, setUnbilledStages] = useState([]);
   const unbilledTotal = unbilledStages.reduce((sum, st) => sum + parseFloat(st.amount || 0), 0);
   const [invoiceFilter, setInvoiceFilter] = useState('all'); // 'all', 'received', 'pending'
+  const [invoiceSearchQuery, setInvoiceSearchQuery] = useState('');
+  const [isExportingInvoicesPdf, setIsExportingInvoicesPdf] = useState(false);
+  const [showInvoiceReportModal, setShowInvoiceReportModal] = useState(false);
   const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
@@ -166,8 +170,16 @@ export default function AccountingPage() {
     } else if (invoiceFilter === 'pending') {
       list = invoices.filter(inv => inv.status !== 'paid' && inv.status !== 'cancelled' && parseFloat(inv.pending_amount || 0) > 0);
     }
+    if (invoiceSearchQuery.trim()) {
+      const q = invoiceSearchQuery.toLowerCase();
+      list = list.filter(inv =>
+        (inv.invoice_no || '').toLowerCase().includes(q) ||
+        (inv.client_name_full || inv.client_name || '').toLowerCase().includes(q) ||
+        (inv.project_name || '').toLowerCase().includes(q)
+      );
+    }
     return list;
-  }, [invoices, invoiceFilter]);
+  }, [invoices, invoiceFilter, invoiceSearchQuery]);
 
   const invoiceTotalsBreakdown = useMemo(() => {
     let totalPrincipal = 0;
@@ -220,6 +232,269 @@ export default function AccountingPage() {
       tds: totalTds
     };
   }, [filteredInvoicesList]);
+
+  const handleExportInvoicesPDF = () => {
+    if (filteredInvoicesList.length === 0) {
+      toast.error('No invoice data available to export');
+      return;
+    }
+
+    setIsExportingInvoicesPdf(true);
+    try {
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 12;
+
+      // 1. Header Banner
+      doc.setFillColor(30, 41, 59);
+      doc.rect(0, 0, pageWidth, 18, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(255, 255, 255);
+      doc.text('DESIGN STUDIO SIXTEEN', margin, 11);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(224, 90, 30);
+      doc.text('INVOICES ACCOUNTING & AUDIT REPORT', margin + 70, 11);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(203, 213, 225);
+      const generatedDateStr = new Date().toLocaleString('en-IN', {
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+      doc.text(`Generated: ${generatedDateStr}`, pageWidth - margin, 8, { align: 'right' });
+      doc.text(`Filter: ${invoiceFilter.toUpperCase()} (${filteredInvoicesList.length} Records)`, pageWidth - margin, 13, { align: 'right' });
+
+      // 2. Executive Financial Summary Box
+      const summaryY = 22;
+      const summaryHeight = 15;
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(margin, summaryY, pageWidth - (margin * 2), summaryHeight, 2, 2, 'FD');
+
+      const colWidth = (pageWidth - (margin * 2)) / 4;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('TOTAL PRINCIPAL', margin + 6, summaryY + 5);
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Rs. ${invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, margin + 6, summaryY + 11);
+
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('TOTAL TAXES (GST / TDS)', margin + colWidth + 6, summaryY + 5);
+      doc.setFontSize(9.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text(`GST: Rs. ${invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}  |  TDS: Rs. ${invoiceTotalsBreakdown.tds.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, margin + colWidth + 6, summaryY + 11);
+
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('TOTAL RECEIVED', margin + (colWidth * 2) + 6, summaryY + 5);
+      doc.setFontSize(9.5);
+      doc.setTextColor(5, 150, 105);
+      const totalReceived = filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0);
+      doc.text(`Rs. ${totalReceived.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, margin + (colWidth * 2) + 6, summaryY + 11);
+
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('TOTAL PENDING / GRAND TOTAL', margin + (colWidth * 3) + 6, summaryY + 5);
+      doc.setFontSize(9.5);
+      doc.setTextColor(224, 90, 30);
+      const totalPending = filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0);
+      doc.text(`Pending: Rs. ${totalPending.toLocaleString('en-IN', { minimumFractionDigits: 0 })} | Grand: Rs. ${invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 0 })}`, margin + (colWidth * 3) + 6, summaryY + 11);
+
+      // 3. Table Column Layout
+      let startY = 41;
+      const columns = [
+        { header: 'S.No', width: 10, align: 'center' },
+        { header: 'Invoice No', width: 26, align: 'left' },
+        { header: 'Client Name', width: 40, align: 'left' },
+        { header: 'Project Name', width: 34, align: 'left' },
+        { header: 'Date / Due', width: 26, align: 'left' },
+        { header: 'Principal', width: 23, align: 'right' },
+        { header: 'GST', width: 21, align: 'right' },
+        { header: 'TDS', width: 19, align: 'right' },
+        { header: 'Total Amt', width: 24, align: 'right' },
+        { header: 'Received', width: 22, align: 'right' },
+        { header: 'Pending', width: 22, align: 'right' },
+        { header: 'Status', width: 20, align: 'center' }
+      ];
+
+      const drawTableHeader = (y) => {
+        doc.setFillColor(30, 41, 59);
+        doc.rect(margin, y, pageWidth - (margin * 2), 7, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(255, 255, 255);
+
+        let currentX = margin;
+        columns.forEach(col => {
+          let textX = currentX + 2;
+          if (col.align === 'right') textX = currentX + col.width - 2;
+          if (col.align === 'center') textX = currentX + (col.width / 2);
+          doc.text(col.header, textX, y + 4.8, { align: col.align });
+          currentX += col.width;
+        });
+        return y + 7;
+      };
+
+      let currentY = drawTableHeader(startY);
+      const maxY = pageHeight - 16;
+      let pageCount = 1;
+
+      filteredInvoicesList.forEach((inv, index) => {
+        const amount = parseFloat(inv.amount || 0);
+        let principal = amount;
+        let gst = 0;
+
+        if (!inv.is_payment_stage) {
+          const taxDetails = inv.tax_details || {};
+          const isGstEnabled = taxDetails.isGstEnabled !== false;
+
+          if (isGstEnabled) {
+            const cgstPercent = parseFloat(taxDetails.cgstPercent ?? 9);
+            const sgstPercent = parseFloat(taxDetails.sgstPercent ?? 9);
+            const igstPercent = parseFloat(taxDetails.igstPercent ?? 18);
+            const isIgst = !!taxDetails.isIgst;
+            const totalTaxPercent = isIgst ? igstPercent : (cgstPercent + sgstPercent);
+
+            if (totalTaxPercent > 0) {
+              principal = amount / (1 + totalTaxPercent / 100);
+              gst = amount - principal;
+            }
+          }
+        }
+
+        const tds = parseFloat(inv.tax_details?.tdsAmount || 0);
+        const received = parseFloat(inv.received_amount || 0);
+        const pending = parseFloat(inv.pending_amount || 0);
+        const statusText = inv.is_payment_stage ? 'Payment Stage' : (inv.status || 'Draft').toUpperCase();
+
+        const rowHeight = 7;
+
+        if (currentY + rowHeight > maxY) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          doc.setTextColor(148, 163, 184);
+          doc.text(`Design Studio Sixteen • Invoice Audit Report`, margin, pageHeight - 6);
+          doc.text(`Page ${pageCount}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+
+          doc.addPage();
+          pageCount++;
+
+          doc.setFillColor(30, 41, 59);
+          doc.rect(0, 0, pageWidth, 10, 'F');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9);
+          doc.setTextColor(255, 255, 255);
+          doc.text('DESIGN STUDIO SIXTEEN — INVOICE AUDIT REPORT', margin, 7);
+          doc.text(`Page ${pageCount}`, pageWidth - margin, 7, { align: 'right' });
+
+          currentY = drawTableHeader(14);
+        }
+
+        if (index % 2 === 1) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(margin, currentY, pageWidth - (margin * 2), rowHeight, 'F');
+        }
+
+        doc.setDrawColor(241, 245, 249);
+        doc.line(margin, currentY + rowHeight, pageWidth - margin, currentY + rowHeight);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+
+        const rowData = [
+          { text: `${index + 1}`, align: 'center' },
+          { text: `${inv.invoice_no || '-'}`, align: 'left', font: 'bold', color: [224, 90, 30] },
+          { text: `${(inv.client_name_full || inv.client_name || '-').slice(0, 22)}`, align: 'left' },
+          { text: `${(inv.project_name || 'No Project').slice(0, 18)}`, align: 'left' },
+          { text: `${inv.date ? new Date(inv.date).toLocaleDateString('en-IN') : '-'}`, align: 'left' },
+          { text: `Rs. ${principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, align: 'right' },
+          { text: `Rs. ${gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, align: 'right' },
+          { text: `Rs. ${tds.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, align: 'right', color: [220, 38, 38] },
+          { text: `Rs. ${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, align: 'right', font: 'bold' },
+          { text: `Rs. ${received.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, align: 'right', color: [5, 150, 105] },
+          { text: `Rs. ${pending.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, align: 'right', color: [217, 119, 6] },
+          { text: statusText, align: 'center', font: 'bold' }
+        ];
+
+        let currentX = margin;
+        rowData.forEach((item, colIdx) => {
+          const col = columns[colIdx];
+          let textX = currentX + 2;
+          if (col.align === 'right') textX = currentX + col.width - 2;
+          if (col.align === 'center') textX = currentX + (col.width / 2);
+
+          doc.setFont('helvetica', item.font || 'normal');
+          if (item.color) {
+            doc.setTextColor(item.color[0], item.color[1], item.color[2]);
+          } else {
+            doc.setTextColor(30, 41, 59);
+          }
+          doc.text(item.text, textX, currentY + 4.8, { align: col.align });
+
+          currentX += col.width;
+        });
+
+        currentY += rowHeight;
+      });
+
+      // 5. Total Footer Row
+      if (currentY + 8 > maxY) {
+        doc.addPage();
+        pageCount++;
+        currentY = 15;
+      }
+
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, currentY, pageWidth - (margin * 2), 8, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.line(margin, currentY, pageWidth - margin, currentY);
+      doc.line(margin, currentY + 8, pageWidth - margin, currentY + 8);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`TOTAL (${filteredInvoicesList.length} Invoices)`, margin + 4, currentY + 5.5);
+
+      const totalReceivedVal = filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0);
+      const totalPendingVal = filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0);
+
+      doc.text(`Rs. ${invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, margin + 162, currentY + 5.5, { align: 'right' });
+      doc.text(`Rs. ${invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, margin + 183, currentY + 5.5, { align: 'right' });
+      doc.text(`Rs. ${invoiceTotalsBreakdown.tds.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, margin + 202, currentY + 5.5, { align: 'right' });
+      doc.text(`Rs. ${invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, margin + 226, currentY + 5.5, { align: 'right' });
+      doc.text(`Rs. ${totalReceivedVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, margin + 248, currentY + 5.5, { align: 'right' });
+      doc.text(`Rs. ${totalPendingVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, margin + 270, currentY + 5.5, { align: 'right' });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Design Studio Sixteen • Confidential Invoices Audit Report`, margin, pageHeight - 6);
+      doc.text(`Page ${pageCount} of ${pageCount}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+
+      const fileName = `DS16_Invoices_Report_${invoiceFilter}_${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(fileName);
+      toast.success('Invoice PDF report exported successfully!');
+    } catch (err) {
+      console.error('PDF export failed:', err);
+      toast.error('Failed to generate PDF report');
+    } finally {
+      setIsExportingInvoicesPdf(false);
+    }
+  };
 
   const [projects, setProjects] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -2169,6 +2444,68 @@ export default function AccountingPage() {
               </div>
             </div>
 
+            {/* Invoices Tab Export & Action Row */}
+            <div className="px-4 py-3 bg-slate-50 border-b border-gray-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3 flex-1">
+                <div className="relative w-full sm:w-72">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Filter by invoice no, client, or project..."
+                    value={invoiceSearchQuery}
+                    onChange={(e) => setInvoiceSearchQuery(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-lg pl-8 pr-7 py-1.5 text-xs text-gray-800 placeholder-gray-400 outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 shadow-2xs"
+                  />
+                  {invoiceSearchQuery && (
+                    <button
+                      onClick={() => setInvoiceSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="hidden lg:flex items-center gap-2 text-[11px] font-semibold text-gray-600 bg-white border border-gray-200 px-3 py-1.5 rounded-lg shadow-2xs">
+                  <span>Total: <strong className="text-gray-900 font-mono">₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</strong></span>
+                  <span className="text-gray-300">|</span>
+                  <span>Received: <strong className="text-emerald-600 font-mono">₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</strong></span>
+                  <span className="text-gray-300">|</span>
+                  <span>Pending: <strong className="text-orange-600 font-mono">₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</strong></span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowInvoiceReportModal(true)}
+                  disabled={filteredInvoicesList.length === 0}
+                  className="btn-secondary py-1.5 px-3 text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all disabled:opacity-50"
+                  title="Preview formatted Invoice Accounting Report layout"
+                >
+                  <FileText size={14} className="text-primary" />
+                  <span>View Report</span>
+                </button>
+                <button
+                  onClick={handleExportInvoicesPDF}
+                  disabled={filteredInvoicesList.length === 0 || isExportingInvoicesPdf}
+                  className="btn-primary py-1.5 px-3.5 text-xs font-bold shadow-sm flex items-center gap-2 transition-all disabled:opacity-50"
+                  title="Export PDF Report of currently filtered Invoices"
+                >
+                  {isExportingInvoicesPdf ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Exporting PDF...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={14} />
+                      <span>Export PDF Report</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
             {unbilledStages.length > 0 && (
               <div className="bg-amber-50 border-b border-amber-200 p-4 flex items-start gap-3">
                 <span className="text-amber-500 text-lg mt-0.5">⚠️</span>
@@ -3188,6 +3525,197 @@ export default function AccountingPage() {
         </div>
       )}
 
+      {/* Dedicated Invoice Report Modal */}
+      {showInvoiceReportModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 no-print-overlay">
+          <div className="bg-white rounded-2xl max-w-5xl w-full border border-gray-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 my-8 flex flex-col max-h-[90vh]">
+            
+            {/* Modal Header Controls */}
+            <div className="p-4 border-b border-gray-200 bg-gray-900 text-white flex items-center justify-between no-print">
+              <div className="flex items-center gap-2">
+                <FileText size={18} className="text-[#E05A1E]" />
+                <h3 className="text-sm font-bold tracking-wide">Invoices Accounting Report Preview</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExportInvoicesPDF}
+                  disabled={isExportingInvoicesPdf}
+                  className="px-3 py-1.5 bg-[#E05A1E] hover:bg-[#c94e16] text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                >
+                  <Download size={14} />
+                  <span>Download PDF</span>
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border border-gray-700"
+                >
+                  <Printer size={14} />
+                  <span>Print</span>
+                </button>
+                <button
+                  onClick={() => setShowInvoiceReportModal(false)}
+                  className="p-1 text-gray-400 hover:text-white rounded-lg transition-colors ml-2"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Document Content */}
+            <div className="p-6 sm:p-8 overflow-y-auto space-y-6 flex-1 bg-white" id="printable-invoice-report-area">
+              
+              {/* Report Header */}
+              <div className="border-b-2 border-slate-900 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+                <div>
+                  <h1 className="text-2xl font-black text-slate-900 tracking-tight">DESIGN STUDIO SIXTEEN</h1>
+                  <p className="text-xs text-slate-500 font-semibold mt-0.5">104, A, Pande Layout, Khamla, Nagpur • GSTIN: 27AJKPG8543M1ZN</p>
+                </div>
+                <div className="sm:text-right">
+                  <span className="inline-block px-3 py-1 bg-orange-100 text-[#E05A1E] rounded-md text-xs font-black uppercase tracking-widest">
+                    Financial Audit Statement
+                  </span>
+                  <p className="text-[11px] font-bold text-slate-500 mt-1">
+                    Generated: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </p>
+                  <p className="text-[10px] text-slate-400 font-medium">
+                    Filter: {invoiceFilter.toUpperCase()} ({filteredInvoicesList.length} Invoices)
+                  </p>
+                </div>
+              </div>
+
+              {/* Executive Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Billed</p>
+                  <p className="text-base font-black font-mono text-slate-900 mt-0.5">₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN')}</p>
+                  <p className="text-[10px] text-slate-500 font-semibold">{filteredInvoicesList.length} Invoices Recorded</p>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Base Revenue (Principal)</p>
+                  <p className="text-base font-black font-mono text-slate-800 mt-0.5">₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                  <p className="text-[10px] text-slate-500 font-semibold">Excluding GST taxes</p>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Collections (Received)</p>
+                  <p className="text-base font-black font-mono text-emerald-600 mt-0.5">
+                    ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0).toLocaleString('en-IN')}
+                  </p>
+                  <p className="text-[10px] text-emerald-700 font-semibold">
+                    {invoiceTotalsBreakdown.grand > 0 ? Math.round((filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0) / invoiceTotalsBreakdown.grand) * 100) : 0}% Realized
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pending Receivables</p>
+                  <p className="text-base font-black font-mono text-orange-600 mt-0.5">
+                    ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0).toLocaleString('en-IN')}
+                  </p>
+                  <p className="text-[10px] text-orange-700 font-semibold">Outstanding Balance</p>
+                </div>
+              </div>
+
+              {/* Taxes Summary Ribbon */}
+              <div className="flex flex-wrap items-center justify-between gap-4 p-3 bg-amber-50/60 border border-amber-200 rounded-lg text-xs font-semibold text-amber-950">
+                <div>
+                  <span>GST Liabilities: <strong>₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></span>
+                </div>
+                <div>
+                  <span>TDS Deductions: <strong className="text-red-700">₹{invoiceTotalsBreakdown.tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></span>
+                </div>
+                <div>
+                  <span>Net Tax Adjusted: <strong>₹{(invoiceTotalsBreakdown.gst - invoiceTotalsBreakdown.tds).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></span>
+                </div>
+              </div>
+
+              {/* Formatted Audit Table */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-900 text-white">
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-center w-8">#</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Invoice No</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Billed To</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Project</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Issue Date</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Principal</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">GST</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">TDS</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Total Amt</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Received</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Pending</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredInvoicesList.map((inv, idx) => {
+                      const amount = parseFloat(inv.amount || 0);
+                      let principal = amount;
+                      let gst = 0;
+                      if (!inv.is_payment_stage) {
+                        const taxDetails = inv.tax_details || {};
+                        const isGstEnabled = taxDetails.isGstEnabled !== false;
+                        if (isGstEnabled) {
+                          const cgstPercent = parseFloat(taxDetails.cgstPercent ?? 9);
+                          const sgstPercent = parseFloat(taxDetails.sgstPercent ?? 9);
+                          const igstPercent = parseFloat(taxDetails.igstPercent ?? 18);
+                          const isIgst = !!taxDetails.isIgst;
+                          const totalTaxPercent = isIgst ? igstPercent : (cgstPercent + sgstPercent);
+                          if (totalTaxPercent > 0) {
+                            principal = amount / (1 + totalTaxPercent / 100);
+                            gst = amount - principal;
+                          }
+                        }
+                      }
+                      const tds = parseFloat(inv.tax_details?.tdsAmount || 0);
+                      return (
+                        <tr key={inv.id || idx} className={idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'}>
+                          <td className="px-3 py-2 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                          <td className="px-3 py-2 font-mono font-bold text-[#E05A1E] text-[11px]">{inv.invoice_no || '-'}</td>
+                          <td className="px-3 py-2 font-semibold text-slate-800">{inv.client_name_full || inv.client_name || '-'}</td>
+                          <td className="px-3 py-2 text-slate-600">{inv.project_name || 'No Project'}</td>
+                          <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{inv.date ? new Date(inv.date).toLocaleDateString('en-IN') : '-'}</td>
+                          <td className="px-3 py-2 text-right font-mono text-slate-700">₹{principal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2 text-right font-mono text-slate-600">₹{gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2 text-right font-mono text-red-600">₹{tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2 text-right font-mono font-bold text-slate-900">₹{amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2 text-right font-mono font-bold text-emerald-600">₹{parseFloat(inv.received_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2 text-right font-mono font-bold text-orange-600">₹{parseFloat(inv.pending_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2 text-center whitespace-nowrap">
+                            <span className="inline-block px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-full bg-slate-100 text-slate-700">
+                              {inv.is_payment_stage ? 'Payment Stage' : inv.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="bg-slate-900 text-white font-bold border-t-2 border-slate-900">
+                    <tr>
+                      <td colSpan={5} className="px-3 py-2.5 uppercase text-[10px]">Grand Total ({filteredInvoicesList.length} Invoices)</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs">₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs">₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs text-red-400">₹{invoiceTotalsBreakdown.tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs text-orange-400">₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs text-emerald-400">₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs text-orange-400">₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* Report Footer */}
+              <div className="pt-4 border-t border-slate-200 flex justify-between items-center text-[10px] text-slate-400">
+                <p>This is a system-generated accounting report for Design Studio Sixteen.</p>
+                <p>Page 1 of 1</p>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }
