@@ -461,7 +461,7 @@ router.get('/summary', authenticate, async (req, res) => {
         SELECT COALESCE(SUM(t.amount), 0) as total_expense 
         FROM transactions t
         LEFT JOIN projects p ON p.id = t.project_id
-        LEFT JOIN expense_audits ea ON ea.category = t.category 
+        LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
           AND ea.month = EXTRACT(MONTH FROM t.date) 
           AND ea.year = EXTRACT(YEAR FROM t.date)
         WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
@@ -588,7 +588,7 @@ router.get('/charts', authenticate, async (req, res) => {
       let trendQuery = `
         WITH combined_data AS (
           SELECT t.date, t.type, t.category, t.amount, t.project_id FROM transactions t
-          LEFT JOIN expense_audits ea ON ea.category = t.category 
+          LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
             AND ea.month = EXTRACT(MONTH FROM t.date) 
             AND ea.year = EXTRACT(YEAR FROM t.date)
           WHERE LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
@@ -645,7 +645,7 @@ router.get('/charts', authenticate, async (req, res) => {
       let catQuery = `
         WITH combined_expenses AS (
           SELECT t.category, t.amount, t.date, t.project_id FROM transactions t
-          LEFT JOIN expense_audits ea ON ea.category = t.category 
+          LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
             AND ea.month = EXTRACT(MONTH FROM t.date) 
             AND ea.year = EXTRACT(YEAR FROM t.date)
           WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')

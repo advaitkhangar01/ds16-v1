@@ -273,7 +273,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
       expenseQuery = `
         SELECT COALESCE(SUM(t.amount), 0) as total_expense 
         FROM transactions t
-        LEFT JOIN expense_audits ea ON ea.category = t.category 
+        LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
           AND ea.month = EXTRACT(MONTH FROM t.date) 
           AND ea.year = EXTRACT(YEAR FROM t.date)
         WHERE t.type = 'expense' AND t.date >= $1 AND t.date <= $2
@@ -284,7 +284,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
       expenseQuery = `
         SELECT COALESCE(SUM(t.amount), 0) as total_expense 
         FROM transactions t
-        LEFT JOIN expense_audits ea ON ea.category = t.category 
+        LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
           AND ea.month = EXTRACT(MONTH FROM t.date) 
           AND ea.year = EXTRACT(YEAR FROM t.date)
         WHERE t.type = 'expense' AND t.date >= $1 AND t.date <= $2
@@ -560,7 +560,7 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
           SELECT t.id, t.description, t.category, t.amount, t.date, p.name as project_name
           FROM transactions t
           LEFT JOIN projects p ON p.id = t.project_id
-          LEFT JOIN expense_audits ea ON ea.category = t.category 
+          LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
             AND ea.month = EXTRACT(MONTH FROM t.date) 
             AND ea.year = EXTRACT(YEAR FROM t.date)
           WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
