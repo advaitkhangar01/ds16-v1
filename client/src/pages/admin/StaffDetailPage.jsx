@@ -435,10 +435,14 @@ export default function StaffDetailPage() {
                 </div>
 
                 {/* Team Quick Stats summary */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Check-Ins Recorded</p>
-                    <span className="text-xl font-black text-slate-900 font-mono">{attendanceStats.total_present} days</span>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">All Time Check-Ins</p>
+                    <span className="text-xl font-black text-slate-900 font-mono">{attendanceStats.all_time_checkins} days</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">This Month Check-Ins</p>
+                    <span className="text-xl font-black text-primary font-mono">{attendanceStats.this_month_checkins} days</span>
                   </div>
                   <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Avg. Daily Hours</p>
