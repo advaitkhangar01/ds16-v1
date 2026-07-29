@@ -28,6 +28,9 @@ async function checkPeriodLock(req, res, next) {
         } else if (req.originalUrl.includes('expenses')) {
           const { rows } = await pool.query('SELECT date FROM office_expenses WHERE id = $1', [id]);
           if (rows[0]) dateStr = rows[0].date;
+        } else if (req.originalUrl.includes('payroll')) {
+          const { rows } = await pool.query('SELECT payment_date as date FROM payroll WHERE id = $1', [id]);
+          if (rows[0]) dateStr = rows[0].date;
         }
       }
 

@@ -6,6 +6,7 @@ import AppLayout from '../components/layout/AppLayout';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+import { Lock, Trash2 } from 'lucide-react';
 
 const VENDOR_CATEGORIES = [
   'Carpenter', 'Electrician', 'Plumber', 'POP', 'Contractor', 
@@ -557,6 +558,7 @@ export default function VendorsPage() {
       {historyModal.show && (
         <VendorHistoryModal 
           vendor={historyModal.vendor} 
+          isAdmin={isAdmin}
           onClose={() => setHistoryModal({ show: false, vendor: null })} 
         />
       )}
@@ -564,9 +566,11 @@ export default function VendorsPage() {
   );
 }
 
-function VendorHistoryModal({ vendor, onClose }) {
+function VendorHistoryModal({ vendor, isAdmin, onClose }) {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [closedMonths, setClosedMonths] = useState(new Set());
+  const [unlockedMonths, setUnlockedMonths] = useState(new Set());
 
   useEffect(() => {
     async function fetchHistory() {
@@ -579,8 +583,50 @@ function VendorHistoryModal({ vendor, onClose }) {
         setLoading(false);
       }
     }
+    async function fetchClosedMonths() {
+      try {
+        const { data } = await api.get('/monthly-close/history');
+        const closed = new Set();
+        const unlocked = new Set();
+        data.forEach(log => {
+          closed.add(`${log.month}-${log.year}`);
+          if (log.is_unlocked) {
+            unlocked.add(`${log.month}-${log.year}`);
+          }
+        });
+        setClosedMonths(closed);
+        setUnlockedMonths(unlocked);
+      } catch (err) {
+        console.error('Failed to load closed months:', err);
+      }
+    }
     fetchHistory();
+    fetchClosedMonths();
   }, [vendor.id]);
+
+  const handleDeletePayment = async (id, date) => {
+    if (!window.confirm('Are you sure you want to delete this vendor payment record?')) return;
+    try {
+      await api.delete(`/finances/transactions/${id}`);
+      toast.success('Vendor payment deleted successfully');
+      // Refresh payments
+      const { data } = await api.get(`/finances/transactions?vendor_id=${vendor.id}&category=vendor_payment`);
+      setPayments(data.transactions);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to delete payment');
+    }
+  };
+
+  const isPaymentDeletable = (dateStr) => {
+    if (!dateStr) return true;
+    const date = new Date(dateStr);
+    const m = date.getMonth() + 1;
+    const y = date.getFullYear();
+    const isClosed = closedMonths.has(`${m}-${y}`);
+    const isUnlocked = unlockedMonths.has(`${m}-${y}`);
+    if (isClosed && !isUnlocked) return false;
+    return true;
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -605,6 +651,7 @@ function VendorHistoryModal({ vendor, onClose }) {
                 <th className="px-6 py-4 font-bold text-muted uppercase tracking-widest">Project</th>
                 <th className="px-6 py-4 font-bold text-muted uppercase tracking-widest">Description</th>
                 <th className="px-6 py-4 font-bold text-muted uppercase tracking-widest text-right">Amount</th>
+                {isAdmin && <th className="px-6 py-4 font-bold text-muted uppercase tracking-widest text-center w-12 no-print"></th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F0F0F0]">
@@ -615,11 +662,12 @@ function VendorHistoryModal({ vendor, onClose }) {
                     <td className="px-6 py-4"><div className="skeleton h-3 w-32 rounded" /></td>
                     <td className="px-6 py-4"><div className="skeleton h-3 w-48 rounded" /></td>
                     <td className="px-6 py-4 text-right"><div className="skeleton h-3 w-12 ml-auto rounded" /></td>
+                    {isAdmin && <td className="px-6 py-4"><div className="skeleton h-3 w-6 mx-auto rounded" /></td>}
                   </tr>
                 ))
               ) : payments.length === 0 ? (
                 <tr>
-                  <td colSpan="4" className="px-6 py-10 text-center text-muted italic">No payments found for this vendor</td>
+                  <td colSpan={isAdmin ? 5 : 4} className="px-6 py-10 text-center text-muted italic">No payments found for this vendor</td>
                 </tr>
               ) : (
                 payments.map(p => (
@@ -636,6 +684,23 @@ function VendorHistoryModal({ vendor, onClose }) {
                     <td className="px-6 py-4 text-right font-bold text-emerald-600">
                       ₹{parseFloat(p.amount).toLocaleString()}
                     </td>
+                    {isAdmin && (
+                      <td className="px-6 py-4 text-center no-print">
+                        {isPaymentDeletable(p.date) ? (
+                          <button
+                            onClick={() => handleDeletePayment(p.id, p.date)}
+                            className="text-gray-300 hover:text-red-500 transition-colors"
+                            title="Delete payment record"
+                          >
+                            <Trash2 size={12} className="mx-auto" />
+                          </button>
+                        ) : (
+                          <span className="text-gray-300 cursor-help" title="Period is locked. Unlock the period to delete.">
+                            <Lock size={10} className="mx-auto" />
+                          </span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

@@ -707,11 +707,17 @@ export default function AccountingPage() {
     if (!dateStr) return true;
     const date = new Date(dateStr);
     
-    // Check if falls in a closed month that is not unlocked
     const m = date.getMonth() + 1;
     const y = date.getFullYear();
-    if (closedMonths.has(`${m}-${y}`) && !unlockedMonths.has(`${m}-${y}`)) {
+    const isClosed = closedMonths.has(`${m}-${y}`);
+    const isUnlocked = unlockedMonths.has(`${m}-${y}`);
+    
+    if (isClosed && !isUnlocked) {
       return false; // locked by closed month
+    }
+    
+    if (isClosed && isUnlocked && isAdmin) {
+      return true; // if closed but unlocked, bypass 15 days rule for admins
     }
     
     const diff = Date.now() - date.getTime();
@@ -740,6 +746,19 @@ export default function AccountingPage() {
       fetchSummary();
     } catch (err) {
       toast.error('Failed to delete');
+    }
+  };
+
+  const handleReversePayroll = async (payrollId, employeeName) => {
+    if (!window.confirm(`Are you sure you want to reverse the processed payroll for ${employeeName}? This will reset their salary status to unpaid.`)) return;
+    try {
+      await api.delete(`/accounting/payroll/${payrollId}`);
+      toast.success(`Payroll reversed for ${employeeName}`);
+      fetchPayrollData();
+      fetchExpenses();
+      fetchSummary();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to reverse payroll');
     }
   };
 
@@ -837,16 +856,35 @@ export default function AccountingPage() {
     toast.success('Report exported');
   };
 
+  const isPeriodLocked = closedMonths.has(`${selectedMonth}-${selectedYear}`) && !unlockedMonths.has(`${selectedMonth}-${selectedYear}`);
+
   return (
     <AppLayout>
       <div className="p-6 max-w-screen-2xl mx-auto space-y-6">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold text-gray-900">Accounting Control</h1>
           <div className="flex bg-gray-100 p-1 rounded-lg no-print">
-            {['summary', 'payroll', 'expenses', 'invoices', 'month-close'].map((tab) => (
+            {['summary', 'payroll', 'expenses', 'invoices', isAdmin && 'month-close'].filter(Boolean).map((tab) => (
               <button 
                 key={tab}
-                onClick={() => setActiveTab(tab)}
+                onClick={() => {
+                  setActiveTab(tab);
+                  if (tab === 'month-close') {
+                    const now = new Date();
+                    const currentMonth = now.getMonth() + 1;
+                    const currentYear = now.getFullYear();
+                    if (selectedYear > currentYear || (selectedYear === currentYear && selectedMonth >= currentMonth)) {
+                      let prevM = currentMonth - 1;
+                      let prevY = currentYear;
+                      if (prevM === 0) {
+                        prevM = 12;
+                        prevY -= 1;
+                      }
+                      setSelectedMonth(prevM);
+                      setSelectedYear(prevY);
+                    }
+                  }
+                }}
                 className={`px-4 py-2 text-sm font-bold rounded-md transition-all capitalize ${activeTab === tab ? 'bg-white shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 {tab.replace('-', ' ')}
@@ -1140,6 +1178,49 @@ export default function AccountingPage() {
 
         {activeTab === 'expenses' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {/* Period Lock Status Banner */}
+            {closedMonths.has(`${selectedMonth}-${selectedYear}`) && (
+              <div className={`p-4 rounded-xl border flex items-center justify-between shadow-sm no-print ${
+                unlockedMonths.has(`${selectedMonth}-${selectedYear}`)
+                  ? 'bg-amber-50 border-amber-200 text-amber-800'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              }`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-lg">{unlockedMonths.has(`${selectedMonth}-${selectedYear}`) ? '🔓' : '🔒'}</span>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider">
+                      Period Status: {unlockedMonths.has(`${selectedMonth}-${selectedYear}`) ? 'Temporary Unlocked' : 'Fully Locked'}
+                    </p>
+                    <p className="text-[10px] opacity-80 mt-0.5">
+                      This month is closed. {unlockedMonths.has(`${selectedMonth}-${selectedYear}`) ? 'Authorized admins can make adjustments, but it should be re-locked after edits.' : 'Authorized admins must unlock the period to make any changes.'}
+                    </p>
+                  </div>
+                </div>
+                {isAdmin && (
+                  <div>
+                    {unlockedMonths.has(`${selectedMonth}-${selectedYear}`) ? (
+                      <button 
+                        onClick={() => handleRelockMonth(selectedMonth, selectedYear)}
+                        className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm active:scale-[0.98]"
+                      >
+                        Re-lock Period
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => {
+                          setTargetUnlockMonth({ month: selectedMonth, year: selectedYear });
+                          setShowUnlockModal(true);
+                        }}
+                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm active:scale-[0.98]"
+                      >
+                        Unlock Period
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Inline Expense Entry Card */}
             <div className="card bg-gray-50/50 border-dashed border-2 p-6 rounded-2xl">
               <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
@@ -1154,6 +1235,7 @@ export default function AccountingPage() {
                       className="input w-full text-sm h-[38px] cursor-pointer" 
                       value={modalData.category} 
                       onChange={e => setModalData({ ...modalData, category: e.target.value })} 
+                      disabled={isPeriodLocked}
                       required
                     >
                       <option value="">-- Select Category --</option>
@@ -1168,6 +1250,7 @@ export default function AccountingPage() {
                       value={modalData.amount} 
                       onChange={e => setModalData({ ...modalData, amount: e.target.value })} 
                       className="input w-full text-sm h-[38px] font-mono" 
+                      disabled={isPeriodLocked}
                       required 
                     />
                   </div>
@@ -1178,6 +1261,7 @@ export default function AccountingPage() {
                       value={modalData.date} 
                       onChange={e => setModalData({ ...modalData, date: e.target.value })} 
                       className="input w-full text-sm h-[38px]" 
+                      disabled={isPeriodLocked}
                       required 
                     />
                   </div>
@@ -1187,6 +1271,7 @@ export default function AccountingPage() {
                       className="input w-full text-sm h-[38px] cursor-pointer" 
                       value={modalData.projectId} 
                       onChange={e => setModalData({ ...modalData, projectId: e.target.value })}
+                      disabled={isPeriodLocked}
                     >
                       <option value="">-- General Expense --</option>
                       {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -1198,6 +1283,7 @@ export default function AccountingPage() {
                       type="file" 
                       onChange={e => setModalData({ ...modalData, receipt: e.target.files[0] })} 
                       className="input w-full text-sm h-[38px] p-1 cursor-pointer" 
+                      disabled={isPeriodLocked}
                     />
                   </div>
                   <div className="space-y-1">
@@ -1208,13 +1294,14 @@ export default function AccountingPage() {
                       onChange={e => setModalData({ ...modalData, description: e.target.value })} 
                       placeholder="Add a remark..." 
                       className="input w-full text-sm h-[38px]" 
+                      disabled={isPeriodLocked}
                     />
                   </div>
                 </div>
                 <div className="flex justify-end pt-2">
                   <button 
                     type="submit" 
-                    disabled={isSubmitting} 
+                    disabled={isSubmitting || isPeriodLocked} 
                     className="btn-primary"
                   >
                     {isSubmitting ? (
@@ -1222,7 +1309,7 @@ export default function AccountingPage() {
                         <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         Recording...
                       </div>
-                    ) : 'Record Expense'}
+                    ) : isPeriodLocked ? 'Period Locked' : 'Record Expense'}
                   </button>
                 </div>
               </form>
@@ -1336,7 +1423,7 @@ export default function AccountingPage() {
                                            >
                                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
                                            </span>
-                                         ) : closedMonths.has(`${new Date(exp.date).getMonth() + 1}-${new Date(exp.date).getFullYear()}`) ? (
+                                         ) : (closedMonths.has(`${new Date(exp.date).getMonth() + 1}-${new Date(exp.date).getFullYear()}`) && !unlockedMonths.has(`${new Date(exp.date).getMonth() + 1}-${new Date(exp.date).getFullYear()}`)) ? (
                                            <span 
                                              className="text-gray-400 cursor-help flex items-center p-1" 
                                              title={`${new Date(exp.date).toLocaleString('default', { month: 'long', year: 'numeric' })} is a closed period`}
@@ -1429,6 +1516,48 @@ export default function AccountingPage() {
 
         {activeTab === 'payroll' && (
           <div className="space-y-6 animate-in fade-in duration-500">
+            {/* Period Lock Status Banner */}
+            {closedMonths.has(`${selectedMonth}-${selectedYear}`) && (
+              <div className={`p-4 rounded-xl border flex items-center justify-between shadow-sm no-print ${
+                unlockedMonths.has(`${selectedMonth}-${selectedYear}`)
+                  ? 'bg-amber-50 border-amber-200 text-amber-800'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              }`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-lg">{unlockedMonths.has(`${selectedMonth}-${selectedYear}`) ? '🔓' : '🔒'}</span>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider">
+                      Period Status: {unlockedMonths.has(`${selectedMonth}-${selectedYear}`) ? 'Temporary Unlocked' : 'Fully Locked'}
+                    </p>
+                    <p className="text-[10px] opacity-80 mt-0.5">
+                      This month is closed. {unlockedMonths.has(`${selectedMonth}-${selectedYear}`) ? 'Authorized admins can make adjustments, but it should be re-locked after edits.' : 'Authorized admins must unlock the period to make any changes.'}
+                    </p>
+                  </div>
+                </div>
+                {isAdmin && (
+                  <div>
+                    {unlockedMonths.has(`${selectedMonth}-${selectedYear}`) ? (
+                      <button 
+                        onClick={() => handleRelockMonth(selectedMonth, selectedYear)}
+                        className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm active:scale-[0.98]"
+                      >
+                        Re-lock Period
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => {
+                          setTargetUnlockMonth({ month: selectedMonth, year: selectedYear });
+                          setShowUnlockModal(true);
+                        }}
+                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm active:scale-[0.98]"
+                      >
+                        Unlock Period
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {/* Payroll Header & Month Picker */}
             <div className="flex flex-col gap-6 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -1678,7 +1807,7 @@ export default function AccountingPage() {
                               <div className="flex flex-col items-end gap-1">
                                 <div className="flex items-center gap-1 font-mono text-xs font-bold text-gray-600">
                                   <span>₹{parseFloat(emp.base_salary).toLocaleString('en-IN')}</span>
-                                  {!processed && isAdmin && (
+                                                                  {!processed && isAdmin && !isPeriodLocked && (
                                     <button 
                                       onClick={async () => {
                                         const newSal = prompt('Enter new base salary:', emp.base_salary);
@@ -1705,7 +1834,7 @@ export default function AccountingPage() {
                                 </div>
                                 <div className="flex items-center gap-1 font-mono text-[10px] font-bold text-primary italic">
                                   <span>₹{parseFloat(emp.hourly_rate || 0).toLocaleString('en-IN')}/hr</span>
-                                  {!processed && isAdmin && (
+                                  {!processed && isAdmin && !isPeriodLocked && (
                                     <button 
                                       onClick={async () => {
                                         const newRate = prompt('Enter new hourly rate:', emp.hourly_rate);
@@ -1740,6 +1869,7 @@ export default function AccountingPage() {
                                   type="number"
                                   placeholder="Incentive"
                                   value={rowIncentives[emp.id] || ''}
+                                  disabled={isPeriodLocked}
                                   onChange={(e) => setRowIncentives({...rowIncentives, [emp.id]: e.target.value})}
                                   className="w-20 bg-gray-50 border border-gray-200 rounded px-2 py-1 text-xs text-right outline-none focus:border-primary transition-all font-mono"
                                 />
@@ -1796,9 +1926,20 @@ export default function AccountingPage() {
                             <td className="px-6 py-4 text-center">
                               <div className="flex items-center justify-center">
                                 {processed ? (
-                                  <div className="flex items-center gap-1.5 text-emerald-600">
-                                    <CheckCircle2 size={16} />
-                                    <span className="text-[10px] font-black uppercase tracking-widest">Paid</span>
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1.5 text-emerald-600">
+                                      <CheckCircle2 size={16} />
+                                      <span className="text-[10px] font-black uppercase tracking-widest">Paid</span>
+                                    </div>
+                                    {isAdmin && !isPeriodLocked && (
+                                      <button 
+                                        onClick={() => handleReversePayroll(processed.id, emp.name)}
+                                        className="p-1 text-gray-300 hover:text-red-500 rounded transition-colors no-print"
+                                        title="Reverse / delete payroll record"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    )}
                                   </div>
                                 ) : (
                                   <>
@@ -1807,7 +1948,7 @@ export default function AccountingPage() {
                                       <input 
                                         type="checkbox"
                                         className="sr-only"
-                                        disabled={isProcessing[emp.id]}
+                                        disabled={isProcessing[emp.id] || isPeriodLocked}
                                         onChange={(e) => {
                                           if (e.target.checked) {
                                             handleProcessPayroll(emp, rowIncentives[emp.id] || '0');
@@ -1957,7 +2098,7 @@ export default function AccountingPage() {
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
                             <span className="text-[9px] font-black uppercase tracking-wider">Backdated</span>
                           </div>
-                        ) : closedMonths.has(`${new Date(exp.date).getMonth() + 1}-${new Date(exp.date).getFullYear()}`) ? (
+                        ) : (closedMonths.has(`${new Date(exp.date).getMonth() + 1}-${new Date(exp.date).getFullYear()}`) && !unlockedMonths.has(`${new Date(exp.date).getMonth() + 1}-${new Date(exp.date).getFullYear()}`)) ? (
                           <div 
                             className="flex items-center justify-center gap-1.5 text-gray-400 cursor-help"
                             title={`${new Date(exp.date).toLocaleString('default', { month: 'long', year: 'numeric' })} is a closed period`}
@@ -2276,9 +2417,9 @@ export default function AccountingPage() {
         {/* Month Close Tab */}
         {activeTab === 'month-close' && (
           <div className="space-y-6 animate-in fade-in duration-500">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 gap-6">
               {/* Checklist & Close Panel */}
-              <div className="lg:col-span-2 space-y-6">
+              <div className="space-y-6">
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                   <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-gray-50 to-white">
                     <div className="flex items-center gap-2">
@@ -2341,14 +2482,14 @@ export default function AccountingPage() {
                         {/* Pre-flight Stats */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Income Billed</p>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Income Received</p>
                             <h4 className="text-base font-bold text-gray-800 mt-1">₹{(preflight?.financials?.received_income || 0).toLocaleString('en-IN')}</h4>
                             <span className="text-[9px] text-muted italic">Total recorded this month</span>
                           </div>
                           <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Overhead + Salaries</p>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Expenses</p>
                             <h4 className="text-base font-bold text-red-500 mt-1">₹{(preflight?.financials?.total_expense || 0).toLocaleString('en-IN')}</h4>
-                            <span className="text-[9px] text-muted italic">Excluding vendor payments</span>
+                            <span className="text-[9px] text-muted italic">Including vendor payments & overheads</span>
                           </div>
                           <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Net Realized P&L</p>
@@ -2492,73 +2633,13 @@ export default function AccountingPage() {
                   </div>
                 </div>
               </div>
-
-              {/* Locked/Unlocked Periods Overview Panel */}
-              <div className="space-y-6">
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                  <div className="p-5 border-b border-gray-100 flex items-center gap-2 bg-gradient-to-r from-gray-50 to-white">
-                    <Lock size={16} className="text-gray-500" />
-                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">Locked Periods Control</h3>
-                  </div>
-
-                  <div className="p-5 divide-y divide-gray-100">
-                    {historyLoading ? (
-                      <div className="text-center py-6 text-xs text-gray-400 italic">Loading closed log timeline...</div>
-                    ) : historyLogs.length === 0 ? (
-                      <div className="text-center py-8 text-xs text-gray-400 italic leading-relaxed">
-                        No closed periods recorded yet.<br/>Run closing diagnostics to lock past months.
-                      </div>
-                    ) : historyLogs.map(log => {
-                      const label = new Date(log.year, log.month - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
-                      return (
-                        <div key={log.id} className="py-4 first:pt-0 last:pb-0 flex flex-col gap-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-gray-800">{label}</span>
-                            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 border rounded-full text-[9px] font-black uppercase tracking-wider ${log.is_unlocked ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                              {log.is_unlocked ? '🔓 Unlocked' : '🔒 Locked'}
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center justify-between text-[10px] text-muted">
-                            <span>Closed: {new Date(log.closed_at).toLocaleDateString()}</span>
-                            <span>by {log.closed_by_name || 'Admin'}</span>
-                          </div>
-
-                          {isAdmin && (
-                            <div className="flex justify-end gap-2 pt-1.5">
-                              {log.is_unlocked ? (
-                                <button 
-                                  onClick={() => handleRelockMonth(log.month, log.year)}
-                                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded text-[9px] font-black uppercase tracking-widest transition-all"
-                                >
-                                  Re-lock Period
-                                </button>
-                              ) : (
-                                <button 
-                                  onClick={() => {
-                                    setTargetUnlockMonth({ month: log.month, year: log.year });
-                                    setShowUnlockModal(true);
-                                  }}
-                                  className="px-2.5 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 rounded text-[9px] font-black uppercase tracking-widest transition-all"
-                                >
-                                  Unlock Period
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
             </div>
 
-            {/* Closing Archive History List */}
+            {/* Unified Locked Periods & Archive History List */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="p-5 border-b border-gray-100 flex items-center gap-2 bg-gradient-to-r from-gray-50 to-white">
                 <Activity size={16} className="text-gray-500" />
-                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">Monthly Archive Logs Timeline</h3>
+                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">Locked Periods & Archive History Logs</h3>
               </div>
 
               <div className="overflow-x-auto">
@@ -2572,19 +2653,20 @@ export default function AccountingPage() {
                       <th className="px-6 py-3.5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Expense</th>
                       <th className="px-6 py-3.5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Net Profit</th>
                       <th className="px-6 py-3.5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Payroll Check</th>
+                      <th className="px-6 py-3.5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Status</th>
                       <th className="px-6 py-3.5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {historyLoading && historyLogs.length === 0 ? (
                       <tr>
-                        <td colSpan="8" className="px-6 py-10 text-center text-xs text-gray-400 italic">
+                        <td colSpan="9" className="px-6 py-10 text-center text-xs text-gray-400 italic">
                           Loading archive timeline logs...
                         </td>
                       </tr>
                     ) : historyLogs.length === 0 ? (
                       <tr>
-                        <td colSpan="8" className="px-6 py-12 text-center text-xs text-gray-400 italic leading-relaxed">
+                        <td colSpan="9" className="px-6 py-12 text-center text-xs text-gray-400 italic leading-relaxed">
                           No historical closing periods archived yet.
                         </td>
                       </tr>
@@ -2630,21 +2712,46 @@ export default function AccountingPage() {
                               </span>
                             )}
                           </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 border rounded-full text-[9px] font-black uppercase tracking-wider ${log.is_unlocked ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                              {log.is_unlocked ? '🔓 Unlocked' : '🔒 Locked'}
+                            </span>
+                          </td>
                           <td className="px-6 py-4">
-                            <div className="flex items-center justify-end gap-2.5">
+                            <div className="flex items-center justify-end gap-2">
                               <button 
                                 onClick={() => fetchHistoryDetail(log.month, log.year)}
                                 className="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-600 border border-gray-200 rounded text-[9px] font-black uppercase tracking-wider transition-colors"
                               >
-                                View Snapshot
+                                Snapshot
                               </button>
                               {isAdmin && (
-                                <button 
-                                  onClick={() => handleReverseClose(log.month, log.year)}
-                                  className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded text-[9px] font-black uppercase tracking-wider transition-colors"
-                                >
-                                  Reverse Close
-                                </button>
+                                <>
+                                  {log.is_unlocked ? (
+                                    <button 
+                                      onClick={() => handleRelockMonth(log.month, log.year)}
+                                      className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded text-[9px] font-black uppercase tracking-wider transition-colors"
+                                    >
+                                      Re-lock
+                                    </button>
+                                  ) : (
+                                    <button 
+                                      onClick={() => {
+                                        setTargetUnlockMonth({ month: log.month, year: log.year });
+                                        setShowUnlockModal(true);
+                                      }}
+                                      className="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 rounded text-[9px] font-black uppercase tracking-wider transition-colors"
+                                    >
+                                      Unlock
+                                    </button>
+                                  )}
+                                  <button 
+                                    onClick={() => handleReverseClose(log.month, log.year)}
+                                    className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded text-[9px] font-black uppercase tracking-wider transition-colors"
+                                  >
+                                    Reverse
+                                  </button>
+                                </>
                               )}
                             </div>
                           </td>
@@ -2722,11 +2829,11 @@ export default function AccountingPage() {
                 <table className="w-full text-left text-xs border-collapse">
                   <tbody className="divide-y divide-gray-100 font-medium">
                     <tr>
-                      <td className="py-2.5 px-4 text-gray-500">Billed Revenue</td>
+                      <td className="py-2.5 px-4 text-gray-500">Received Revenue</td>
                       <td className="py-2.5 px-4 text-right text-gray-900 font-mono">₹{(preflight?.financials?.received_income || 0).toLocaleString()}</td>
                     </tr>
                     <tr>
-                      <td className="py-2.5 px-4 text-gray-500">Expenses (Excl. Vendors)</td>
+                      <td className="py-2.5 px-4 text-gray-500">Total Expenses (Incl. Vendors)</td>
                       <td className="py-2.5 px-4 text-right text-red-500 font-mono">-₹{(preflight?.financials?.total_expense || 0).toLocaleString()}</td>
                     </tr>
                     <tr className="bg-gray-50 font-bold">

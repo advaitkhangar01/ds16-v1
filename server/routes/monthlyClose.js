@@ -8,6 +8,19 @@ const { authenticate, requireAdmin, requireAccounting } = require('../middleware
 router.use(authenticate);
 
 /**
+ * Helper: gets current local month (1-indexed) and year adjusted for the target timezone.
+ */
+function getCurrentLocalMonthAndYear() {
+  const now = new Date();
+  const tzOffsetHours = parseFloat(process.env.TIMEZONE_OFFSET_HOURS || '5.5');
+  const localTime = new Date(now.getTime() + (tzOffsetHours * 60 * 60 * 1000));
+  return {
+    month: localTime.getUTCMonth() + 1,
+    year: localTime.getUTCFullYear()
+  };
+}
+
+/**
  * Helper: robust overlap calculator for approved leaves inside a month
  */
 async function calculateLeavesTaken(userId, month, year, client = pool) {
@@ -191,6 +204,11 @@ router.get('/preview', requireAccounting, async (req, res) => {
 
   if (!month || !year || month < 1 || month > 12 || year < 2020) {
     return res.status(400).json({ error: 'Valid month (1-12) and year are required' });
+  }
+
+  const current = getCurrentLocalMonthAndYear();
+  if (year > current.year || (year === current.year && month >= current.month)) {
+    return res.status(400).json({ error: 'Cannot preview or close the current or future periods' });
   }
 
   try {
@@ -455,6 +473,11 @@ router.post('/execute', requireAdmin, async (req, res) => {
 
   if (!month || !year || month < 1 || month > 12 || year < 2020) {
     return res.status(400).json({ error: 'Valid month (1-12) and year are required' });
+  }
+
+  const current = getCurrentLocalMonthAndYear();
+  if (year > current.year || (year === current.year && month >= current.month)) {
+    return res.status(400).json({ error: 'Cannot preview or close the current or future periods' });
   }
 
   try {

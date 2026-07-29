@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
+import { Lock, Trash2 } from 'lucide-react';
 
 export default function VendorsTab({ projectId, isAdmin, isAccounts, isDesignHead }) {
   const [projectVendors, setProjectVendors] = useState([]);
@@ -11,6 +12,9 @@ export default function VendorsTab({ projectId, isAdmin, isAccounts, isDesignHea
   const [selectedVendorId, setSelectedVendorId] = useState('');
   const [payments, setPayments] = useState([]);
   const [paymentsLoading, setPaymentsLoading] = useState(true);
+
+  const [closedMonths, setClosedMonths] = useState(new Set());
+  const [unlockedMonths, setUnlockedMonths] = useState(new Set());
 
   const fetchVendors = useCallback(async () => {
     try {
@@ -38,12 +42,53 @@ export default function VendorsTab({ projectId, isAdmin, isAccounts, isDesignHea
     }
   }, [projectId]);
 
+  const fetchClosedMonths = useCallback(async () => {
+    try {
+      const { data } = await api.get('/monthly-close/history');
+      const closed = new Set();
+      const unlocked = new Set();
+      data.forEach(log => {
+        closed.add(`${log.month}-${log.year}`);
+        if (log.is_unlocked) {
+          unlocked.add(`${log.month}-${log.year}`);
+        }
+      });
+      setClosedMonths(closed);
+      setUnlockedMonths(unlocked);
+    } catch (err) {
+      console.error('Failed to load closed months:', err);
+    }
+  }, []);
+
+  const handleDeletePayment = async (id, date) => {
+    if (!window.confirm('Are you sure you want to delete this vendor payment record?')) return;
+    try {
+      await api.delete(`/finances/transactions/${id}`);
+      toast.success('Vendor payment deleted successfully');
+      fetchPayments();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to delete payment');
+    }
+  };
+
+  const isPaymentDeletable = (dateStr) => {
+    if (!dateStr) return true;
+    const date = new Date(dateStr);
+    const m = date.getMonth() + 1;
+    const y = date.getFullYear();
+    const isClosed = closedMonths.has(`${m}-${y}`);
+    const isUnlocked = unlockedMonths.has(`${m}-${y}`);
+    if (isClosed && !isUnlocked) return false;
+    return true;
+  };
+
   useEffect(() => {
     fetchVendors();
     if (!isDesignHead) {
       fetchPayments();
+      fetchClosedMonths();
     }
-  }, [fetchVendors, fetchPayments, isDesignHead]);
+  }, [fetchVendors, fetchPayments, fetchClosedMonths, isDesignHead]);
 
   const handleAddVendor = async (e) => {
     e.preventDefault();
@@ -345,6 +390,7 @@ export default function VendorsTab({ projectId, isAdmin, isAccounts, isDesignHea
                   <th className="px-6 py-4 text-[10px] font-bold text-muted uppercase tracking-widest">Vendor</th>
                   <th className="px-6 py-4 text-[10px] font-bold text-muted uppercase tracking-widest">Description</th>
                   <th className="px-6 py-4 text-[10px] font-bold text-muted uppercase tracking-widest text-right">Amount</th>
+                  {isAdmin && <th className="px-6 py-4 text-[10px] font-bold text-muted uppercase tracking-widest text-center w-12 no-print"></th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F0F0F0]">
@@ -354,12 +400,13 @@ export default function VendorsTab({ projectId, isAdmin, isAccounts, isDesignHea
                       <td className="px-6 py-4"><div className="skeleton h-3 w-20 rounded" /></td>
                       <td className="px-6 py-4"><div className="skeleton h-3 w-32 rounded" /></td>
                       <td className="px-6 py-4"><div className="skeleton h-3 w-48 rounded" /></td>
-                      <td className="px-6 py-4"><div className="skeleton h-3 w-16 ml-auto rounded" /></td>
+                      <td className="px-6 py-4 text-right"><div className="skeleton h-3 w-16 ml-auto rounded" /></td>
+                      {isAdmin && <td className="px-6 py-4"><div className="skeleton h-3 w-6 mx-auto rounded" /></td>}
                     </tr>
                   ))
                 ) : payments.length === 0 ? (
                   <tr>
-                    <td colSpan="4" className="px-6 py-12 text-center text-muted italic">
+                    <td colSpan={isAdmin ? 5 : 4} className="px-6 py-12 text-center text-muted italic">
                       No vendor payments recorded for this project yet.
                     </td>
                   </tr>
@@ -380,6 +427,23 @@ export default function VendorsTab({ projectId, isAdmin, isAccounts, isDesignHea
                           ₹{parseFloat(p.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </span>
                       </td>
+                      {isAdmin && (
+                        <td className="px-6 py-4 text-center no-print">
+                          {isPaymentDeletable(p.date) ? (
+                            <button
+                              onClick={() => handleDeletePayment(p.id, p.date)}
+                              className="text-gray-300 hover:text-red-500 transition-colors"
+                              title="Delete payment record"
+                            >
+                              <Trash2 size={12} className="mx-auto" />
+                            </button>
+                          ) : (
+                            <span className="text-gray-300 cursor-help" title="Period is locked. Unlock the period to delete.">
+                              <Lock size={10} className="mx-auto" />
+                            </span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
@@ -393,6 +457,7 @@ export default function VendorsTab({ projectId, isAdmin, isAccounts, isDesignHea
                         ₹{payments.reduce((sum, p) => sum + parseFloat(p.amount), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </span>
                     </td>
+                    {isAdmin && <td className="no-print"></td>}
                   </tr>
                 </tfoot>
               )}

@@ -284,4 +284,17 @@ router.get('/summary', async (req, res) => {
   }
 });
 
+// Delete processed payroll record (Admin only, subject to period lock)
+router.delete('/payroll/:id', authenticate, requireAdmin, checkPeriodLock, async (req, res) => {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM payroll WHERE id = $1', [req.params.id]);
+    if (rowCount === 0) {
+      return res.status(404).json({ error: 'Payroll record not found' });
+    }
+    res.json({ message: 'Payroll record deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
