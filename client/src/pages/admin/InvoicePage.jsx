@@ -1260,20 +1260,7 @@ export default function InvoicePage() {
                   <td className="py-2 border-r border-black text-center text-[8px]">Rupees</td>
                   <td className="py-2 px-3 text-right text-[#E05A1E] font-black text-sm font-mono">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 </tr>
-                {isTdsEnabled && (
-                  <>
-                    <tr className="border-b border-black">
-                      <td className="py-1.5 border-r border-black" colSpan={4}></td>
-                      <td className="py-1.5 border-r border-black text-center font-black uppercase text-[7px] text-red-600">TDS Deduction @ {formData.tdsPercent}%</td>
-                      <td className="py-1.5 px-3 text-right font-black font-mono text-red-600">-₹{tdsAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    </tr>
-                    <tr className="bg-emerald-50 font-black border-b border-black">
-                      <td className="py-2 px-3 uppercase text-[8px] tracking-wider text-emerald-800" colSpan={4}>NET RECEIVABLE</td>
-                      <td className="py-2 border-r border-black text-center text-[8px] text-emerald-800">Net Payable</td>
-                      <td className="py-2 px-3 text-right text-emerald-700 font-black text-sm font-mono">₹{netReceivable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    </tr>
-                  </>
-                )}
+
               </tbody>
             </table>
 
@@ -1324,8 +1311,8 @@ export default function InvoicePage() {
 
             {/* Total Amount in Words Banner */}
             <div className="w-full bg-gray-500 text-white px-3 py-1 text-[8px] font-black uppercase tracking-wider border border-black border-t-0 flex items-center justify-between">
-              <span>{isTdsEnabled ? 'Net Amount Payable (in words):' : 'Total Amount (in words):'}</span>
-              <span className="font-extrabold">{convertNumberToWords(isTdsEnabled ? netReceivable : grandTotal).toUpperCase()} ONLY</span>
+              <span>Total Amount (in words):</span>
+              <span className="font-extrabold">{convertNumberToWords(grandTotal).toUpperCase()} ONLY</span>
             </div>
 
             {/* Accounts Details & Legal Declaration */}
@@ -1349,6 +1336,11 @@ export default function InvoicePage() {
                       <p className="text-[7.5px] text-gray-500 leading-normal italic font-medium">
                         We declare that this invoice shows the actual price of the services described and that all particulars are true and correct.
                       </p>
+                      {isTdsEnabled && (
+                        <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded text-[7.5px] text-amber-800 leading-normal font-bold">
+                          * Note: Subject to TDS deduction of {formData.tdsPercent}% (₹{tdsAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}) on the subtotal. Net receivable amount is ₹{netReceivable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.
+                        </div>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -271,17 +271,25 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
     let expenseParams = [currentPeriodStart, currentPeriodEnd];
     if (isGlobal || isAccounts) {
       expenseQuery = `
-        SELECT COALESCE(SUM(amount), 0) as total_expense 
-        FROM transactions 
-        WHERE type = 'expense' AND date >= $1 AND date <= $2
-          AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+        SELECT COALESCE(SUM(t.amount), 0) as total_expense 
+        FROM transactions t
+        LEFT JOIN expense_audits ea ON ea.category = t.category 
+          AND ea.month = EXTRACT(MONTH FROM t.date) 
+          AND ea.year = EXTRACT(YEAR FROM t.date)
+        WHERE t.type = 'expense' AND t.date >= $1 AND t.date <= $2
+          AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+          AND ea.is_verified = TRUE
       `;
     } else {
       expenseQuery = `
-        SELECT COALESCE(SUM(amount), 0) as total_expense 
+        SELECT COALESCE(SUM(t.amount), 0) as total_expense 
         FROM transactions t
-        WHERE type = 'expense' AND date >= $1 AND date <= $2
-          AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+        LEFT JOIN expense_audits ea ON ea.category = t.category 
+          AND ea.month = EXTRACT(MONTH FROM t.date) 
+          AND ea.year = EXTRACT(YEAR FROM t.date)
+        WHERE t.type = 'expense' AND t.date >= $1 AND t.date <= $2
+          AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+          AND ea.is_verified = TRUE
           AND EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.status IN ('Sanction', 'Under Sanctioning'))
       `;
       expenseParams.push(req.user.id);
@@ -290,9 +298,19 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
     const transactionExpense = parseFloat(expRows[0].total_expense);
 
     const { rows: payrollRows } = await pool.query(
-      `SELECT COALESCE(SUM(net_paid), 0) as total_payroll 
-       FROM payroll 
-       WHERE status = 'paid' AND month = $1 AND year = $2`,
+      `SELECT 
+         COALESCE(SUM(
+           CASE 
+             WHEN ea_sal.is_verified = TRUE AND ea_inc.is_verified = TRUE THEN p.net_paid
+             WHEN ea_sal.is_verified = TRUE THEN (p.net_paid - p.incentives)
+             WHEN ea_inc.is_verified = TRUE THEN p.incentives
+             ELSE 0 
+           END
+         ), 0) as total_payroll 
+       FROM payroll p
+       LEFT JOIN expense_audits ea_sal ON ea_sal.category = 'Salaries' AND ea_sal.month = $1 AND ea_sal.year = $2
+       LEFT JOIN expense_audits ea_inc ON ea_inc.category = 'Incentives' AND ea_inc.month = $1 AND ea_inc.year = $2
+       WHERE p.status = 'paid' AND p.month = $1 AND p.year = $2`,
       [month, year]
     );
     const totalPayroll = parseFloat(payrollRows[0].total_payroll);
@@ -542,35 +560,43 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
           SELECT t.id, t.description, t.category, t.amount, t.date, p.name as project_name
           FROM transactions t
           LEFT JOIN projects p ON p.id = t.project_id
+          LEFT JOIN expense_audits ea ON ea.category = t.category 
+            AND ea.month = EXTRACT(MONTH FROM t.date) 
+            AND ea.year = EXTRACT(YEAR FROM t.date)
           WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
             AND t.date >= $1 AND t.date <= $2
             AND ($5::boolean OR p.id IS NULL OR p.status IN ('Sanction', 'Under Sanctioning'))
+            AND ea.is_verified = TRUE
           
           UNION ALL
           
           SELECT 
-            id, 
+            p.id, 
             'Monthly salary payment' as description, 
             'Salaries' as category, 
-            (net_paid - incentives) as amount, 
-            payment_date as date, 
+            (p.net_paid - p.incentives) as amount, 
+            p.payment_date as date, 
             NULL as project_name
-          FROM payroll 
-          WHERE status = 'paid'
-            AND month = $3 AND year = $4
+          FROM payroll p
+          LEFT JOIN expense_audits ea ON ea.category = 'Salaries' AND ea.month = $3 AND ea.year = $4
+          WHERE p.status = 'paid'
+            AND p.month = $3 AND p.year = $4
+            AND ea.is_verified = TRUE
           
           UNION ALL
           
           SELECT 
-            id, 
+            p.id, 
             'Performance incentive' as description, 
             'Incentives' as category, 
-            incentives as amount, 
-            payment_date as date, 
+            p.incentives as amount, 
+            p.payment_date as date, 
             NULL as project_name
-          FROM payroll 
-          WHERE status = 'paid' AND incentives > 0
-            AND month = $3 AND year = $4
+          FROM payroll p
+          LEFT JOIN expense_audits ea ON ea.category = 'Incentives' AND ea.month = $3 AND ea.year = $4
+          WHERE p.status = 'paid' AND p.incentives > 0
+            AND p.month = $3 AND p.year = $4
+            AND ea.is_verified = TRUE
         ) combined_expenses
         ORDER BY date DESC
       `, [currentPeriodStart, currentPeriodEnd, month, year, isGlobal]);

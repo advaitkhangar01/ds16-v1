@@ -461,7 +461,11 @@ router.get('/summary', authenticate, async (req, res) => {
         SELECT COALESCE(SUM(t.amount), 0) as total_expense 
         FROM transactions t
         LEFT JOIN projects p ON p.id = t.project_id
+        LEFT JOIN expense_audits ea ON ea.category = t.category 
+          AND ea.month = EXTRACT(MONTH FROM t.date) 
+          AND ea.year = EXTRACT(YEAR FROM t.date)
         WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+          AND ea.is_verified = TRUE
       `;
       const expParams = [];
       let eIdx = 1;
@@ -487,15 +491,32 @@ router.get('/summary', authenticate, async (req, res) => {
       let totalIncentives = 0;
 
       if (!projectId) {
-        let payrollQuery = `SELECT COALESCE(SUM(net_paid), 0) as total_payroll, COALESCE(SUM(incentives), 0) as total_incentives FROM payroll WHERE status = 'paid'`;
+        let payrollQuery = `
+          SELECT 
+            COALESCE(SUM(
+              CASE 
+                WHEN ea_sal.is_verified = TRUE AND ea_inc.is_verified = TRUE THEN p.net_paid
+                WHEN ea_sal.is_verified = TRUE THEN (p.net_paid - p.incentives)
+                WHEN ea_inc.is_verified = TRUE THEN p.incentives
+                ELSE 0 
+              END
+            ), 0) as total_payroll,
+            COALESCE(SUM(
+              CASE WHEN ea_inc.is_verified = TRUE THEN p.incentives ELSE 0 END
+            ), 0) as total_incentives
+          FROM payroll p
+          LEFT JOIN expense_audits ea_sal ON ea_sal.category = 'Salaries' AND ea_sal.month = p.month AND ea_sal.year = p.year
+          LEFT JOIN expense_audits ea_inc ON ea_inc.category = 'Incentives' AND ea_inc.month = p.month AND ea_inc.year = p.year
+          WHERE p.status = 'paid'
+        `;
         const payrollParams = [];
         let pIdx = 1;
         if (effectiveStartDate) {
-          payrollQuery += ` AND payment_date >= $${pIdx++}`;
+          payrollQuery += ` AND p.payment_date >= $${pIdx++}`;
           payrollParams.push(effectiveStartDate);
         }
         if (end_date) {
-          payrollQuery += ` AND payment_date <= $${pIdx++}`;
+          payrollQuery += ` AND p.payment_date <= $${pIdx++}`;
           payrollParams.push(end_date);
         }
         const payrollRes = await pool.query(payrollQuery, payrollParams);
@@ -566,12 +587,26 @@ router.get('/charts', authenticate, async (req, res) => {
       // 1. Monthly trend
       let trendQuery = `
         WITH combined_data AS (
-          SELECT date, type, category, amount, project_id FROM transactions
-          WHERE LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+          SELECT t.date, t.type, t.category, t.amount, t.project_id FROM transactions t
+          LEFT JOIN expense_audits ea ON ea.category = t.category 
+            AND ea.month = EXTRACT(MONTH FROM t.date) 
+            AND ea.year = EXTRACT(YEAR FROM t.date)
+          WHERE LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+            AND (t.type = 'income' OR (t.type = 'expense' AND ea.is_verified = TRUE))
+          
           UNION ALL
-          SELECT payment_date as date, 'expense' as type, 'Salaries' as category, (net_paid - incentives) as amount, NULL as project_id FROM payroll WHERE status = 'paid'
+          
+          SELECT p.payment_date as date, 'expense' as type, 'Salaries' as category, (p.net_paid - p.incentives) as amount, NULL as project_id 
+          FROM payroll p 
+          LEFT JOIN expense_audits ea ON ea.category = 'Salaries' AND ea.month = p.month AND ea.year = p.year
+          WHERE p.status = 'paid' AND ea.is_verified = TRUE
+          
           UNION ALL
-          SELECT payment_date as date, 'expense' as type, 'Incentives' as category, incentives as amount, NULL as project_id FROM payroll WHERE status = 'paid' AND incentives > 0
+          
+          SELECT p.payment_date as date, 'expense' as type, 'Incentives' as category, p.incentives as amount, NULL as project_id 
+          FROM payroll p 
+          LEFT JOIN expense_audits ea ON ea.category = 'Incentives' AND ea.month = p.month AND ea.year = p.year
+          WHERE p.status = 'paid' AND p.incentives > 0 AND ea.is_verified = TRUE
         )
         SELECT 
           TO_CHAR(date, 'Mon YYYY') as month_year,
@@ -609,11 +644,26 @@ router.get('/charts', authenticate, async (req, res) => {
       // 2. Category breakdown (Expenses only)
       let catQuery = `
         WITH combined_expenses AS (
-          SELECT category, amount, date, project_id FROM transactions WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+          SELECT t.category, t.amount, t.date, t.project_id FROM transactions t
+          LEFT JOIN expense_audits ea ON ea.category = t.category 
+            AND ea.month = EXTRACT(MONTH FROM t.date) 
+            AND ea.year = EXTRACT(YEAR FROM t.date)
+          WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+            AND ea.is_verified = TRUE
+          
           UNION ALL
-          SELECT 'Salaries' as category, (net_paid - incentives) as amount, payment_date as date, NULL as project_id FROM payroll WHERE status = 'paid'
+          
+          SELECT 'Salaries' as category, (p.net_paid - p.incentives) as amount, p.payment_date as date, NULL as project_name 
+          FROM payroll p 
+          LEFT JOIN expense_audits ea ON ea.category = 'Salaries' AND ea.month = p.month AND ea.year = p.year
+          WHERE p.status = 'paid' AND ea.is_verified = TRUE
+          
           UNION ALL
-          SELECT 'Incentives' as category, incentives as amount, payment_date as date, NULL as project_id FROM payroll WHERE status = 'paid' AND incentives > 0
+          
+          SELECT 'Incentives' as category, p.incentives as amount, p.payment_date as date, NULL as project_name 
+          FROM payroll p 
+          LEFT JOIN expense_audits ea ON ea.category = 'Incentives' AND ea.month = p.month AND ea.year = p.year
+          WHERE p.status = 'paid' AND p.incentives > 0 AND ea.is_verified = TRUE
         )
         SELECT 
           category as name,
