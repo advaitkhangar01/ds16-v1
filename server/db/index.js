@@ -447,6 +447,12 @@ if (process.env.NODE_ENV !== 'test') {
         await pool.query(`
           ALTER TABLE office_expenses ADD COLUMN IF NOT EXISTS period_unlock_id INTEGER REFERENCES period_unlock_log(id) ON DELETE SET NULL;
         `);
+        await pool.query(`
+          ALTER TABLE expense_audits ADD COLUMN IF NOT EXISTS verified_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+        `);
+        await pool.query(`
+          ALTER TABLE expense_audits ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ DEFAULT NOW();
+        `);
 
         // Ensure company_capital table exists
         await pool.query(`

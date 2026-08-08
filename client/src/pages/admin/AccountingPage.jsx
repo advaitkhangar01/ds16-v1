@@ -160,13 +160,20 @@ export default function AccountingPage() {
   const [invoiceSearchQuery, setInvoiceSearchQuery] = useState('');
   const [isExportingInvoicesPdf, setIsExportingInvoicesPdf] = useState(false);
   const [showInvoiceReportModal, setShowInvoiceReportModal] = useState(false);
+
+  const [isExportingPayrollPdf, setIsExportingPayrollPdf] = useState(false);
+  const [showPayrollReportModal, setShowPayrollReportModal] = useState(false);
+
+  const [isExportingExpensesPdf, setIsExportingExpensesPdf] = useState(false);
+  const [showExpensesReportModal, setShowExpensesReportModal] = useState(false);
+
   const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   const filteredInvoicesList = useMemo(() => {
     let list = invoices;
     if (invoiceFilter === 'received') {
-      list = invoices.filter(inv => inv.status === 'paid');
+      list = invoices.filter(inv => inv.status === 'paid' || (inv.status !== 'cancelled' && parseFloat(inv.received_amount || 0) > 0));
     } else if (invoiceFilter === 'pending') {
       list = invoices.filter(inv => inv.status !== 'paid' && inv.status !== 'cancelled' && parseFloat(inv.pending_amount || 0) > 0);
     }
@@ -496,6 +503,480 @@ export default function AccountingPage() {
     }
   };
 
+  const handleExportPayrollPDF = () => {
+    if (employees.length === 0) {
+      toast.error('No employee payroll data available to export');
+      return;
+    }
+
+    setIsExportingPayrollPdf(true);
+    try {
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 12;
+
+      // 1. Header Banner
+      doc.setFillColor(30, 41, 59);
+      doc.rect(0, 0, pageWidth, 18, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(255, 255, 255);
+      doc.text('DESIGN STUDIO SIXTEEN', margin, 11);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(224, 90, 30);
+      doc.text('PAYROLL & SALARY DISBURSEMENT REPORT', margin + 70, 11);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(203, 213, 225);
+      const generatedDateStr = new Date().toLocaleString('en-IN', {
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+      const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      doc.text(`Generated: ${generatedDateStr}`, pageWidth - margin, 8, { align: 'right' });
+      doc.text(`Period: ${monthNames[selectedMonth]} ${selectedYear} (${employees.length} Staff)`, pageWidth - margin, 13, { align: 'right' });
+
+      // Calculate totals
+      let totalBase = 0;
+      let totalIncentives = 0;
+      let totalNetPaid = 0;
+      let paidCount = 0;
+
+      employees.forEach(emp => {
+        const processed = payrollHistory.find(p => p.user_id === emp.id);
+        const base = parseFloat(emp.base_salary || 0);
+        totalBase += base;
+        if (processed) {
+          paidCount++;
+          const inc = parseFloat(processed.incentives || 0);
+          const net = parseFloat(processed.net_paid || 0);
+          totalIncentives += inc;
+          totalNetPaid += net;
+        } else {
+          const inc = parseFloat(rowIncentives[emp.id] || 0);
+          totalIncentives += inc;
+          totalNetPaid += (emp.suggested_salary || base) + inc;
+        }
+      });
+
+      // 2. Executive Summary Box
+      const summaryY = 22;
+      const summaryHeight = 15;
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(margin, summaryY, pageWidth - (margin * 2), summaryHeight, 2, 2, 'FD');
+
+      const colWidth = (pageWidth - (margin * 2)) / 4;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('TOTAL BASE SALARIES', margin + 6, summaryY + 5);
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Rs. ${totalBase.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, margin + 6, summaryY + 11);
+
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('TOTAL INCENTIVES', margin + colWidth + 6, summaryY + 5);
+      doc.setFontSize(9.5);
+      doc.setTextColor(147, 51, 234);
+      doc.text(`Rs. ${totalIncentives.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, margin + colWidth + 6, summaryY + 11);
+
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('TOTAL NET PAYROLL DISBURSEMENT', margin + (colWidth * 2) + 6, summaryY + 5);
+      doc.setFontSize(9.5);
+      doc.setTextColor(5, 150, 105);
+      doc.text(`Rs. ${totalNetPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, margin + (colWidth * 2) + 6, summaryY + 11);
+
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('DISBURSEMENT PROGRESS', margin + (colWidth * 3) + 6, summaryY + 5);
+      doc.setFontSize(9.5);
+      doc.setTextColor(224, 90, 30);
+      doc.text(`Paid: ${paidCount} / ${employees.length} (${employees.length > 0 ? Math.round((paidCount / employees.length) * 100) : 0}%)`, margin + (colWidth * 3) + 6, summaryY + 11);
+
+      // 3. Table Headers
+      let startY = 41;
+      const columns = [
+        { header: 'S.No', width: 12, align: 'center' },
+        { header: 'Employee Name', width: 45, align: 'left' },
+        { header: 'Department', width: 35, align: 'left' },
+        { header: 'Role', width: 28, align: 'left' },
+        { header: 'Work Summary', width: 35, align: 'left' },
+        { header: 'Base Salary', width: 30, align: 'right' },
+        { header: 'Incentives', width: 28, align: 'right' },
+        { header: 'Net Payable', width: 32, align: 'right' },
+        { header: 'Status', width: 28, align: 'center' }
+      ];
+
+      const drawTableHeader = (y) => {
+        doc.setFillColor(30, 41, 59);
+        doc.rect(margin, y, pageWidth - (margin * 2), 7, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(255, 255, 255);
+
+        let currentX = margin;
+        columns.forEach(col => {
+          let textX = currentX + 2;
+          if (col.align === 'right') textX = currentX + col.width - 2;
+          if (col.align === 'center') textX = currentX + (col.width / 2);
+          doc.text(col.header, textX, y + 4.8, { align: col.align });
+          currentX += col.width;
+        });
+        return y + 7;
+      };
+
+      let currentY = drawTableHeader(startY);
+      const maxY = pageHeight - 16;
+      let pageCount = 1;
+
+      employees.forEach((emp, index) => {
+        const processed = payrollHistory.find(p => p.user_id === emp.id);
+        const base = parseFloat(emp.base_salary || 0);
+        const inc = processed ? parseFloat(processed.incentives || 0) : parseFloat(rowIncentives[emp.id] || 0);
+        const net = processed ? parseFloat(processed.net_paid || 0) : ((emp.suggested_salary || base) + inc);
+        const statusText = processed ? 'PAID' : 'PENDING';
+
+        const rowHeight = 7;
+
+        if (currentY + rowHeight > maxY) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          doc.setTextColor(148, 163, 184);
+          doc.text(`Design Studio Sixteen • Payroll Audit Report`, margin, pageHeight - 6);
+          doc.text(`Page ${pageCount}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+
+          doc.addPage();
+          pageCount++;
+
+          doc.setFillColor(30, 41, 59);
+          doc.rect(0, 0, pageWidth, 10, 'F');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9);
+          doc.setTextColor(255, 255, 255);
+          doc.text('DESIGN STUDIO SIXTEEN — PAYROLL AUDIT REPORT', margin, 7);
+          doc.text(`Page ${pageCount}`, pageWidth - margin, 7, { align: 'right' });
+
+          currentY = drawTableHeader(14);
+        }
+
+        if (index % 2 === 1) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(margin, currentY, pageWidth - (margin * 2), rowHeight, 'F');
+        }
+
+        doc.setDrawColor(241, 245, 249);
+        doc.line(margin, currentY + rowHeight, pageWidth - margin, currentY + rowHeight);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+
+        const workSummary = parseFloat(emp.hourly_rate) > 0 ? `${emp.total_hours || 0} hrs` : `${emp.payable_days || emp.full_days_worked || 0} days`;
+
+        const rowData = [
+          { text: `${index + 1}`, align: 'center' },
+          { text: `${emp.name || '-'}`, align: 'left', font: 'bold' },
+          { text: `${emp.department || '-'}`, align: 'left' },
+          { text: `${emp.role || 'Staff'}`, align: 'left' },
+          { text: workSummary, align: 'left' },
+          { text: `Rs. ${base.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, align: 'right' },
+          { text: `Rs. ${inc.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, align: 'right', color: [147, 51, 234] },
+          { text: `Rs. ${net.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, align: 'right', font: 'bold', color: processed ? [5, 150, 105] : [224, 90, 30] },
+          { text: statusText, align: 'center', font: 'bold', color: processed ? [5, 150, 105] : [217, 119, 6] }
+        ];
+
+        let currentX = margin;
+        rowData.forEach((item, colIdx) => {
+          const col = columns[colIdx];
+          let textX = currentX + 2;
+          if (col.align === 'right') textX = currentX + col.width - 2;
+          if (col.align === 'center') textX = currentX + (col.width / 2);
+
+          doc.setFont('helvetica', item.font || 'normal');
+          if (item.color) {
+            doc.setTextColor(item.color[0], item.color[1], item.color[2]);
+          } else {
+            doc.setTextColor(30, 41, 59);
+          }
+          doc.text(item.text, textX, currentY + 4.8, { align: col.align });
+
+          currentX += col.width;
+        });
+
+        currentY += rowHeight;
+      });
+
+      // 4. Totals Footer Row
+      if (currentY + 8 > maxY) {
+        doc.addPage();
+        pageCount++;
+        currentY = 15;
+      }
+
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, currentY, pageWidth - (margin * 2), 8, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.line(margin, currentY, pageWidth - margin, currentY);
+      doc.line(margin, currentY + 8, pageWidth - margin, currentY + 8);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`TOTAL PAYROLL (${employees.length} Employees)`, margin + 4, currentY + 5.5);
+
+      doc.text(`Rs. ${totalBase.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, margin + 185, currentY + 5.5, { align: 'right' });
+      doc.text(`Rs. ${totalIncentives.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, margin + 213, currentY + 5.5, { align: 'right' });
+      doc.text(`Rs. ${totalNetPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, margin + 245, currentY + 5.5, { align: 'right' });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Design Studio Sixteen • Confidential Payroll Audit Report`, margin, pageHeight - 6);
+      doc.text(`Page ${pageCount} of ${pageCount}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+
+      const fileName = `DS16_Payroll_Report_${selectedMonth}_${selectedYear}.pdf`;
+      doc.save(fileName);
+      toast.success('Payroll PDF report exported successfully!');
+    } catch (err) {
+      console.error('Payroll PDF export failed:', err);
+      toast.error('Failed to generate Payroll PDF report');
+    } finally {
+      setIsExportingPayrollPdf(false);
+    }
+  };
+
+  const handleExportExpensesPDF = () => {
+    if (expenses.length === 0) {
+      toast.error('No expense records available to export');
+      return;
+    }
+
+    setIsExportingExpensesPdf(true);
+    try {
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 12;
+
+      // 1. Header Banner
+      doc.setFillColor(30, 41, 59);
+      doc.rect(0, 0, pageWidth, 18, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(255, 255, 255);
+      doc.text('DESIGN STUDIO SIXTEEN', margin, 11);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(224, 90, 30);
+      doc.text('EXPENSE ACCOUNTING & AUDIT REPORT', margin + 70, 11);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(203, 213, 225);
+      const generatedDateStr = new Date().toLocaleString('en-IN', {
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+      doc.text(`Generated: ${generatedDateStr}`, pageWidth - margin, 8, { align: 'right' });
+      doc.text(`Total Records: ${expenses.length}`, pageWidth - margin, 13, { align: 'right' });
+
+      const totalExpenseAmount = expenses.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+      const categoryTotals = {};
+      expenses.forEach(e => {
+        const cat = e.category || 'Others';
+        categoryTotals[cat] = (categoryTotals[cat] || 0) + parseFloat(e.amount || 0);
+      });
+      const uniqueCatCount = Object.keys(categoryTotals).length;
+
+      // 2. Executive Summary Box
+      const summaryY = 22;
+      const summaryHeight = 15;
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(margin, summaryY, pageWidth - (margin * 2), summaryHeight, 2, 2, 'FD');
+
+      const colWidth = (pageWidth - (margin * 2)) / 3;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('TOTAL EXPENSE OUTFLOW', margin + 6, summaryY + 5);
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Rs. ${totalExpenseAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, margin + 6, summaryY + 11);
+
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('TOTAL EXPENSE ENTRIES', margin + colWidth + 6, summaryY + 5);
+      doc.setFontSize(9.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text(`${expenses.length} Entries across ${uniqueCatCount} Categories`, margin + colWidth + 6, summaryY + 11);
+
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text('PERIOD AUDIT STATUS', margin + (colWidth * 2) + 6, summaryY + 5);
+      doc.setFontSize(9.5);
+      doc.setTextColor(5, 150, 105);
+      doc.text(`Audit Locks Active • System Verified`, margin + (colWidth * 2) + 6, summaryY + 11);
+
+      // 3. Table Column Layout
+      let startY = 41;
+      const columns = [
+        { header: 'S.No', width: 12, align: 'center' },
+        { header: 'Date', width: 28, align: 'left' },
+        { header: 'Category', width: 45, align: 'left' },
+        { header: 'Description', width: 95, align: 'left' },
+        { header: 'Amount', width: 45, align: 'right' },
+        { header: 'Status / Audit', width: 48, align: 'center' }
+      ];
+
+      const drawTableHeader = (y) => {
+        doc.setFillColor(30, 41, 59);
+        doc.rect(margin, y, pageWidth - (margin * 2), 7, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(255, 255, 255);
+
+        let currentX = margin;
+        columns.forEach(col => {
+          let textX = currentX + 2;
+          if (col.align === 'right') textX = currentX + col.width - 2;
+          if (col.align === 'center') textX = currentX + (col.width / 2);
+          doc.text(col.header, textX, y + 4.8, { align: col.align });
+          currentX += col.width;
+        });
+        return y + 7;
+      };
+
+      let currentY = drawTableHeader(startY);
+      const maxY = pageHeight - 16;
+      let pageCount = 1;
+
+      const sortedExpenses = expenses.slice().sort((a,b) => new Date(b.date) - new Date(a.date));
+
+      sortedExpenses.forEach((exp, index) => {
+        const amt = parseFloat(exp.amount || 0);
+        const statusText = exp.period_unlock_id ? 'BACKDATED' : 'AUDITED';
+
+        const rowHeight = 7;
+
+        if (currentY + rowHeight > maxY) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          doc.setTextColor(148, 163, 184);
+          doc.text(`Design Studio Sixteen • Expense Audit Report`, margin, pageHeight - 6);
+          doc.text(`Page ${pageCount}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+
+          doc.addPage();
+          pageCount++;
+
+          doc.setFillColor(30, 41, 59);
+          doc.rect(0, 0, pageWidth, 10, 'F');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9);
+          doc.setTextColor(255, 255, 255);
+          doc.text('DESIGN STUDIO SIXTEEN — EXPENSE AUDIT REPORT', margin, 7);
+          doc.text(`Page ${pageCount}`, pageWidth - margin, 7, { align: 'right' });
+
+          currentY = drawTableHeader(14);
+        }
+
+        if (index % 2 === 1) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(margin, currentY, pageWidth - (margin * 2), rowHeight, 'F');
+        }
+
+        doc.setDrawColor(241, 245, 249);
+        doc.line(margin, currentY + rowHeight, pageWidth - margin, currentY + rowHeight);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+
+        const rowData = [
+          { text: `${index + 1}`, align: 'center' },
+          { text: `${new Date(exp.date).toLocaleDateString('en-IN')}`, align: 'left' },
+          { text: `${(exp.category || 'General').slice(0, 26)}`, align: 'left', font: 'bold' },
+          { text: `${(exp.description || '-').slice(0, 60)}`, align: 'left' },
+          { text: `Rs. ${amt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, align: 'right', font: 'bold' },
+          { text: statusText, align: 'center', font: 'bold', color: exp.period_unlock_id ? [217, 119, 6] : [5, 150, 105] }
+        ];
+
+        let currentX = margin;
+        rowData.forEach((item, colIdx) => {
+          const col = columns[colIdx];
+          let textX = currentX + 2;
+          if (col.align === 'right') textX = currentX + col.width - 2;
+          if (col.align === 'center') textX = currentX + (col.width / 2);
+
+          doc.setFont('helvetica', item.font || 'normal');
+          if (item.color) {
+            doc.setTextColor(item.color[0], item.color[1], item.color[2]);
+          } else {
+            doc.setTextColor(30, 41, 59);
+          }
+          doc.text(item.text, textX, currentY + 4.8, { align: col.align });
+
+          currentX += col.width;
+        });
+
+        currentY += rowHeight;
+      });
+
+      // 4. Totals Footer Row
+      if (currentY + 8 > maxY) {
+        doc.addPage();
+        pageCount++;
+        currentY = 15;
+      }
+
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, currentY, pageWidth - (margin * 2), 8, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.line(margin, currentY, pageWidth - margin, currentY);
+      doc.line(margin, currentY + 8, pageWidth - margin, currentY + 8);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`TOTAL EXPENSES (${expenses.length} Records)`, margin + 4, currentY + 5.5);
+
+      doc.text(`Rs. ${totalExpenseAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, margin + 225, currentY + 5.5, { align: 'right' });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Design Studio Sixteen • Confidential Expense Audit Report`, margin, pageHeight - 6);
+      doc.text(`Page ${pageCount} of ${pageCount}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+
+      const fileName = `DS16_Expenses_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(fileName);
+      toast.success('Expenses PDF report exported successfully!');
+    } catch (err) {
+      console.error('Expenses PDF export failed:', err);
+      toast.error('Failed to generate Expenses PDF report');
+    } finally {
+      setIsExportingExpensesPdf(false);
+    }
+  };
+
   const [projects, setProjects] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [viewType, setViewType] = useState('table'); // table or kanban
@@ -560,11 +1041,12 @@ export default function AccountingPage() {
     activeCategoriesList.forEach(cat => groups[cat] = []);
     
     expenses.forEach(exp => {
-      // 1. Filter by selected month and year
+      // 1. Filter by selected month and year (bypass if global date range filters are active)
       const expDate = new Date(exp.date);
       const expMonth = expDate.getMonth() + 1;
       const expYear = expDate.getFullYear();
-      if (expMonth !== selectedMonth || expYear !== selectedYear) {
+      const hasDateFilter = !!filters.startDate || !!filters.endDate;
+      if (!hasDateFilter && (expMonth !== selectedMonth || expYear !== selectedYear)) {
         return;
       }
 
@@ -1761,8 +2243,8 @@ export default function AccountingPage() {
                                 type="checkbox" 
                                 checked={!!auditedCategories[cat.toLowerCase()]} 
                                 onChange={() => toggleAudit(cat)} 
-                                disabled={!isAdmin}
-                                className={`w-4 h-4 rounded border-gray-300 text-[#E05A1E] focus:ring-[#E05A1E] ${!isAdmin ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`} 
+                                disabled={!isAdmin || cat.toLowerCase() === 'salaries' || cat.toLowerCase() === 'incentives'}
+                                className={`w-4 h-4 rounded border-gray-300 text-[#E05A1E] focus:ring-[#E05A1E] ${(!isAdmin || cat.toLowerCase() === 'salaries' || cat.toLowerCase() === 'incentives') ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`} 
                               />
                               {auditedCategories[cat.toLowerCase()] && (
                                 <CheckCircle2 size={12} className="text-emerald-500 animate-in zoom-in duration-200" />
@@ -1846,6 +2328,32 @@ export default function AccountingPage() {
                   </div>
                 </div>
 
+                {isAdmin && (
+                  <div className="flex items-center gap-4 bg-gray-50 border border-gray-100 p-2.5 px-4 rounded-xl no-print">
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Verify Category Audit:</span>
+                    <label className="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
+                      <input 
+                        type="checkbox"
+                        checked={!!auditedCategories['salaries']}
+                        disabled={isPeriodLocked}
+                        onChange={() => toggleAudit('Salaries')}
+                        className="w-4 h-4 rounded border-gray-300 text-[#E05A1E] focus:ring-[#E05A1E]"
+                      />
+                      Salaries
+                    </label>
+                    <label className="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
+                      <input 
+                        type="checkbox"
+                        checked={!!auditedCategories['incentives']}
+                        disabled={isPeriodLocked}
+                        onChange={() => toggleAudit('Incentives')}
+                        className="w-4 h-4 rounded border-gray-300 text-[#E05A1E] focus:ring-[#E05A1E]"
+                      />
+                      Incentives
+                    </label>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-3">
                   <div className="flex bg-gray-100 p-1 rounded-xl mr-2 no-print">
                     <button 
@@ -1918,6 +2426,37 @@ export default function AccountingPage() {
                       style={{ width: `${(payrollHistory.length / (employees.length || 1)) * 100}%` }}
                     />
                   </div>
+                </div>
+
+                {/* Payroll Report Actions */}
+                <div className="flex items-center gap-2 no-print">
+                  <button
+                    onClick={() => setShowPayrollReportModal(true)}
+                    disabled={employees.length === 0}
+                    className="btn-secondary py-2 px-3 text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all disabled:opacity-50"
+                    title="Preview Payroll Accounting Report"
+                  >
+                    <FileText size={14} className="text-primary" />
+                    <span>View Report</span>
+                  </button>
+                  <button
+                    onClick={handleExportPayrollPDF}
+                    disabled={employees.length === 0 || isExportingPayrollPdf}
+                    className="btn-primary py-2 px-3.5 text-xs font-bold shadow-sm flex items-center gap-2 transition-all disabled:opacity-50"
+                    title="Export Payroll PDF Report"
+                  >
+                    {isExportingPayrollPdf ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Exporting PDF...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download size={14} />
+                        <span>Export PDF Report</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
@@ -2328,12 +2867,43 @@ export default function AccountingPage() {
 
         {activeTab === 'expenses' && (
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
-              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-                <TrendingUp size={18} className="text-emerald-500" />
-                Recent Expense History
-              </h3>
-              <p className="text-[10px] font-bold text-gray-400 italic">Records older than 15 days are locked for auditing integrity</p>
+            <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                  <TrendingUp size={18} className="text-emerald-500" />
+                  Recent Expense History
+                </h3>
+                <p className="text-[10px] font-bold text-gray-400 italic">Records older than 15 days are locked for auditing integrity</p>
+              </div>
+              <div className="flex items-center gap-2 no-print">
+                <button
+                  onClick={() => setShowExpensesReportModal(true)}
+                  disabled={expenses.length === 0}
+                  className="btn-secondary py-1.5 px-3 text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all disabled:opacity-50"
+                  title="Preview Expenses Audit Statement"
+                >
+                  <FileText size={14} className="text-primary" />
+                  <span>View Report</span>
+                </button>
+                <button
+                  onClick={handleExportExpensesPDF}
+                  disabled={expenses.length === 0 || isExportingExpensesPdf}
+                  className="btn-primary py-1.5 px-3.5 text-xs font-bold shadow-sm flex items-center gap-2 transition-all disabled:opacity-50"
+                  title="Export Expenses PDF Report"
+                >
+                  {isExportingExpensesPdf ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Exporting PDF...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={14} />
+                      <span>Export PDF Report</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
             
             <div className="overflow-x-auto">
@@ -2709,7 +3279,7 @@ export default function AccountingPage() {
                   {!loadingInvoices && filteredInvoicesList.length === 0 && (
                     <tr>
                       <td colSpan="13" className="px-2 py-12 text-center text-gray-400 italic text-sm">
-                        {invoiceFilter === 'received' ? 'No received (fully paid) invoices found.' : 
+                        {invoiceFilter === 'received' ? 'No received or partially paid invoices found.' : 
                          invoiceFilter === 'pending' ? 'No pending invoices found.' : 
                          'No invoice history available. Use the Invoice Editor to create new invoices.'}
                       </td>
@@ -2826,7 +3396,7 @@ export default function AccountingPage() {
                           <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Expenses</p>
                             <h4 className="text-base font-bold text-red-500 mt-1">₹{(preflight?.financials?.total_expense || 0).toLocaleString('en-IN')}</h4>
-                            <span className="text-[9px] text-muted italic">Including vendor payments & overheads</span>
+                            <span className="text-[9px] text-muted italic">Overheads + Salaries (Excl. Vendors)</span>
                           </div>
                           <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Net Realized P&L</p>
@@ -3170,7 +3740,7 @@ export default function AccountingPage() {
                       <td className="py-2.5 px-4 text-right text-gray-900 font-mono">₹{(preflight?.financials?.received_income || 0).toLocaleString()}</td>
                     </tr>
                     <tr>
-                      <td className="py-2.5 px-4 text-gray-500">Total Expenses (Incl. Vendors)</td>
+                      <td className="py-2.5 px-4 text-gray-500">Total Expenses (Excl. Vendors)</td>
                       <td className="py-2.5 px-4 text-right text-red-500 font-mono">-₹{(preflight?.financials?.total_expense || 0).toLocaleString()}</td>
                     </tr>
                     <tr className="bg-gray-50 font-bold">
@@ -3327,7 +3897,7 @@ export default function AccountingPage() {
                 <div className="bg-red-50/40 border border-red-100 rounded-xl p-4">
                   <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider">Expenses (Total)</p>
                   <h4 className="text-base font-black text-red-500 mt-1">₹{parseFloat(selectedHistoryDetail.log.snapshot?.expenses?.total || 0).toLocaleString()}</h4>
-                  <span className="text-[9px] text-muted italic">Overheads + Salaries + Vendors</span>
+                  <span className="text-[9px] text-muted italic">Overheads + Salaries (Excl. Vendors)</span>
                 </div>
                 <div className="bg-blue-50/40 border border-blue-100 rounded-xl p-4">
                   <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Net Realized Profit</p>
@@ -3525,8 +4095,8 @@ export default function AccountingPage() {
         </div>
       )}
 
-      {/* Dedicated Invoice Report Modal */}
-      {showInvoiceReportModal && (
+      {/* Dedicated Payroll Report Modal */}
+      {showPayrollReportModal && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 no-print-overlay">
           <div className="bg-white rounded-2xl max-w-5xl w-full border border-gray-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 my-8 flex flex-col max-h-[90vh]">
             
@@ -3534,12 +4104,12 @@ export default function AccountingPage() {
             <div className="p-4 border-b border-gray-200 bg-gray-900 text-white flex items-center justify-between no-print">
               <div className="flex items-center gap-2">
                 <FileText size={18} className="text-[#E05A1E]" />
-                <h3 className="text-sm font-bold tracking-wide">Invoices Accounting Report Preview</h3>
+                <h3 className="text-sm font-bold tracking-wide">Payroll & Salary Disbursement Report Preview</h3>
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handleExportInvoicesPDF}
-                  disabled={isExportingInvoicesPdf}
+                  onClick={handleExportPayrollPDF}
+                  disabled={isExportingPayrollPdf}
                   className="px-3 py-1.5 bg-[#E05A1E] hover:bg-[#c94e16] text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
                 >
                   <Download size={14} />
@@ -3553,7 +4123,7 @@ export default function AccountingPage() {
                   <span>Print</span>
                 </button>
                 <button
-                  onClick={() => setShowInvoiceReportModal(false)}
+                  onClick={() => setShowPayrollReportModal(false)}
                   className="p-1 text-gray-400 hover:text-white rounded-lg transition-colors ml-2"
                 >
                   <X size={18} />
@@ -3562,7 +4132,7 @@ export default function AccountingPage() {
             </div>
 
             {/* Document Content */}
-            <div className="p-6 sm:p-8 overflow-y-auto space-y-6 flex-1 bg-white" id="printable-invoice-report-area">
+            <div className="p-6 sm:p-8 overflow-y-auto space-y-6 flex-1 bg-white" id="printable-payroll-report-area">
               
               {/* Report Header */}
               <div className="border-b-2 border-slate-900 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
@@ -3571,14 +4141,14 @@ export default function AccountingPage() {
                   <p className="text-xs text-slate-500 font-semibold mt-0.5">104, A, Pande Layout, Khamla, Nagpur • GSTIN: 27AJKPG8543M1ZN</p>
                 </div>
                 <div className="sm:text-right">
-                  <span className="inline-block px-3 py-1 bg-orange-100 text-[#E05A1E] rounded-md text-xs font-black uppercase tracking-widest">
-                    Financial Audit Statement
+                  <span className="inline-block px-3 py-1 bg-emerald-100 text-emerald-800 rounded-md text-xs font-black uppercase tracking-widest">
+                    Payroll Audit Statement
                   </span>
                   <p className="text-[11px] font-bold text-slate-500 mt-1">
-                    Generated: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    Period: {["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][selectedMonth]} {selectedYear}
                   </p>
                   <p className="text-[10px] text-slate-400 font-medium">
-                    Filter: {invoiceFilter.toUpperCase()} ({filteredInvoicesList.length} Invoices)
+                    {employees.length} Staff Mapped ({payrollHistory.length} Disbursed)
                   </p>
                 </div>
               </div>
@@ -3586,46 +4156,37 @@ export default function AccountingPage() {
               {/* Executive Summary Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Billed</p>
-                  <p className="text-base font-black font-mono text-slate-900 mt-0.5">₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN')}</p>
-                  <p className="text-[10px] text-slate-500 font-semibold">{filteredInvoicesList.length} Invoices Recorded</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Base Salaries</p>
+                  <p className="text-base font-black font-mono text-slate-900 mt-0.5">
+                    ₹{employees.reduce((sum, e) => sum + parseFloat(e.base_salary || 0), 0).toLocaleString('en-IN')}
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-semibold">{employees.length} Active Staff</p>
                 </div>
 
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Base Revenue (Principal)</p>
-                  <p className="text-base font-black font-mono text-slate-800 mt-0.5">₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
-                  <p className="text-[10px] text-slate-500 font-semibold">Excluding GST taxes</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Incentives</p>
+                  <p className="text-base font-black font-mono text-purple-600 mt-0.5">
+                    ₹{payrollHistory.reduce((sum, p) => sum + parseFloat(p.incentives || 0), 0).toLocaleString('en-IN')}
+                  </p>
+                  <p className="text-[10px] text-purple-700 font-semibold">Bonus & Adjustments</p>
                 </div>
 
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Collections (Received)</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Net Payroll Paid</p>
                   <p className="text-base font-black font-mono text-emerald-600 mt-0.5">
-                    ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0).toLocaleString('en-IN')}
+                    ₹{payrollHistory.reduce((sum, p) => sum + parseFloat(p.net_paid || 0), 0).toLocaleString('en-IN')}
                   </p>
-                  <p className="text-[10px] text-emerald-700 font-semibold">
-                    {invoiceTotalsBreakdown.grand > 0 ? Math.round((filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0) / invoiceTotalsBreakdown.grand) * 100) : 0}% Realized
-                  </p>
+                  <p className="text-[10px] text-emerald-700 font-semibold">Disbursed Balance</p>
                 </div>
 
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pending Receivables</p>
-                  <p className="text-base font-black font-mono text-orange-600 mt-0.5">
-                    ₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0).toLocaleString('en-IN')}
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Disbursement Status</p>
+                  <p className="text-base font-black font-mono text-slate-800 mt-0.5">
+                    {payrollHistory.length} / {employees.length}
                   </p>
-                  <p className="text-[10px] text-orange-700 font-semibold">Outstanding Balance</p>
-                </div>
-              </div>
-
-              {/* Taxes Summary Ribbon */}
-              <div className="flex flex-wrap items-center justify-between gap-4 p-3 bg-amber-50/60 border border-amber-200 rounded-lg text-xs font-semibold text-amber-950">
-                <div>
-                  <span>GST Liabilities: <strong>₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></span>
-                </div>
-                <div>
-                  <span>TDS Deductions: <strong className="text-red-700">₹{invoiceTotalsBreakdown.tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></span>
-                </div>
-                <div>
-                  <span>Net Tax Adjusted: <strong>₹{(invoiceTotalsBreakdown.gst - invoiceTotalsBreakdown.tds).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></span>
+                  <p className="text-[10px] text-orange-600 font-semibold">
+                    {employees.length - payrollHistory.length} Pending
+                  </p>
                 </div>
               </div>
 
@@ -3635,56 +4196,37 @@ export default function AccountingPage() {
                   <thead>
                     <tr className="bg-slate-900 text-white">
                       <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-center w-8">#</th>
-                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Invoice No</th>
-                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Billed To</th>
-                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Project</th>
-                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Issue Date</th>
-                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Principal</th>
-                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">GST</th>
-                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">TDS</th>
-                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Total Amt</th>
-                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Received</th>
-                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Pending</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Employee Name</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Department</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Role</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Work Summary</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Base Salary</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Incentives</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Net Salary</th>
                       <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-center">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredInvoicesList.map((inv, idx) => {
-                      const amount = parseFloat(inv.amount || 0);
-                      let principal = amount;
-                      let gst = 0;
-                      if (!inv.is_payment_stage) {
-                        const taxDetails = inv.tax_details || {};
-                        const isGstEnabled = taxDetails.isGstEnabled !== false;
-                        if (isGstEnabled) {
-                          const cgstPercent = parseFloat(taxDetails.cgstPercent ?? 9);
-                          const sgstPercent = parseFloat(taxDetails.sgstPercent ?? 9);
-                          const igstPercent = parseFloat(taxDetails.igstPercent ?? 18);
-                          const isIgst = !!taxDetails.isIgst;
-                          const totalTaxPercent = isIgst ? igstPercent : (cgstPercent + sgstPercent);
-                          if (totalTaxPercent > 0) {
-                            principal = amount / (1 + totalTaxPercent / 100);
-                            gst = amount - principal;
-                          }
-                        }
-                      }
-                      const tds = parseFloat(inv.tax_details?.tdsAmount || 0);
+                    {employees.map((emp, idx) => {
+                      const processed = payrollHistory.find(p => p.user_id === emp.id);
+                      const base = parseFloat(emp.base_salary || 0);
+                      const inc = processed ? parseFloat(processed.incentives || 0) : parseFloat(rowIncentives[emp.id] || 0);
+                      const net = processed ? parseFloat(processed.net_paid || 0) : ((emp.suggested_salary || base) + inc);
+                      const workSummary = parseFloat(emp.hourly_rate) > 0 ? `${emp.total_hours || 0} hrs` : `${emp.payable_days || emp.full_days_worked || 0} days`;
+
                       return (
-                        <tr key={inv.id || idx} className={idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'}>
+                        <tr key={emp.id || idx} className={idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'}>
                           <td className="px-3 py-2 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
-                          <td className="px-3 py-2 font-mono font-bold text-[#E05A1E] text-[11px]">{inv.invoice_no || '-'}</td>
-                          <td className="px-3 py-2 font-semibold text-slate-800">{inv.client_name_full || inv.client_name || '-'}</td>
-                          <td className="px-3 py-2 text-slate-600">{inv.project_name || 'No Project'}</td>
-                          <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{inv.date ? new Date(inv.date).toLocaleDateString('en-IN') : '-'}</td>
-                          <td className="px-3 py-2 text-right font-mono text-slate-700">₹{principal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-3 py-2 text-right font-mono text-slate-600">₹{gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-3 py-2 text-right font-mono text-red-600">₹{tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-3 py-2 text-right font-mono font-bold text-slate-900">₹{amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-3 py-2 text-right font-mono font-bold text-emerald-600">₹{parseFloat(inv.received_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-3 py-2 text-right font-mono font-bold text-orange-600">₹{parseFloat(inv.pending_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2 font-semibold text-slate-900">{emp.name}</td>
+                          <td className="px-3 py-2 text-slate-600">{emp.department}</td>
+                          <td className="px-3 py-2 text-slate-500 capitalize">{emp.role}</td>
+                          <td className="px-3 py-2 text-slate-600">{workSummary}</td>
+                          <td className="px-3 py-2 text-right font-mono text-slate-700">₹{base.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2 text-right font-mono text-purple-600">₹{inc.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2 text-right font-mono font-bold text-slate-900">₹{net.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                           <td className="px-3 py-2 text-center whitespace-nowrap">
-                            <span className="inline-block px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-full bg-slate-100 text-slate-700">
-                              {inv.is_payment_stage ? 'Payment Stage' : inv.status}
+                            <span className={`inline-block px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-full ${processed ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                              {processed ? 'Paid' : 'Pending'}
                             </span>
                           </td>
                         </tr>
@@ -3693,13 +4235,10 @@ export default function AccountingPage() {
                   </tbody>
                   <tfoot className="bg-slate-900 text-white font-bold border-t-2 border-slate-900">
                     <tr>
-                      <td colSpan={5} className="px-3 py-2.5 uppercase text-[10px]">Grand Total ({filteredInvoicesList.length} Invoices)</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-xs">₹{invoiceTotalsBreakdown.principal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-xs">₹{invoiceTotalsBreakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-xs text-red-400">₹{invoiceTotalsBreakdown.tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-xs text-orange-400">₹{invoiceTotalsBreakdown.grand.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-xs text-emerald-400">₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.received_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-xs text-orange-400">₹{filteredInvoicesList.reduce((sum, i) => sum + parseFloat(i.pending_amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      <td colSpan={5} className="px-3 py-2.5 uppercase text-[10px]">Grand Total ({employees.length} Employees)</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs">₹{employees.reduce((sum, e) => sum + parseFloat(e.base_salary || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs text-purple-400">₹{payrollHistory.reduce((sum, p) => sum + parseFloat(p.incentives || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs text-emerald-400">₹{payrollHistory.reduce((sum, p) => sum + parseFloat(p.net_paid || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                       <td></td>
                     </tr>
                   </tfoot>
@@ -3708,7 +4247,142 @@ export default function AccountingPage() {
 
               {/* Report Footer */}
               <div className="pt-4 border-t border-slate-200 flex justify-between items-center text-[10px] text-slate-400">
-                <p>This is a system-generated accounting report for Design Studio Sixteen.</p>
+                <p>This is a system-generated payroll audit report for Design Studio Sixteen.</p>
+                <p>Page 1 of 1</p>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dedicated Expenses Report Modal */}
+      {showExpensesReportModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 no-print-overlay">
+          <div className="bg-white rounded-2xl max-w-5xl w-full border border-gray-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 my-8 flex flex-col max-h-[90vh]">
+            
+            {/* Modal Header Controls */}
+            <div className="p-4 border-b border-gray-200 bg-gray-900 text-white flex items-center justify-between no-print">
+              <div className="flex items-center gap-2">
+                <FileText size={18} className="text-[#E05A1E]" />
+                <h3 className="text-sm font-bold tracking-wide">Expense Accounting Report Preview</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExportExpensesPDF}
+                  disabled={isExportingExpensesPdf}
+                  className="px-3 py-1.5 bg-[#E05A1E] hover:bg-[#c94e16] text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                >
+                  <Download size={14} />
+                  <span>Download PDF</span>
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border border-gray-700"
+                >
+                  <Printer size={14} />
+                  <span>Print</span>
+                </button>
+                <button
+                  onClick={() => setShowExpensesReportModal(false)}
+                  className="p-1 text-gray-400 hover:text-white rounded-lg transition-colors ml-2"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Document Content */}
+            <div className="p-6 sm:p-8 overflow-y-auto space-y-6 flex-1 bg-white" id="printable-expenses-report-area">
+              
+              {/* Report Header */}
+              <div className="border-b-2 border-slate-900 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+                <div>
+                  <h1 className="text-2xl font-black text-slate-900 tracking-tight">DESIGN STUDIO SIXTEEN</h1>
+                  <p className="text-xs text-slate-500 font-semibold mt-0.5">104, A, Pande Layout, Khamla, Nagpur • GSTIN: 27AJKPG8543M1ZN</p>
+                </div>
+                <div className="sm:text-right">
+                  <span className="inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-md text-xs font-black uppercase tracking-widest">
+                    Expense Audit Statement
+                  </span>
+                  <p className="text-[11px] font-bold text-slate-500 mt-1">
+                    Generated: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </p>
+                  <p className="text-[10px] text-slate-400 font-medium">
+                    Total Records: {expenses.length} Entries
+                  </p>
+                </div>
+              </div>
+
+              {/* Executive Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Expense Outflow</p>
+                  <p className="text-base font-black font-mono text-slate-900 mt-0.5">
+                    ₹{expenses.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0).toLocaleString('en-IN')}
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-semibold">{expenses.length} Records Tracked</p>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Categories Mapped</p>
+                  <p className="text-base font-black font-mono text-slate-800 mt-0.5">
+                    {new Set(expenses.map(e => e.category)).size} Categories
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-semibold">Active Ledger Allocation</p>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Audit Status</p>
+                  <p className="text-base font-black font-mono text-emerald-600 mt-0.5">
+                    System Verified
+                  </p>
+                  <p className="text-[10px] text-emerald-700 font-semibold">Period Locks Enforced</p>
+                </div>
+              </div>
+
+              {/* Formatted Audit Table */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-900 text-white">
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-center w-8">#</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Date</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Category</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px]">Description</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Amount</th>
+                      <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-[10px] text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {expenses.slice().sort((a,b) => new Date(b.date) - new Date(a.date)).map((exp, idx) => (
+                      <tr key={exp.id || idx} className={idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'}>
+                        <td className="px-3 py-2 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{new Date(exp.date).toLocaleDateString('en-IN')}</td>
+                        <td className="px-3 py-2 font-semibold text-slate-900">{exp.category}</td>
+                        <td className="px-3 py-2 text-slate-600 italic">{exp.description || '-'}</td>
+                        <td className="px-3 py-2 text-right font-mono font-bold text-slate-900">₹{parseFloat(exp.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-3 py-2 text-center whitespace-nowrap">
+                          <span className={`inline-block px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-full ${exp.period_unlock_id ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                            {exp.period_unlock_id ? 'Backdated' : 'Audited'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-slate-900 text-white font-bold border-t-2 border-slate-900">
+                    <tr>
+                      <td colSpan={4} className="px-3 py-2.5 uppercase text-[10px]">Total Expenses ({expenses.length} Records)</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs text-orange-400">₹{expenses.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* Report Footer */}
+              <div className="pt-4 border-t border-slate-200 flex justify-between items-center text-[10px] text-slate-400">
+                <p>This is a system-generated expense audit report for Design Studio Sixteen.</p>
                 <p>Page 1 of 1</p>
               </div>
 

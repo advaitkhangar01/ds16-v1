@@ -29,7 +29,7 @@ export default function InvoiceHistoryTab({ projectId, project }) {
   const filteredInvoicesList = useMemo(() => {
     let list = invoices;
     if (invoiceFilter === 'received') {
-      list = invoices.filter(inv => inv.status === 'paid');
+      list = invoices.filter(inv => inv.status === 'paid' || (inv.status !== 'cancelled' && parseFloat(inv.received_amount || 0) > 0));
     } else if (invoiceFilter === 'pending') {
       list = invoices.filter(inv => inv.status !== 'paid' && inv.status !== 'cancelled' && parseFloat(inv.pending_amount || 0) > 0);
     }
@@ -266,7 +266,7 @@ export default function InvoiceHistoryTab({ projectId, project }) {
             {filteredInvoicesList.length === 0 ? (
               <tr>
                 <td colSpan="10" className="px-2 py-10 text-center text-muted italic">
-                  {invoiceFilter === 'received' ? 'No received (fully paid) invoices found for this project.' :
+                  {invoiceFilter === 'received' ? 'No received or partially paid invoices found for this project.' :
                    invoiceFilter === 'pending' ? 'No pending invoices found for this project.' :
                    'No invoices found for this project.'}
                 </td>
