@@ -98,7 +98,7 @@ async function generateSnapshot(month, year, client = pool) {
   // All other transactions expenses
   const otherExpRes = await client.query(
     `SELECT COALESCE(SUM(amount), 0) as val FROM transactions 
-     WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives') 
+     WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND vendor_id IS NULL
        AND date >= $1 AND date <= $2`,
     [monthStart, monthEnd]
   );
@@ -111,7 +111,7 @@ async function generateSnapshot(month, year, client = pool) {
        SELECT category, amount FROM office_expenses WHERE date >= $1 AND date <= $2
        UNION ALL
        SELECT category, amount FROM transactions 
-       WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+       WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND vendor_id IS NULL
          AND date >= $1 AND date <= $2
      ) sub
      GROUP BY category`,
@@ -241,9 +241,9 @@ router.get('/preview', requireAccounting, async (req, res) => {
     
     const catRes = await pool.query(
       `WITH active_categories AS (
-         SELECT DISTINCT category FROM transactions 
-         WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
-           AND date >= $1 AND date <= $2
+          SELECT DISTINCT category FROM transactions 
+          WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND vendor_id IS NULL
+            AND date >= $1 AND date <= $2
          UNION
          SELECT DISTINCT category FROM office_expenses 
          WHERE date >= $1 AND date <= $2
@@ -389,9 +389,9 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
 
     const categoryRes = await client.query(
       `SELECT DISTINCT category FROM (
-         SELECT category FROM transactions 
-         WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
-           AND date >= $1 AND date <= $2
+          SELECT category FROM transactions 
+          WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND vendor_id IS NULL
+            AND date >= $1 AND date <= $2
          UNION
          SELECT category FROM office_expenses WHERE date >= $1 AND date <= $2
        ) sub`,

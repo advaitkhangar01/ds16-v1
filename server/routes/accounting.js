@@ -81,7 +81,7 @@ router.post('/expenses', upload.single('receipt'), checkPeriodLock, async (req, 
 });
 
 // Delete expense
-router.delete('/expenses/:id', requireAdmin, async (req, res) => {
+router.delete('/expenses/:id', requireAdmin, checkPeriodLock, async (req, res) => {
   try {
     // L2: return 404 if expense doesn't exist
     const { rowCount } = await pool.query('DELETE FROM office_expenses WHERE id = $1', [req.params.id]);

@@ -2,6 +2,40 @@
 const pool = require('../db');
 
 /**
+ * Extracts month and year for Asia/Kolkata (IST) timezone to prevent UTC/local date shifts.
+ */
+function getKolkataMonthAndYear(dateInput) {
+  if (!dateInput) return null;
+  
+  if (typeof dateInput === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+    const parts = dateInput.split('-');
+    return {
+      month: parseInt(parts[1], 10),
+      year: parseInt(parts[0], 10)
+    };
+  }
+  
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return null;
+  
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: 'numeric'
+  });
+  
+  const parts = formatter.formatToParts(d);
+  let month = null;
+  let year = null;
+  for (const part of parts) {
+    if (part.type === 'month') month = parseInt(part.value, 10);
+    if (part.type === 'year') year = parseInt(part.value, 10);
+  }
+  
+  return { month, year };
+}
+
+/**
  * Middleware to check if a transaction, expense, or payroll entry falls inside a closed month.
  * If closed, blocks non-admins.
  * Allows admins ONLY if there is an active period_unlock_log window for that month.
@@ -21,16 +55,18 @@ async function checkPeriodLock(req, res, next) {
       
       // If it's a DELETE operation, query the date from the DB by ID
       if (!dateStr && req.params.id) {
-        const id = parseInt(req.params.id);
-        if (req.originalUrl.includes('transactions')) {
-          const { rows } = await pool.query('SELECT date FROM transactions WHERE id = $1', [id]);
-          if (rows[0]) dateStr = rows[0].date;
-        } else if (req.originalUrl.includes('expenses')) {
-          const { rows } = await pool.query('SELECT date FROM office_expenses WHERE id = $1', [id]);
-          if (rows[0]) dateStr = rows[0].date;
-        } else if (req.originalUrl.includes('payroll')) {
-          const { rows } = await pool.query('SELECT payment_date as date FROM payroll WHERE id = $1', [id]);
-          if (rows[0]) dateStr = rows[0].date;
+        const id = parseInt(req.params.id, 10);
+        if (!isNaN(id)) {
+          if (req.originalUrl.includes('transactions')) {
+            const { rows } = await pool.query('SELECT date FROM transactions WHERE id = $1', [id]);
+            if (rows[0]) dateStr = rows[0].date;
+          } else if (req.originalUrl.includes('expenses')) {
+            const { rows } = await pool.query('SELECT date FROM office_expenses WHERE id = $1', [id]);
+            if (rows[0]) dateStr = rows[0].date;
+          } else if (req.originalUrl.includes('payroll')) {
+            const { rows } = await pool.query('SELECT payment_date as date FROM payroll WHERE id = $1', [id]);
+            if (rows[0]) dateStr = rows[0].date;
+          }
         }
       }
 
@@ -40,10 +76,10 @@ async function checkPeriodLock(req, res, next) {
       }
 
       if (dateStr) {
-        const d = new Date(dateStr);
-        if (!isNaN(d.getTime())) {
-          month = d.getMonth() + 1;
-          year = d.getFullYear();
+        const parsed = getKolkataMonthAndYear(dateStr);
+        if (parsed) {
+          month = parsed.month;
+          year = parsed.year;
         }
       }
     }

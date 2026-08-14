@@ -1176,7 +1176,13 @@ export default function AccountingPage() {
       
       const { data } = await api.get(url);
       // Explicitly filter out vendor payments from the general expense list
-      setExpenses(data.transactions.filter(t => t.category !== 'vendor_payment'));
+      setExpenses(data.transactions.filter(t => 
+        t.category !== 'vendor_payment' && 
+        t.category !== 'vendor payment' && 
+        t.category?.toLowerCase() !== 'vendor_payment' && 
+        t.category?.toLowerCase() !== 'vendor payment' && 
+        !t.vendor_id
+      ));
     } catch (err) {
       toast.error('Failed to load expenses');
     }

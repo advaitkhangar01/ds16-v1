@@ -49,7 +49,7 @@ router.get('/transactions', authenticate, async (req, res) => {
           projectQuery += ` AND t.category = $${pIdx++}`;
           projectParams.push(category);
         } else {
-          projectQuery += ` AND t.category != 'vendor_payment'`;
+          projectQuery += ` AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment') AND t.vendor_id IS NULL`;
         }
         if (type) {
           projectQuery += ` AND t.type = $${pIdx++}`;
@@ -68,7 +68,8 @@ router.get('/transactions', authenticate, async (req, res) => {
 
         // Fetch virtual income transactions from payment stages and invoices
         let virtualTransactions = [];
-        if ((!type || type === 'income') && (!category || (category !== 'vendor_payment' && category !== 'salary' && category !== 'incentive' && category !== 'salaries' && category !== 'incentives'))) {
+        const catStr = typeof category === 'string' ? category.toLowerCase() : '';
+        if ((!type || type === 'income') && (!category || (!['vendor_payment', 'vendor payment'].includes(catStr) && catStr !== 'salary' && catStr !== 'incentive' && catStr !== 'salaries' && catStr !== 'incentives'))) {
           let stageQuery = `
             SELECT 
               pps.id, 
@@ -195,7 +196,7 @@ router.get('/transactions', authenticate, async (req, res) => {
       query += ` AND t.category = $${idx++}`;
       params.push(category);
     } else {
-      query += ` AND t.category != 'vendor_payment'`;
+      query += ` AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment') AND t.vendor_id IS NULL`;
     }
     if (type) {
       query += ` AND t.type = $${idx++}`;
@@ -464,7 +465,7 @@ router.get('/summary', authenticate, async (req, res) => {
         LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
           AND ea.month = EXTRACT(MONTH FROM t.date) 
           AND ea.year = EXTRACT(YEAR FROM t.date)
-        WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+        WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND t.vendor_id IS NULL
           AND ea.is_verified = TRUE
       `;
       const expParams = [];
@@ -591,7 +592,7 @@ router.get('/charts', authenticate, async (req, res) => {
           LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
             AND ea.month = EXTRACT(MONTH FROM t.date) 
             AND ea.year = EXTRACT(YEAR FROM t.date)
-          WHERE LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+          WHERE LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND t.vendor_id IS NULL
             AND (t.type = 'income' OR (t.type = 'expense' AND ea.is_verified = TRUE))
           
           UNION ALL
@@ -611,7 +612,7 @@ router.get('/charts', authenticate, async (req, res) => {
         SELECT 
           TO_CHAR(date, 'Mon YYYY') as month_year,
           SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
-          SUM(CASE WHEN type = 'expense' AND category != 'vendor_payment' THEN amount ELSE 0 END) as expense,
+          SUM(CASE WHEN type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'vendor payment') THEN amount ELSE 0 END) as expense,
           MIN(date) as sort_date
         FROM combined_data
         WHERE 1=1
@@ -648,7 +649,7 @@ router.get('/charts', authenticate, async (req, res) => {
           LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
             AND ea.month = EXTRACT(MONTH FROM t.date) 
             AND ea.year = EXTRACT(YEAR FROM t.date)
-          WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+          WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND t.vendor_id IS NULL
             AND ea.is_verified = TRUE
           
           UNION ALL

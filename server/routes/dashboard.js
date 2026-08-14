@@ -277,7 +277,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
           AND ea.month = EXTRACT(MONTH FROM t.date) 
           AND ea.year = EXTRACT(YEAR FROM t.date)
         WHERE t.type = 'expense' AND t.date >= $1 AND t.date <= $2
-          AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+          AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND t.vendor_id IS NULL
           AND ea.is_verified = TRUE
       `;
     } else {
@@ -288,7 +288,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
           AND ea.month = EXTRACT(MONTH FROM t.date) 
           AND ea.year = EXTRACT(YEAR FROM t.date)
         WHERE t.type = 'expense' AND t.date >= $1 AND t.date <= $2
-          AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+          AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND t.vendor_id IS NULL
           AND ea.is_verified = TRUE
           AND EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.status IN ('Sanction', 'Under Sanctioning'))
       `;
@@ -563,7 +563,7 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
           LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
             AND ea.month = EXTRACT(MONTH FROM t.date) 
             AND ea.year = EXTRACT(YEAR FROM t.date)
-          WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'salary', 'incentive', 'salaries', 'incentives')
+          WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND t.vendor_id IS NULL
             AND t.date >= $1 AND t.date <= $2
             AND ($5::boolean OR p.id IS NULL OR p.status IN ('Sanction', 'Under Sanctioning'))
             AND ea.is_verified = TRUE
