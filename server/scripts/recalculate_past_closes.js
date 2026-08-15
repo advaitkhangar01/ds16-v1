@@ -67,28 +67,52 @@ async function run() {
 
       // 2. Expenses aggregations
       const overheadRes = await client.query(
-        "SELECT COALESCE(SUM(amount), 0) as val FROM office_expenses WHERE date >= $1 AND date <= $2",
-        [monthStart, monthEnd]
+        `SELECT COALESCE(SUM(oe.amount), 0) as val 
+         FROM office_expenses oe
+         INNER JOIN expense_audits ea ON LOWER(ea.category) = LOWER(oe.category) 
+         WHERE oe.date >= $1 AND oe.date <= $2 
+           AND ea.month = $3 AND ea.year = $4 AND ea.is_verified = TRUE`,
+        [monthStart, monthEnd, month, year]
       );
       const officeOverhead = parseFloat(overheadRes.rows[0].val);
 
-      const payrollRes = await client.query(
-        "SELECT COALESCE(SUM(net_paid), 0) as val FROM payroll WHERE month = $1 AND year = $2 AND status = 'paid'",
+      const payrollCheckRes = await client.query(
+        `SELECT 
+           COALESCE(SUM(net_paid - incentives), 0) as base_salaries,
+           COALESCE(SUM(incentives), 0) as incentives
+         FROM payroll
+         WHERE month = $1 AND year = $2 AND status = 'paid'`,
         [month, year]
       );
-      const payroll = parseFloat(payrollRes.rows[0].val);
+      const baseSalariesRaw = parseFloat(payrollCheckRes.rows[0].base_salaries);
+      const incentivesRaw = parseFloat(payrollCheckRes.rows[0].incentives);
 
-      // Vendor payments are strictly excluded
+      // Check verification states
+      const auditRes = await client.query(
+        `SELECT LOWER(category) as category FROM expense_audits 
+         WHERE month = $1 AND year = $2 AND is_verified = TRUE 
+           AND LOWER(category) IN ('salaries', 'incentives')`,
+        [month, year]
+      );
+      const verifiedCats = auditRes.rows.map(r => r.category);
+
+      const isSalVerified = verifiedCats.includes('salaries');
+      const isIncVerified = verifiedCats.includes('incentives');
+
+      const payroll = (isSalVerified ? baseSalariesRaw : 0) + (isIncVerified ? incentivesRaw : 0);
       const vendorPayments = 0; 
 
       // All other transactions expenses (using robust exclusion logic)
       const otherExpRes = await client.query(
-        `SELECT COALESCE(SUM(amount), 0) as val FROM transactions 
-         WHERE type = 'expense' 
-           AND LOWER(category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') 
-           AND vendor_id IS NULL
-           AND date >= $1 AND date <= $2`,
-        [monthStart, monthEnd]
+        `SELECT COALESCE(SUM(t.amount), 0) as val 
+         FROM transactions t
+         INNER JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category)
+         WHERE t.type = 'expense' 
+           AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') 
+           AND t.vendor_id IS NULL
+           AND t.date >= $1 AND t.date <= $2
+           AND ea.month = $3 AND ea.year = $4 AND ea.is_verified = TRUE`,
+        [monthStart, monthEnd, month, year]
       );
       const otherExpenses = parseFloat(otherExpRes.rows[0].val);
       const totalExpenses = officeOverhead + payroll + vendorPayments + otherExpenses;
@@ -96,32 +120,37 @@ async function run() {
       // Breakdown by category
       const breakdownRes = await client.query(
         `SELECT category, SUM(amount) as amount FROM (
-           SELECT category, amount FROM office_expenses WHERE date >= $1 AND date <= $2
+           SELECT oe.category, oe.amount 
+           FROM office_expenses oe
+           INNER JOIN expense_audits ea ON LOWER(ea.category) = LOWER(oe.category)
+           WHERE oe.date >= $1 AND oe.date <= $2 
+             AND ea.month = $3 AND ea.year = $4 AND ea.is_verified = TRUE
+           
            UNION ALL
-           SELECT category, amount FROM transactions 
-           WHERE type = 'expense' 
-             AND LOWER(category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives')
-             AND vendor_id IS NULL
-             AND date >= $1 AND date <= $2
+           
+           SELECT t.category, t.amount 
+           FROM transactions t
+           INNER JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category)
+           WHERE t.type = 'expense' 
+             AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') 
+             AND t.vendor_id IS NULL
+             AND t.date >= $1 AND t.date <= $2
+             AND ea.month = $3 AND ea.year = $4 AND ea.is_verified = TRUE
          ) sub
          GROUP BY category`,
-        [monthStart, monthEnd]
+        [monthStart, monthEnd, month, year]
       );
       const byCategory = {};
       breakdownRes.rows.forEach(r => {
         byCategory[r.category] = parseFloat(r.amount);
       });
-      // Inject payroll salaries & incentives
-      if (payroll > 0) {
-        const incentivesRes = await client.query(
-          "SELECT COALESCE(SUM(incentives), 0) as val FROM payroll WHERE month = $1 AND year = $2 AND status = 'paid'",
-          [month, year]
-        );
-        const incentives = parseFloat(incentivesRes.rows[0].val) || 0;
-        byCategory['Salaries'] = (byCategory['Salaries'] || 0) + (payroll - incentives);
-        if (incentives > 0) {
-          byCategory['Incentives'] = (byCategory['Incentives'] || 0) + incentives;
-        }
+      
+      // Inject payroll salaries & incentives if verified
+      if (isSalVerified && baseSalariesRaw > 0) {
+        byCategory['Salaries'] = (byCategory['Salaries'] || 0) + baseSalariesRaw;
+      }
+      if (isIncVerified && incentivesRaw > 0) {
+        byCategory['Incentives'] = (byCategory['Incentives'] || 0) + incentivesRaw;
       }
 
       // 3. HR details
