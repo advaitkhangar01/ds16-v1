@@ -271,11 +271,11 @@ router.get('/transactions', authenticate, async (req, res) => {
       let pyIdx = 1;
 
       if (start_date) {
-        payrollQuery += ` AND payment_date >= $${pyIdx++}`;
+        payrollQuery += ` AND date >= $${pyIdx++}`;
         payrollParams.push(start_date);
       }
       if (end_date) {
-        payrollQuery += ` AND payment_date <= $${pyIdx++}`;
+        payrollQuery += ` AND date <= $${pyIdx++}`;
         payrollParams.push(end_date);
       }
 
