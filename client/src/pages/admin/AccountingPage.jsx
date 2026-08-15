@@ -1593,13 +1593,14 @@ export default function AccountingPage() {
       return;
     }
 
-    const headers = ['Date', 'Category', 'Vendor', 'Description', 'Amount'];
+    const headers = ['Date', 'Category', 'Vendor', 'Description', 'Amount', 'Status'];
     const rows = expenses.map(exp => [
       new Date(exp.date).toLocaleDateString(),
       exp.category,
       exp.vendor_name || 'N/A',
       exp.description?.replace(/,/g, ';'), // Escape commas
-      exp.amount
+      exp.amount,
+      exp.is_verified ? 'Verified' : 'Unverified'
     ]);
 
     const csvContent = [
@@ -4369,9 +4370,12 @@ export default function AccountingPage() {
                         <td className="px-3 py-2 text-slate-600 italic">{exp.description || '-'}</td>
                         <td className="px-3 py-2 text-right font-mono font-bold text-slate-900">₹{parseFloat(exp.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                         <td className="px-3 py-2 text-center whitespace-nowrap">
-                          <span className={`inline-block px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-full ${exp.period_unlock_id ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
-                            {exp.period_unlock_id ? 'Backdated' : 'Audited'}
+                          <span className={`inline-block px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-full ${exp.is_verified ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                            {exp.is_verified ? 'Verified' : 'Unverified'}
                           </span>
+                          {exp.period_unlock_id && (
+                            <span className="block text-[8px] font-bold text-amber-600 mt-0.5">Backdated</span>
+                          )}
                         </td>
                       </tr>
                     ))}
