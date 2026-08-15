@@ -407,41 +407,80 @@ router.get('/summary', authenticate, async (req, res) => {
       const incomeRes = await pool.query(incomeQuery, incomeParams);
       const totalValue = parseFloat(incomeRes.rows[0].total_value);
 
-      // 2. Active Billed & Received — driven by the invoices table within the active period
-      let activeInvoiceQuery = `
+      // 2. Active Billed & Received — driven by the invoices/transactions table within the active period
+      let activeBilledQuery = `
         SELECT
-          COALESCE(SUM(i.amount), 0)                                                        AS billed,
-          COALESCE(SUM(i.received_amount), 0)                                               AS received
+          COALESCE(SUM(i.amount), 0) AS billed
         FROM invoices i
         JOIN projects p ON p.id = i.project_id
         WHERE LOWER(i.status) != 'cancelled'
       `;
-      const activeInvoiceParams = [];
-      let aiIdx = 1;
+      const activeBilledParams = [];
+      let abIdx = 1;
       if (projectId) {
-        activeInvoiceQuery += ` AND i.project_id = $${aiIdx++}`;
-        activeInvoiceParams.push(projectId);
+        activeBilledQuery += ` AND i.project_id = $${abIdx++}`;
+        activeBilledParams.push(projectId);
       }
       if (effectiveStartDate) {
-        activeInvoiceQuery += ` AND i.date >= $${aiIdx++}`;
-        activeInvoiceParams.push(effectiveStartDate);
+        activeBilledQuery += ` AND i.date >= $${abIdx++}`;
+        activeBilledParams.push(effectiveStartDate);
       }
       if (end_date) {
-        activeInvoiceQuery += ` AND i.date <= $${aiIdx++}`;
-        activeInvoiceParams.push(end_date);
+        activeBilledQuery += ` AND i.date <= $${abIdx++}`;
+        activeBilledParams.push(end_date);
       }
-      activeInvoiceQuery += ` AND ($${aiIdx++}::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))`;
-      activeInvoiceParams.push(isGlobal);
+      activeBilledQuery += ` AND ($${abIdx++}::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))`;
+      activeBilledParams.push(isGlobal);
 
-      const activeInvoiceRes = await pool.query(activeInvoiceQuery, activeInvoiceParams);
-      const billed = parseFloat(activeInvoiceRes.rows[0].billed);
-      const received = parseFloat(activeInvoiceRes.rows[0].received);
+      const activeBilledRes = await pool.query(activeBilledQuery, activeBilledParams);
+      const billed = parseFloat(activeBilledRes.rows[0].billed);
 
-      // 2.5 Cumulative Billed, Received, and Pending — driven by the invoices table globally (across all history)
+      let activeReceivedQuery = `
+        WITH combined_received AS (
+          SELECT t.project_id, t.date, t.amount
+          FROM transactions t
+          WHERE t.type = 'income' AND t.category = 'project_receipt'
+
+          UNION ALL
+
+          SELECT i.project_id, i.date, i.received_amount AS amount
+          FROM invoices i
+          WHERE LOWER(i.status) != 'cancelled'
+            AND NOT EXISTS (
+              SELECT 1 FROM transactions t
+              WHERE t.type = 'income' AND t.category = 'project_receipt'
+                AND t.reference_id = i.invoice_no
+            )
+        )
+        SELECT COALESCE(SUM(c.amount), 0) AS received
+        FROM combined_received c
+        JOIN projects p ON p.id = c.project_id
+        WHERE 1=1
+      `;
+      const activeReceivedParams = [];
+      let arIdx = 1;
+      if (projectId) {
+        activeReceivedQuery += ` AND c.project_id = $${arIdx++}`;
+        activeReceivedParams.push(projectId);
+      }
+      if (effectiveStartDate) {
+        activeReceivedQuery += ` AND c.date >= $${arIdx++}`;
+        activeReceivedParams.push(effectiveStartDate);
+      }
+      if (end_date) {
+        activeReceivedQuery += ` AND c.date <= $${arIdx++}`;
+        activeReceivedParams.push(end_date);
+      }
+      activeReceivedQuery += ` AND ($${arIdx++}::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))`;
+      activeReceivedParams.push(isGlobal);
+
+      const activeReceivedRes = await pool.query(activeReceivedQuery, activeReceivedParams);
+      const received = parseFloat(activeReceivedRes.rows[0].received);
+
+      // 2.5 Cumulative Billed and Pending — driven by the invoices table globally (across all history)
       let cumulativeInvoiceQuery = `
         SELECT
           COALESCE(SUM(i.amount), 0)                                                        AS cumulative_billed,
-          COALESCE(SUM(i.received_amount), 0)                                               AS cumulative_received,
           COALESCE(SUM(CASE WHEN LOWER(i.status) != 'paid' THEN GREATEST(i.amount - i.received_amount - COALESCE((i.tax_details->>'tdsAmount')::numeric, 0), 0) ELSE 0 END), 0) AS pending
         FROM invoices i
         JOIN projects p ON p.id = i.project_id
@@ -462,8 +501,45 @@ router.get('/summary', authenticate, async (req, res) => {
 
       const cumulativeInvoiceRes = await pool.query(cumulativeInvoiceQuery, cumulativeInvoiceParams);
       const cumulativeBilled = parseFloat(cumulativeInvoiceRes.rows[0].cumulative_billed);
-      const cumulativeReceived = parseFloat(cumulativeInvoiceRes.rows[0].cumulative_received);
       const pending = parseFloat(cumulativeInvoiceRes.rows[0].pending);
+
+      let cumulativeReceivedQuery = `
+        WITH combined_received AS (
+          SELECT t.project_id, t.date, t.amount
+          FROM transactions t
+          WHERE t.type = 'income' AND t.category = 'project_receipt'
+
+          UNION ALL
+
+          SELECT i.project_id, i.date, i.received_amount AS amount
+          FROM invoices i
+          WHERE LOWER(i.status) != 'cancelled'
+            AND NOT EXISTS (
+              SELECT 1 FROM transactions t
+              WHERE t.type = 'income' AND t.category = 'project_receipt'
+                AND t.reference_id = i.invoice_no
+            )
+        )
+        SELECT COALESCE(SUM(c.amount), 0) AS cumulative_received
+        FROM combined_received c
+        JOIN projects p ON p.id = c.project_id
+        WHERE 1=1
+      `;
+      const cumulativeReceivedParams = [];
+      let crIdx = 1;
+      if (projectId) {
+        cumulativeReceivedQuery += ` AND c.project_id = $${crIdx++}`;
+        cumulativeReceivedParams.push(projectId);
+      }
+      if (end_date) {
+        cumulativeReceivedQuery += ` AND c.date <= $${crIdx++}`;
+        cumulativeReceivedParams.push(end_date);
+      }
+      cumulativeReceivedQuery += ` AND ($${crIdx++}::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))`;
+      cumulativeReceivedParams.push(isGlobal);
+
+      const cumulativeReceivedRes = await pool.query(cumulativeReceivedQuery, cumulativeReceivedParams);
+      const cumulativeReceived = parseFloat(cumulativeReceivedRes.rows[0].cumulative_received);
 
       // 3. Expenses from transactions (excluding vendor payments)
       let expenseQuery = `

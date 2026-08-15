@@ -65,18 +65,42 @@ async function generateSnapshot(month, year, client = pool) {
   const projValueRes = await client.query('SELECT COALESCE(SUM(amount), 0) as val FROM project_document_amounts');
   const totalProjectValue = parseFloat(projValueRes.rows[0].val);
 
-  // Billed, Received, Pending driven entirely by invoices in this period
+  // Billed, Pending driven by invoices in this period
   const invoiceRes = await client.query(
     `SELECT
        COALESCE(SUM(amount), 0)                                                        AS billed,
-       COALESCE(SUM(received_amount), 0)                                               AS received,
        COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
      FROM invoices
      WHERE LOWER(status) != 'cancelled' AND date >= $1 AND date <= $2`,
     [monthStart, monthEnd]
   );
+
+  // Received driven by transactions within this period + fallback invoices with no transactions
+  const txnRes = await client.query(
+    `WITH combined_received AS (
+       SELECT t.amount, t.date
+       FROM transactions t
+       WHERE t.type = 'income' AND t.category = 'project_receipt'
+
+       UNION ALL
+
+       SELECT i.received_amount AS amount, i.date
+       FROM invoices i
+       WHERE LOWER(i.status) != 'cancelled'
+         AND NOT EXISTS (
+           SELECT 1 FROM transactions t
+           WHERE t.type = 'income' AND t.category = 'project_receipt'
+             AND t.reference_id = i.invoice_no
+         )
+     )
+     SELECT COALESCE(SUM(amount), 0) AS received
+     FROM combined_received
+     WHERE date >= $1 AND date <= $2`,
+    [monthStart, monthEnd]
+  );
+
   const billed = parseFloat(invoiceRes.rows[0].billed);
-  const received = parseFloat(invoiceRes.rows[0].received);
+  const received = parseFloat(txnRes.rows[0].received);
   const pending = parseFloat(invoiceRes.rows[0].pending);
   const unbilled = Math.max(0, totalProjectValue - billed);
 

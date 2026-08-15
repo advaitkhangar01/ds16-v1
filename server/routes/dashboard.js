@@ -240,7 +240,22 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
       invoiceQuery = `
         SELECT
           COALESCE(SUM(CASE WHEN date >= $1 AND date <= $2 THEN amount ELSE 0 END), 0)          AS billed,
-          COALESCE(SUM(CASE WHEN date >= $1 AND date <= $2 THEN received_amount ELSE 0 END), 0)  AS received,
+          (
+            SELECT COALESCE(SUM(amount), 0) 
+            FROM transactions 
+            WHERE type = 'income' AND category = 'project_receipt' 
+              AND date >= $1 AND date <= $2
+          ) + (
+            SELECT COALESCE(SUM(received_amount), 0)
+            FROM invoices i
+            WHERE i.date >= $1 AND i.date <= $2
+              AND LOWER(i.status) != 'cancelled'
+              AND NOT EXISTS (
+                SELECT 1 FROM transactions t
+                WHERE t.type = 'income' AND t.category = 'project_receipt'
+                  AND t.reference_id = i.invoice_no
+              )
+          )                                                                                    AS received,
           COALESCE(SUM(received_amount), 0)                                                       AS all_time_received,
           COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
         FROM invoices
@@ -250,7 +265,28 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
       invoiceQuery = `
         SELECT
           COALESCE(SUM(CASE WHEN date >= $1 AND date <= $2 THEN amount ELSE 0 END), 0)          AS billed,
-          COALESCE(SUM(CASE WHEN date >= $1 AND date <= $2 THEN received_amount ELSE 0 END), 0)  AS received,
+          (
+            SELECT COALESCE(SUM(t.amount), 0) 
+            FROM transactions t
+            WHERE t.type = 'income' AND t.category = 'project_receipt' 
+              AND t.date >= $1 AND t.date <= $2
+              AND EXISTS (
+                SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.status IN ('Sanction', 'Under Sanctioning')
+              )
+          ) + (
+            SELECT COALESCE(SUM(i.received_amount), 0)
+            FROM invoices i
+            WHERE i.date >= $1 AND i.date <= $2
+              AND LOWER(i.status) != 'cancelled'
+              AND EXISTS (
+                SELECT 1 FROM projects p WHERE p.id = i.project_id AND p.status IN ('Sanction', 'Under Sanctioning')
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM transactions t
+                WHERE t.type = 'income' AND t.category = 'project_receipt'
+                  AND t.reference_id = i.invoice_no
+              )
+          )                                                                                    AS received,
           COALESCE(SUM(received_amount), 0)                                                       AS all_time_received,
           COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
         FROM invoices i
@@ -526,15 +562,32 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
     } else if (type === 'received') {
       // Received = payments collected in the current period, grouped by project
       const { rows } = await pool.query(`
-        SELECT p.id, p.name, SUM(i.received_amount) as amount
-        FROM invoices i
-        JOIN projects p ON p.id = i.project_id
-        WHERE LOWER(i.status) != 'cancelled'
-          AND i.project_id IS NOT NULL
-          AND i.date >= $1 AND i.date <= $2
-          AND ($3::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
+        WITH combined_received AS (
+          SELECT t.project_id, t.amount
+          FROM transactions t
+          WHERE t.type = 'income' AND t.category = 'project_receipt'
+            AND t.date >= $1 AND t.date <= $2
+            AND t.project_id IS NOT NULL
+
+          UNION ALL
+
+          SELECT i.project_id, i.received_amount AS amount
+          FROM invoices i
+          WHERE LOWER(i.status) != 'cancelled'
+            AND i.project_id IS NOT NULL
+            AND i.date >= $1 AND i.date <= $2
+            AND NOT EXISTS (
+              SELECT 1 FROM transactions t
+              WHERE t.type = 'income' AND t.category = 'project_receipt'
+                AND t.reference_id = i.invoice_no
+            )
+        )
+        SELECT p.id, p.name, SUM(c.amount) as amount
+        FROM combined_received c
+        JOIN projects p ON p.id = c.project_id
+        WHERE ($3::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
         GROUP BY p.id, p.name
-        HAVING SUM(i.received_amount) > 0
+        HAVING SUM(c.amount) > 0
         ORDER BY amount DESC
       `, [currentPeriodStart, currentPeriodEnd, isGlobal]);
       items = rows;
