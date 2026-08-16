@@ -271,4 +271,81 @@ describe('Monthly Close & Period Lock Subsystem Integration Tests', () => {
       expect(res.body.message).toContain('deleted successfully');
     });
   });
+
+  describe('5. On-the-fly Payroll Recalculation & Edit on Reversal / Active Period', () => {
+    let activePayroll;
+
+    beforeAll(async () => {
+      // 1. Relock/cleanup the period logs if any
+      await pool.query('DELETE FROM period_unlock_log WHERE month = $1 AND year = $2', [testMonth, testYear]);
+      await pool.query('DELETE FROM monthly_closing_log WHERE month = $1 AND year = $2', [testMonth, testYear]);
+      await pool.query('DELETE FROM payroll WHERE user_id = $1 AND month = $2 AND year = $3', [employeeUser.id, testMonth, testYear]);
+
+      // Ensure employee record has non-negative salary values to satisfy constraints
+      await pool.query(
+        "UPDATE users SET base_salary = 20000, hourly_rate = 0 WHERE id = $1",
+        [employeeUser.id]
+      );
+
+      // 2. Create a fresh payroll entry for January 2025
+      const { rows } = await pool.query(
+        `INSERT INTO payroll (user_id, base_salary, incentives, deductions, net_paid, month, year, payment_date, status)
+         VALUES ($1, 20000, 1000, 500, 20500, $2, $3, $4, 'paid') RETURNING id`,
+        [employeeUser.id, testMonth, testYear, testDate]
+      );
+      activePayroll = rows[0];
+    });
+
+    it('should block editing salary / incentives if period is closed/locked', async () => {
+      // Close/lock the period first
+      await pool.query(
+        `INSERT INTO monthly_closing_log (month, year, closed_by) VALUES ($1, $2, $3)`,
+        [testMonth, testYear, adminUser.id]
+      );
+
+      const res = await request(app)
+        .put(`/api/accounting/payroll/employees/${employeeUser.id}`)
+        .set('Authorization', `Bearer ${adminUser.token}`)
+        .send({
+          base_salary: 30000,
+          incentives: 2000,
+          month: testMonth,
+          year: testYear
+        });
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body.code).toBe('PERIOD_LOCKED');
+    });
+
+    it('should allow editing and recalculate payroll if period is unlocked/reversed', async () => {
+      // Unlock/open period by deleting close log (reversed month close)
+      await pool.query('DELETE FROM monthly_closing_log WHERE month = $1 AND year = $2', [testMonth, testYear]);
+
+      const res = await request(app)
+        .put(`/api/accounting/payroll/employees/${employeeUser.id}`)
+        .set('Authorization', `Bearer ${adminUser.token}`)
+        .send({
+          base_salary: 30000,
+          incentives: 2000,
+          month: testMonth,
+          year: testYear
+        });
+
+      expect(res.statusCode).toBe(200);
+
+      // Verify that user record in DB is updated
+      const { rows: userRows } = await pool.query('SELECT base_salary FROM users WHERE id = $1', [employeeUser.id]);
+      expect(parseFloat(userRows[0].base_salary)).toBe(30000);
+
+      // Verify that the payroll record is synced and recalculated
+      const { rows: payrollRows } = await pool.query(
+        'SELECT base_salary, incentives, net_paid FROM payroll WHERE user_id = $1 AND month = $2 AND year = $3',
+        [employeeUser.id, testMonth, testYear]
+      );
+      expect(payrollRows.length).toBe(1);
+      expect(parseFloat(payrollRows[0].base_salary)).toBe(30000);
+      expect(parseFloat(payrollRows[0].incentives)).toBe(2000);
+      expect(parseFloat(payrollRows[0].net_paid)).toBeGreaterThan(0);
+    });
+  });
 });

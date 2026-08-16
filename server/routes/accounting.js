@@ -175,9 +175,9 @@ router.get('/payroll/employees', async (req, res) => {
   }
 });
 
-// Update employee base salary or hourly rate (accounting or admin)
-router.put('/payroll/employees/:id', async (req, res) => {
-  const { base_salary, hourly_rate } = req.body;
+// Update employee base salary or hourly rate, and sync payroll if period is active (accounting or admin)
+router.put('/payroll/employees/:id', checkPeriodLock, async (req, res) => {
+  const { base_salary, hourly_rate, incentives, month, year } = req.body;
 
   // L3: Validate that salary fields are non-negative numbers before saving
   if (base_salary !== undefined && base_salary !== null) {
@@ -192,13 +192,61 @@ router.put('/payroll/employees/:id', async (req, res) => {
       return res.status(400).json({ error: 'hourly_rate must be a non-negative number' });
     }
   }
+  if (incentives !== undefined && incentives !== null) {
+    const v = parseFloat(incentives);
+    if (isNaN(v) || v < 0) {
+      return res.status(400).json({ error: 'incentives must be a non-negative number' });
+    }
+  }
 
   try {
-    const { rows } = await pool.query(
-      "UPDATE users SET base_salary = COALESCE($1, base_salary), hourly_rate = COALESCE($2, hourly_rate) WHERE id = $3 AND role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head') RETURNING id, name, base_salary, hourly_rate",
-      [base_salary, hourly_rate, req.params.id]
+    // 1. Update user details in DB
+    if (base_salary !== undefined || hourly_rate !== undefined) {
+      await pool.query(
+        "UPDATE users SET base_salary = COALESCE($1, base_salary), hourly_rate = COALESCE($2, hourly_rate) WHERE id = $3 AND role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head')",
+        [base_salary, hourly_rate, req.params.id]
+      );
+    }
+
+    // 2. If month and year are provided, update/sync existing payroll record if any
+    if (month && year) {
+      const { rows: existingPayroll } = await pool.query(
+        'SELECT base_salary, bonus, incentives, deductions FROM payroll WHERE user_id = $1 AND month = $2 AND year = $3',
+        [req.params.id, month, year]
+      );
+
+      if (existingPayroll.length > 0) {
+        // Get settings
+        const { rows: settingsRows } = await pool.query('SELECT key, value FROM app_settings');
+        const settings = settingsRows.reduce((acc, r) => {
+          acc[r.key] = r.value;
+          return acc;
+        }, {});
+
+        // Recalculate payroll statistics on-the-fly
+        const payrollData = await calculatePayrollForEmployee(req.params.id, month, year, settings, pool);
+        if (payrollData) {
+          const finalBaseSalary = base_salary !== undefined ? parseFloat(base_salary) : parseFloat(existingPayroll[0].base_salary);
+          const finalBonus = parseFloat(existingPayroll[0].bonus || 0);
+          const finalIncentives = incentives !== undefined ? parseFloat(incentives) : parseFloat(existingPayroll[0].incentives || 0);
+          const finalDeductions = parseFloat(payrollData.deductions || 0);
+          const finalNetPaid = Math.max(0, finalBaseSalary + finalBonus + finalIncentives - finalDeductions);
+
+          await pool.query(
+            `UPDATE payroll 
+             SET base_salary = $1, incentives = $2, deductions = $3, net_paid = $4
+             WHERE user_id = $5 AND month = $6 AND year = $7`,
+            [finalBaseSalary, finalIncentives, finalDeductions, finalNetPaid, req.params.id, month, year]
+          );
+        }
+      }
+    }
+
+    const { rows: updatedUser } = await pool.query(
+      "SELECT id, name, base_salary, hourly_rate FROM users WHERE id = $1",
+      [req.params.id]
     );
-    res.json(rows[0]);
+    res.json(updatedUser[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

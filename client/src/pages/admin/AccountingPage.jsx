@@ -2628,13 +2628,17 @@ export default function AccountingPage() {
                               <div className="flex flex-col items-end gap-1">
                                 <div className="flex items-center gap-1 font-mono text-xs font-bold text-gray-600">
                                   <span>₹{parseFloat(emp.base_salary).toLocaleString('en-IN')}</span>
-                                                                  {!processed && isAdmin && !isPeriodLocked && (
+                                  {isAdmin && !isPeriodLocked && (
                                     <button 
                                       onClick={async () => {
                                         const newSal = prompt('Enter new base salary:', emp.base_salary);
                                         if (newSal !== null) {
                                           try {
-                                            await api.put(`/accounting/payroll/employees/${emp.id}`, { base_salary: parseFloat(newSal) });
+                                            await api.put(`/accounting/payroll/employees/${emp.id}`, { 
+                                              base_salary: parseFloat(newSal),
+                                              month: selectedMonth,
+                                              year: selectedYear
+                                            });
                                             toast.success('Salary updated');
                                             fetchPayrollData();
                                           } catch (err) {
@@ -2647,7 +2651,7 @@ export default function AccountingPage() {
                                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                     </button>
                                   )}
-                                  {!processed && isAccounts && !isAdmin && (
+                                  {isAccounts && !isAdmin && (
                                     <span title="Only Admin can edit base salary" className="text-gray-300 cursor-not-allowed opacity-0 group-hover/row:opacity-100 transition-opacity no-print">
                                       <Lock size={9} />
                                     </span>
@@ -2655,13 +2659,17 @@ export default function AccountingPage() {
                                 </div>
                                 <div className="flex items-center gap-1 font-mono text-[10px] font-bold text-primary italic">
                                   <span>₹{parseFloat(emp.hourly_rate || 0).toLocaleString('en-IN')}/hr</span>
-                                  {!processed && isAdmin && !isPeriodLocked && (
+                                  {isAdmin && !isPeriodLocked && (
                                     <button 
                                       onClick={async () => {
                                         const newRate = prompt('Enter new hourly rate:', emp.hourly_rate);
                                         if (newRate !== null) {
                                           try {
-                                            await api.put(`/accounting/payroll/employees/${emp.id}`, { hourly_rate: parseFloat(newRate) });
+                                            await api.put(`/accounting/payroll/employees/${emp.id}`, { 
+                                              hourly_rate: parseFloat(newRate),
+                                              month: selectedMonth,
+                                              year: selectedYear
+                                            });
                                             toast.success('Hourly rate updated');
                                             fetchPayrollData();
                                           } catch (err) {
@@ -2684,7 +2692,33 @@ export default function AccountingPage() {
                             </td>
                             <td className="px-6 py-4 text-right">
                               {processed ? (
-                                <span className="font-mono text-xs font-bold text-gray-600">₹{parseFloat(processed.incentives).toLocaleString('en-IN')}</span>
+                                <div className="flex items-center justify-end gap-1 font-mono text-xs font-bold text-gray-600">
+                                  <span>₹{parseFloat(processed.incentives).toLocaleString('en-IN')}</span>
+                                  {isAdmin && !isPeriodLocked && (
+                                    <button 
+                                      onClick={async () => {
+                                        const newInc = prompt('Enter new incentives amount:', processed.incentives);
+                                        if (newInc !== null) {
+                                          try {
+                                            await api.put(`/accounting/payroll/employees/${emp.id}`, { 
+                                              incentives: parseFloat(newInc) || 0,
+                                              month: selectedMonth,
+                                              year: selectedYear
+                                            });
+                                            toast.success('Incentives updated');
+                                            fetchPayrollData();
+                                          } catch (err) {
+                                            toast.error('Update failed');
+                                          }
+                                        }
+                                      }}
+                                      className="text-gray-300 hover:text-primary opacity-0 group-hover/row:opacity-100 transition-opacity no-print"
+                                      title="Edit incentives"
+                                    >
+                                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                    </button>
+                                  )}
+                                </div>
                               ) : (
                                 <input 
                                   type="number"
@@ -2696,8 +2730,8 @@ export default function AccountingPage() {
                                 />
                               )}
                             </td>
-                            <td className="px-6 py-4 text-right relative group">
-                              <div className="font-black text-primary font-mono cursor-help">
+                            <td className="px-6 py-4 text-right font-black font-mono relative">
+                              <div className="text-gray-900">
                                 ₹{Number(processed ? processed.net_paid : (emp.suggested_salary + parseFloat(rowIncentives[emp.id] || 0))).toLocaleString('en-IN')}
                               </div>
                               
