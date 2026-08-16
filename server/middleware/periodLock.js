@@ -102,23 +102,16 @@ async function checkPeriodLock(req, res, next) {
 
     const monthName = new Date(year, month - 1, 1).toLocaleString('default', { month: 'long' });
 
-    // 3. If closed, check if user is admin and has an active unlock log
-    if (req.user?.role === 'admin') {
-      const { rows: unlocked } = await pool.query(
-        'SELECT id FROM period_unlock_log WHERE month = $1 AND year = $2 AND is_active = TRUE ORDER BY unlocked_at DESC LIMIT 1',
-        [month, year]
-      );
+    // 3. If closed, check if unlocked and user is admin
+    const { rows: unlocked } = await pool.query(
+      'SELECT id FROM period_unlock_log WHERE month = $1 AND year = $2 AND is_active = TRUE ORDER BY unlocked_at DESC LIMIT 1',
+      [month, year]
+    );
 
-      if (unlocked.length > 0) {
-        // Store the active unlock ID so we can associate it when inserting the transaction/expense
-        req.period_unlock_id = unlocked[0].id;
-        return next();
-      }
-
-      return res.status(403).json({
-        error: `${monthName} ${year} is closed. Use "Unlock Period" to make backdated entries.`,
-        code: 'PERIOD_LOCKED'
-      });
+    if (unlocked.length > 0 && req.user?.role === 'admin') {
+      // Store the active unlock ID so we can associate it when inserting the transaction/expense
+      req.period_unlock_id = unlocked[0].id;
+      return next();
     }
 
     // Non-admins are always blocked on closed periods

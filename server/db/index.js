@@ -444,12 +444,15 @@ if (process.env.NODE_ENV !== 'test') {
         await pool.query(`
           ALTER TABLE transactions ADD COLUMN IF NOT EXISTS period_unlock_id INTEGER REFERENCES period_unlock_log(id) ON DELETE SET NULL;
         `);
+
         await pool.query(`
           ALTER TABLE office_expenses ADD COLUMN IF NOT EXISTS period_unlock_id INTEGER REFERENCES period_unlock_log(id) ON DELETE SET NULL;
         `);
+
         await pool.query(`
           ALTER TABLE expense_audits ADD COLUMN IF NOT EXISTS verified_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
         `);
+
         await pool.query(`
           ALTER TABLE expense_audits ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ DEFAULT NOW();
         `);
@@ -486,6 +489,7 @@ if (process.env.NODE_ENV !== 'test') {
             created_at TIMESTAMPTZ DEFAULT NOW()
           );
         `);
+
         const { rows: batchCount } = await pool.query('SELECT COUNT(*) FROM attendance_batches');
         if (parseInt(batchCount[0].count) === 0) {
           await pool.query(`
@@ -495,6 +499,7 @@ if (process.env.NODE_ENV !== 'test') {
             ('11 AM Batch', '11:00:00', '11:15:00', '14:00:00', 4.00)
           `);
         }
+
         await pool.query(`
           ALTER TABLE users 
           ADD COLUMN IF NOT EXISTS batch_id INTEGER REFERENCES attendance_batches(id) ON DELETE SET NULL
@@ -542,6 +547,103 @@ if (process.env.NODE_ENV !== 'test') {
           CREATE INDEX IF NOT EXISTS idx_daily_reports_user_date ON daily_reports(tenant_id, user_id, date);
         `);
 
+        // 23. Self-healing DB: Fix NOT NULL constraints for cascade deletions
+        await pool.query(`
+          ALTER TABLE documents ALTER COLUMN uploaded_by DROP NOT NULL;
+        `);
+
+        await pool.query(`
+          ALTER TABLE comments ALTER COLUMN user_id DROP NOT NULL;
+        `);
+
+        await pool.query(`
+          ALTER TABLE comments ALTER COLUMN assigned_to DROP NOT NULL;
+        `);
+
+        // 24. Delete duplicate entries from monthly close history and payroll logs
+        console.log('🧹 DB Self-Healing: Cleaning up duplicate monthly close and payroll entries...');
+
+        await pool.query(`
+          DELETE FROM payroll a USING payroll b 
+          WHERE a.id < b.id AND a.user_id = b.user_id AND a.month = b.month AND a.year = b.year;
+        `);
+
+        await pool.query(`
+          DELETE FROM monthly_closing_log a USING monthly_closing_log b 
+          WHERE a.id < b.id AND a.month = b.month AND a.year = b.year;
+        `);
+
+        await pool.query(`
+          DELETE FROM expense_audits a USING expense_audits b 
+          WHERE a.id < b.id AND a.category = b.category AND a.month = b.month AND a.year = b.year;
+        `);
+
+        await pool.query(`
+          DELETE FROM employee_leave_balance a USING employee_leave_balance b 
+          WHERE a.id < b.id AND a.user_id = b.user_id AND a.month = b.month AND a.year = b.year;
+        `);
+
+        // 25. Enforce unique constraints on relevant tables
+        await pool.query(`
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint 
+              WHERE conrelid = 'payroll'::regclass AND conname = 'uq_payroll_user_month_year'
+            ) AND NOT EXISTS (
+              SELECT 1 FROM pg_constraint 
+              WHERE conrelid = 'payroll'::regclass AND conname = 'payroll_user_id_month_year_key'
+            ) THEN
+              ALTER TABLE payroll ADD CONSTRAINT uq_payroll_user_month_year UNIQUE (user_id, month, year);
+            END IF;
+          END $$;
+        `);
+
+        await pool.query(`
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint 
+              WHERE conrelid = 'monthly_closing_log'::regclass AND conname = 'uq_monthly_closing_log_month_year'
+            ) AND NOT EXISTS (
+              SELECT 1 FROM pg_constraint 
+              WHERE conrelid = 'monthly_closing_log'::regclass AND conname = 'monthly_closing_log_month_year_key'
+            ) THEN
+              ALTER TABLE monthly_closing_log ADD CONSTRAINT uq_monthly_closing_log_month_year UNIQUE (month, year);
+            END IF;
+          END $$;
+        `);
+
+        await pool.query(`
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint 
+              WHERE conrelid = 'expense_audits'::regclass AND conname = 'uq_expense_audits_category_month_year'
+            ) AND NOT EXISTS (
+              SELECT 1 FROM pg_constraint 
+              WHERE conrelid = 'expense_audits'::regclass AND conname = 'expense_audits_category_month_year_key'
+            ) THEN
+              ALTER TABLE expense_audits ADD CONSTRAINT uq_expense_audits_category_month_year UNIQUE (category, month, year);
+            END IF;
+          END $$;
+        `);
+
+        await pool.query(`
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint 
+              WHERE conrelid = 'employee_leave_balance'::regclass AND conname = 'uq_employee_leave_balance_user_month_year'
+            ) AND NOT EXISTS (
+              SELECT 1 FROM pg_constraint 
+              WHERE conrelid = 'employee_leave_balance'::regclass AND conname = 'employee_leave_balance_user_id_month_year_key'
+            ) THEN
+              ALTER TABLE employee_leave_balance ADD CONSTRAINT uq_employee_leave_balance_user_month_year UNIQUE (user_id, month, year);
+            END IF;
+          END $$;
+        `);
+
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
         console.error('❌ Migration failed:', mErr.message);
@@ -553,3 +655,15 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 module.exports = pool;
+
+
+
+
+
+
+
+
+
+
+
+
