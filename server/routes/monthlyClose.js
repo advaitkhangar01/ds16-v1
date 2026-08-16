@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
+const { calculatePayrollForEmployee } = require('../utils/payroll');
 
 // All closing endpoints require authentication and admin/accounts privileges
 router.use(authenticate);
@@ -332,10 +333,43 @@ router.get('/preview', requireAccounting, async (req, res) => {
     // 5. Aggregate financial data
     const financials = await generateSnapshot(month, year);
 
+    // Fetch app_settings for payroll calculations
+    const { rows: settingsRows } = await pool.query('SELECT key, value FROM app_settings');
+    const settings = settingsRows.reduce((acc, r) => {
+      acc[r.key] = r.value;
+      return acc;
+    }, {});
+
+    // Check for out-of-sync payrolls
+    const { rows: savedPayrolls } = await pool.query(
+      "SELECT user_id, base_salary, bonus, incentives, deductions, net_paid FROM payroll WHERE month = $1 AND year = $2",
+      [month, year]
+    );
+    const savedPayrollMap = new Map(savedPayrolls.map(p => [p.user_id, p]));
+
+    const outOfSyncNames = [];
+    for (const emp of empRes.rows) {
+      const saved = savedPayrollMap.get(emp.id);
+      if (saved) {
+        // Recalculate on-the-fly
+        const currentPayroll = await calculatePayrollForEmployee(emp.id, month, year, settings, pool);
+        if (currentPayroll) {
+          const currentDeductions = Math.round(currentPayroll.deductions || 0);
+          const savedDeductions = Math.round(parseFloat(saved.deductions || 0));
+          if (currentDeductions !== savedDeductions) {
+            outOfSyncNames.push(`${emp.name} (Diff: ₹${Math.abs(currentDeductions - savedDeductions)})`);
+          }
+        }
+      }
+    }
+
     // 6. Set warning list
     const warnings = [];
     if (pendingCount > 0) {
       warnings.push(`${pendingCount} employee payroll${pendingCount > 1 ? 's' : ''} not yet processed (${pendingNames.join(', ')} — ₹${pendingAmount.toLocaleString()} pending)`);
+    }
+    if (outOfSyncNames.length > 0) {
+      warnings.push(`Payroll for ${outOfSyncNames.length} employee(s) is out-of-sync with updated attendance: ${outOfSyncNames.join(', ')}. (These will be auto-corrected upon Month Close execution)`);
     }
 
     res.json({
@@ -398,6 +432,13 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
     // 2. Identify employees and compute leave balances
     const empRes = await client.query("SELECT id, role FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head')");
     
+    // Fetch app_settings for payroll calculations
+    const { rows: settingsRows } = await client.query('SELECT key, value FROM app_settings');
+    const settings = settingsRows.reduce((acc, r) => {
+      acc[r.key] = r.value;
+      return acc;
+    }, {});
+
     // Previous month computation
     const prevMonth = month === 1 ? 12 : month - 1;
     const prevYear = month === 1 ? year - 1 : year;
@@ -439,6 +480,48 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
          DO UPDATE SET unpaid_leaves = EXCLUDED.unpaid_leaves`,
         [emp.id, month, year, unpaidLeaves]
       );
+
+      // Auto-recalculate and sync payroll for this employee
+      const payrollData = await calculatePayrollForEmployee(emp.id, month, year, settings, client);
+      if (payrollData) {
+        // Check if a payroll record already exists to preserve manual bonus/incentives
+        const { rows: existingPayroll } = await client.query(
+          'SELECT base_salary, bonus, incentives, status, payment_date FROM payroll WHERE user_id = $1 AND month = $2 AND year = $3',
+          [emp.id, month, year]
+        );
+
+        let finalBaseSalary = parseFloat(payrollData.employee.base_salary || 0);
+        let finalBonus = 0;
+        let finalIncentives = 0;
+        let finalStatus = 'paid';
+        let finalPaymentDate = new Date();
+
+        if (existingPayroll.length > 0) {
+          finalBaseSalary = parseFloat(existingPayroll[0].base_salary);
+          finalBonus = parseFloat(existingPayroll[0].bonus || 0);
+          finalIncentives = parseFloat(existingPayroll[0].incentives || 0);
+          finalStatus = existingPayroll[0].status || 'paid';
+          finalPaymentDate = existingPayroll[0].payment_date;
+        }
+
+        const finalDeductions = parseFloat(payrollData.deductions || 0);
+        const finalNetPaid = Math.max(0, finalBaseSalary + finalBonus + finalIncentives - finalDeductions);
+
+        await client.query(
+          `INSERT INTO payroll (user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (user_id, month, year) 
+           DO UPDATE SET 
+             base_salary = EXCLUDED.base_salary,
+             bonus = EXCLUDED.bonus,
+             incentives = EXCLUDED.incentives,
+             deductions = EXCLUDED.deductions,
+             net_paid = EXCLUDED.net_paid,
+             payment_date = EXCLUDED.payment_date,
+             status = EXCLUDED.status`,
+          [emp.id, finalBaseSalary, finalBonus, finalIncentives, finalDeductions, finalNetPaid, month, year, finalPaymentDate, finalStatus]
+        );
+      }
     }
 
     // 3. Lock expense categories
@@ -700,6 +783,20 @@ router.delete('/:month/:year', requireAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Check if subsequent months are already closed
+    const { rows: laterClosed } = await client.query(
+      `SELECT month, year FROM monthly_closing_log 
+       WHERE (year > $1) OR (year = $1 AND month > $2)
+       LIMIT 1`,
+      [year, month]
+    );
+    if (laterClosed.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `Cannot reverse closing for ${month}/${year} because a subsequent month (${laterClosed[0].month}/${laterClosed[0].year}) is already closed. Please reverse subsequent months first.`
+      });
+    }
+
     // 1. Delete closing log
     const logRes = await client.query(
       'DELETE FROM monthly_closing_log WHERE month = $1 AND year = $2 RETURNING id',
@@ -725,6 +822,13 @@ router.delete('/:month/:year', requireAdmin, async (req, res) => {
     await client.query(
       'UPDATE period_unlock_log SET is_active = FALSE, relocked_at = NOW(), relocked_by = $1 WHERE month = $2 AND year = $3',
       [req.user.id, month, year]
+    );
+
+    // 5. Log explicit reversal in period_unlock_log
+    await client.query(
+      `INSERT INTO period_unlock_log (month, year, unlocked_by, reason, is_active)
+       VALUES ($1, $2, $3, 'Month closing explicitly reversed', FALSE)`,
+      [month, year, req.user.id]
     );
 
     await client.query('COMMIT');

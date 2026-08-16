@@ -231,6 +231,11 @@ describe('Monthly Close & Period Lock Subsystem Integration Tests', () => {
 
   describe('4. Backdated Payroll Deletion & Lock', () => {
     beforeAll(async () => {
+      // Clear out the payroll entry automatically created during month-close in step 3
+      await pool.query(
+        'DELETE FROM payroll WHERE user_id = $1 AND month = $2 AND year = $3',
+        [employeeUser.id, testMonth, testYear]
+      );
       // Create a dummy processed payroll entry directly in DB for January 2025
       const { rows } = await pool.query(
         `INSERT INTO payroll (user_id, base_salary, net_paid, month, year, payment_date, status)

@@ -72,6 +72,16 @@ async function checkAndAutoCloseMonth() {
       return;
     }
 
+    // Check if the period was explicitly unlocked or reversed by an admin in the past
+    const { rows: unlockLogs } = await pool.query(
+      'SELECT id FROM period_unlock_log WHERE month = $1 AND year = $2 LIMIT 1',
+      [prevMonth, prevYear]
+    );
+    if (unlockLogs.length > 0) {
+      console.log(`[Scheduler] Month ${prevMonth}/${prevYear} has admin unlock/reversal history. Skipping auto-close.`);
+      return;
+    }
+
     console.log(`[Scheduler] Month ${prevMonth}/${prevYear} is NOT closed. Starting automated close...`);
     const result = await executeMonthCloseInternal(prevMonth, prevYear, null, 'Automated monthly close');
     console.log(`[Scheduler] Automated close executed successfully for ${prevMonth}/${prevYear}!`, result);
@@ -114,6 +124,16 @@ async function startupSelfHealingCheck() {
     const closed = await isMonthClosed(prevMonth, prevYear);
     if (closed) {
       console.log(`[Scheduler] Startup self-heal: ${prevMonth}/${prevYear} already closed. OK.`);
+      return;
+    }
+
+    // Check if the period was explicitly unlocked or reversed by an admin in the past
+    const { rows: unlockLogs } = await pool.query(
+      'SELECT id FROM period_unlock_log WHERE month = $1 AND year = $2 LIMIT 1',
+      [prevMonth, prevYear]
+    );
+    if (unlockLogs.length > 0) {
+      console.log(`[Scheduler] Startup self-heal: Month ${prevMonth}/${prevYear} has admin unlock/reversal history. Skipping recovery close.`);
       return;
     }
     console.log(`[Scheduler] Startup self-heal: ${prevMonth}/${prevYear} NOT closed! Running recovery close...`);
