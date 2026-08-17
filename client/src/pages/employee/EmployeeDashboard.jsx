@@ -836,15 +836,28 @@ export default function EmployeeDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const { data: res } = await api.get('/dashboard/employee');
-      const { data: attToday } = await api.get('/attendance/today');
-      
+      const [dashRes, attRes] = await Promise.allSettled([
+        api.get('/dashboard/employee'),
+        api.get('/attendance/today')
+      ]);
+
+      if (dashRes.status === 'rejected') {
+        console.error('[EmployeeDashboard] /dashboard/employee error:', dashRes.reason);
+        toast.error(dashRes.reason?.response?.data?.error || 'Failed to load dashboard');
+        return;
+      }
+
+      const res = dashRes.value?.data || {};
+      const attToday = attRes.status === 'fulfilled' ? attRes.value?.data : {};
+      const rawTeam = Array.isArray(attToday?.attendance) ? attToday.attendance : [];
+
       setData({
         ...res,
         attendance: mapAttendance(res.attendance),
-        team_attendance: attToday.attendance.map(mapAttendance)
+        team_attendance: rawTeam.map(mapAttendance).filter(Boolean)
       });
-    } catch {
+    } catch (err) {
+      console.error('[EmployeeDashboard] fetchData unexpected error:', err);
       toast.error('Failed to load dashboard');
     } finally {
       setLoading(false);
