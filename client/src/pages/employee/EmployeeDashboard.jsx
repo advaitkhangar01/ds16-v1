@@ -14,6 +14,7 @@ import toast from 'react-hot-toast';
 import TaskModal from '../../components/projects/TaskModal';
 import KanbanBoard from '../../components/dashboard/KanbanBoard';
 import SalaryBreakdownModal from '../../components/dashboard/SalaryBreakdownModal';
+import TeamApprovedLeavesWidget from '../../components/dashboard/TeamApprovedLeavesWidget';
 import { getPosition, classifyZone, ZONE_CONFIG } from '../../utils/geofence';
 import { createPortal } from 'react-dom';
 
@@ -907,8 +908,12 @@ export default function EmployeeDashboard() {
               />
               <TaskKanbanBoard />
             </div>
-            <div className="xl:col-span-1">
+            <div className="xl:col-span-1 space-y-6">
               <TeamAttendanceCompact records={data?.team_attendance || []} />
+              <TeamApprovedLeavesWidget 
+                activeLeaves={data?.active_team_leaves || []} 
+                upcomingLeaves={data?.upcoming_team_leaves || []} 
+              />
             </div>
           </div>
 

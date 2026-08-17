@@ -14,6 +14,7 @@ import TaskModal from '../../components/projects/TaskModal';
 import KanbanBoard from '../../components/dashboard/KanbanBoard';
 import FinancialBreakdownModal from '../../components/dashboard/FinancialBreakdownModal';
 import SalaryBreakdownModal from '../../components/dashboard/SalaryBreakdownModal';
+import TeamApprovedLeavesWidget from '../../components/dashboard/TeamApprovedLeavesWidget';
 import { createPortal } from 'react-dom';
 
 // ── Skeleton loader
@@ -1135,6 +1136,12 @@ export default function AdminDashboard() {
           <div className="lg:col-span-1 space-y-4">
             <AttendanceCard attendance={data?.my_attendance} onAction={handleAttendanceAction} />
             <MyAdminSalaryStats salary={data?.salary_stats} onCardClick={openBreakdown} />
+            <TeamApprovedLeavesWidget 
+              activeLeaves={data?.active_team_leaves || []} 
+              upcomingLeaves={data?.upcoming_team_leaves || []} 
+              title="Team Leave Schedule"
+              isAdmin={true}
+            />
           </div>
           
           <div className="lg:col-span-2">

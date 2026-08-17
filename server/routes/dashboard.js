@@ -371,6 +371,30 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
     }
     const { rows: countRows } = await pool.query(countQuery, countParams);
 
+    // 8. Active team leaves today & Upcoming team leaves
+    const { rows: activeTeamLeavesRows } = await pool.query(
+      `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, lr.start_date, lr.end_date, lr.reason, lr.status
+       FROM leave_requests lr
+       JOIN users u ON u.id = lr.user_id
+       WHERE LOWER(lr.status) = 'approved'
+         AND lr.type NOT IN ('advance', 'resignation')
+         AND $1::date BETWEEN lr.start_date AND lr.end_date
+       ORDER BY u.name ASC`,
+      [today]
+    );
+
+    const { rows: upcomingTeamLeavesRows } = await pool.query(
+      `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, lr.start_date, lr.end_date, lr.reason, lr.status, r.name as reviewer_name
+       FROM leave_requests lr
+       JOIN users u ON u.id = lr.user_id
+       LEFT JOIN users r ON r.id = lr.reviewed_by
+       WHERE lr.type NOT IN ('advance', 'resignation')
+         AND (lr.start_date > $1::date OR LOWER(lr.status) = 'pending')
+       ORDER BY lr.start_date ASC
+       LIMIT 30`,
+      [today]
+    );
+
     res.json({
       attendance: {
         total: parseInt(attendance.total_users),
@@ -392,6 +416,8 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
       },
       salary_stats: salaryStats,
       total_projects: parseInt(countRows[0].count),
+      active_team_leaves: activeTeamLeavesRows,
+      upcoming_team_leaves: upcomingTeamLeavesRows
     });
   } catch (err) {
     console.error('Admin dashboard error:', err);
@@ -857,10 +883,29 @@ router.get('/employee', authenticate, async (req, res) => {
       if (kanban[col]) kanban[col].push(p);
     });
 
-    // 5. Salary stats
-    const settingsRes = await pool.query('SELECT key, value FROM app_settings');
-    const settings = settingsRes.rows.reduce((acc, row) => { acc[row.key] = row.value; return acc; }, {});
-    const salaryStats = await calculateSalaryStats(userId, month, year, todayStr, settings);
+    // 6. Active approved team leaves today & upcoming approved team leaves (STRICTLY APPROVED ONLY)
+    const { rows: activeTeamLeavesRows } = await pool.query(
+      `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, lr.start_date, lr.end_date, lr.reason
+       FROM leave_requests lr
+       JOIN users u ON u.id = lr.user_id
+       WHERE LOWER(lr.status) = 'approved'
+         AND lr.type NOT IN ('advance', 'resignation')
+         AND $1::date BETWEEN lr.start_date AND lr.end_date
+       ORDER BY u.name ASC`,
+      [todayStr]
+    );
+
+    const { rows: upcomingTeamLeavesRows } = await pool.query(
+      `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, lr.start_date, lr.end_date, lr.reason
+       FROM leave_requests lr
+       JOIN users u ON u.id = lr.user_id
+       WHERE LOWER(lr.status) = 'approved'
+         AND lr.type NOT IN ('advance', 'resignation')
+         AND lr.start_date > $1::date
+       ORDER BY lr.start_date ASC
+       LIMIT 30`,
+      [todayStr]
+    );
 
     res.json({
       attendance: attRows[0] || {},
@@ -874,7 +919,9 @@ router.get('/employee', authenticate, async (req, res) => {
       tasks: taskRows,
       projects: projRows,
       kanban,
-      salary_stats: salaryStats
+      salary_stats: salaryStats,
+      active_team_leaves: activeTeamLeavesRows,
+      upcoming_team_leaves: upcomingTeamLeavesRows
     });
   } catch (err) {
     console.error('Employee dashboard error:', err);

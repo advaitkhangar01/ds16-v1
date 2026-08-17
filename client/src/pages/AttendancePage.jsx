@@ -126,12 +126,31 @@ export default function AttendancePage() {
     late_minutes: 0
   });
 
-  // Fetch settings
+  const [masterSubtypes, setMasterSubtypes] = useState([]);
+  const [masterCategories, setMasterCategories] = useState([]);
+
+  // Fetch settings & dropdown options
   useEffect(() => {
     api.get('/settings/app')
       .then(({ data }) => setSettings(data))
       .catch(err => console.error('Failed to load settings', err));
+
+    api.get('/settings/dropdowns')
+      .then(({ data }) => {
+        if (data && data.length) {
+          setMasterSubtypes(data.filter(d => d.category === 'leave_subtype'));
+          setMasterCategories(data.filter(d => d.category === 'request_category'));
+        }
+      })
+      .catch(err => console.error('Failed to load dropdown options', err));
   }, []);
+
+  const openApplyModal = (cat = 'leave', subType = 'casual') => {
+    setRequestCategory(cat);
+    const defaultSub = masterSubtypes.length ? masterSubtypes[0].key : subType;
+    setLeaveForm({ start_date: '', end_date: '', type: cat === 'leave' ? defaultSub : cat, reason: '', amount: '' });
+    setShowLeaveForm(true);
+  };
 
   // Fetch complete user list from dedicated endpoint (all users, not just today's attendees)
   useEffect(() => {
@@ -343,13 +362,39 @@ export default function AttendancePage() {
             <h1 className="text-2xl font-black text-[#1A1A1A] tracking-tight">Team Attendance</h1>
             <p className="text-muted text-sm font-medium">{todayIST()}</p>
           </div>
-           <div className="flex items-center gap-3">
-             <button
-                onClick={() => setShowLeaveForm(true)}
-                className="btn-secondary"
-              >
-                Apply Leave
-              </button>
+           <div className="flex items-center gap-2 flex-wrap">
+             {/* Quick Apply Action Buttons */}
+             <div className="flex items-center bg-[#F4F4F5] p-1 rounded-xl gap-1 border border-slate-200/60 shadow-sm">
+               <button
+                 onClick={() => openApplyModal('leave', 'casual')}
+                 className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white text-[#1A1A1A] shadow-sm hover:text-[#E05A1E] transition-all flex items-center gap-1.5"
+                 title="Apply Full Day Leave"
+               >
+                 <span>🌴</span> Full Leave
+               </button>
+               <button
+                 onClick={() => openApplyModal('half_day')}
+                 className="px-3 py-1.5 text-xs font-bold rounded-lg text-muted hover:text-[#1A1A1A] hover:bg-white/60 transition-all flex items-center gap-1.5"
+                 title="Request Half Day"
+               >
+                 <span>⏱️</span> Half Day
+               </button>
+               <button
+                 onClick={() => openApplyModal('advance')}
+                 className="px-3 py-1.5 text-xs font-bold rounded-lg text-muted hover:text-[#1A1A1A] hover:bg-white/60 transition-all flex items-center gap-1.5"
+                 title="Request Salary Advance"
+               >
+                 <span>💵</span> Advance
+               </button>
+               <button
+                 onClick={() => openApplyModal('resignation')}
+                 className="px-3 py-1.5 text-xs font-bold rounded-lg text-muted hover:text-[#1A1A1A] hover:bg-white/60 transition-all flex items-center gap-1.5"
+                 title="Submit Resignation Notice"
+               >
+                 <span>📝</span> Resignation
+               </button>
+             </div>
+             
              <button
               onClick={() => setShowMarkForm(!showMarkForm)}
               className="btn-primary"
@@ -957,26 +1002,49 @@ export default function AttendancePage() {
                   toast.error(err.response?.data?.error || 'Failed to submit request'); 
                 }
               }} className="space-y-4">
-                <div>
-                  <label className="label">Request Category</label>
-                  <select 
-                    className="input font-bold" 
-                    value={requestCategory} 
-                    onChange={e => {
-                      const cat = e.target.value;
-                      setRequestCategory(cat);
-                      if (cat === 'leave') {
-                        setLeaveForm({...leaveForm, type: 'casual', amount: ''});
-                      } else {
-                        setLeaveForm({...leaveForm, type: cat, amount: ''});
-                      }
+                {/* Request Category Pill Tabs */}
+                <div className="bg-slate-100 p-1 rounded-xl flex gap-1 mb-4 overflow-x-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRequestCategory('leave');
+                      const def = masterSubtypes.length ? masterSubtypes[0].key : 'casual';
+                      setLeaveForm({...leaveForm, type: def, amount: ''});
                     }}
+                    className={`flex-1 py-2 px-2 text-[11px] font-black rounded-lg transition-all ${requestCategory === 'leave' ? 'bg-white text-[#E05A1E] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                   >
-                    <option value="leave">Leave (Full Day)</option>
-                    <option value="half_day">Half Day Request</option>
-                    <option value="advance">Salary Advance</option>
-                    <option value="resignation">Resignation Notice</option>
-                  </select>
+                    Full Leave
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRequestCategory('half_day');
+                      setLeaveForm({...leaveForm, type: 'half_day', amount: ''});
+                    }}
+                    className={`flex-1 py-2 px-2 text-[11px] font-black rounded-lg transition-all ${requestCategory === 'half_day' ? 'bg-white text-[#E05A1E] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    Half Day
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRequestCategory('advance');
+                      setLeaveForm({...leaveForm, type: 'advance', amount: ''});
+                    }}
+                    className={`flex-1 py-2 px-2 text-[11px] font-black rounded-lg transition-all ${requestCategory === 'advance' ? 'bg-white text-[#E05A1E] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    Advance
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRequestCategory('resignation');
+                      setLeaveForm({...leaveForm, type: 'resignation', amount: ''});
+                    }}
+                    className={`flex-1 py-2 px-2 text-[11px] font-black rounded-lg transition-all ${requestCategory === 'resignation' ? 'bg-white text-[#E05A1E] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    Resignation
+                  </button>
                 </div>
 
                 {requestCategory === 'leave' ? (
@@ -984,20 +1052,28 @@ export default function AttendancePage() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="label">Start Date</label>
-                        <input type="date" required className="input" value={leaveForm.start_date} onChange={e => setLeaveForm({...leaveForm, start_date: e.target.value})} />
+                        <input type="date" required className="input font-bold" value={leaveForm.start_date} onChange={e => setLeaveForm({...leaveForm, start_date: e.target.value})} />
                       </div>
                       <div>
                         <label className="label">End Date</label>
-                        <input type="date" required className="input" value={leaveForm.end_date} onChange={e => setLeaveForm({...leaveForm, end_date: e.target.value})} />
+                        <input type="date" required className="input font-bold" value={leaveForm.end_date} onChange={e => setLeaveForm({...leaveForm, end_date: e.target.value})} />
                       </div>
                     </div>
                     <div>
                       <label className="label">Leave Sub-type</label>
-                      <select className="input" value={leaveForm.type} onChange={e => setLeaveForm({...leaveForm, type: e.target.value})}>
-                        <option value="casual">Casual Leave</option>
-                        <option value="sick">Sick Leave</option>
-                        <option value="emergency">Emergency Leave</option>
-                        <option value="unpaid">Unpaid Leave</option>
+                      <select className="input font-bold" value={leaveForm.type} onChange={e => setLeaveForm({...leaveForm, type: e.target.value})}>
+                        {masterSubtypes.length > 0 ? (
+                          masterSubtypes.map(st => (
+                            <option key={st.key} value={st.key}>{st.label}</option>
+                          ))
+                        ) : (
+                          <>
+                            <option value="casual">Casual Leave</option>
+                            <option value="sick">Sick Leave</option>
+                            <option value="emergency">Emergency Leave</option>
+                            <option value="unpaid">Unpaid Leave</option>
+                          </>
+                        )}
                       </select>
                     </div>
                   </>

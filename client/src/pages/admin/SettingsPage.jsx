@@ -74,6 +74,12 @@ export default function SettingsPage() {
   const [holidays, setHolidays] = useState([]);
   const [newHoliday, setNewHoliday] = useState({ date: '', name: '', is_paid: true });
 
+  // Attendance Dropdowns Master State
+  const [dropdowns, setDropdowns] = useState([]);
+  const [activeDropdownTab, setActiveDropdownTab] = useState('request_category');
+  const [showDropdownModal, setShowDropdownModal] = useState(false);
+  const [editingDropdown, setEditingDropdown] = useState({ id: null, category: 'request_category', key: '', label: '', description: '', color: 'slate', display_order: 1, is_active: true });
+
   // Factory Reset State
   const [resetStep, setResetStep] = useState(1); // 1: Warning, 2: Preview/Confirm, 3: Success
   const [resetPreview, setResetPreview] = useState(null);
@@ -98,6 +104,9 @@ export default function SettingsPage() {
       } else if (activeTab === 'batches') {
         const { data } = await api.get('/settings/batches');
         setBatches(data || []);
+      } else if (activeTab === 'dropdowns') {
+        const { data } = await api.get('/settings/dropdowns?all=true');
+        setDropdowns(data || []);
       } else if (activeTab === 'payroll') {
         const { data } = await api.get('/settings/app');
         setPayrollSettings(prev => ({ ...prev, ...data }));
@@ -308,6 +317,35 @@ export default function SettingsPage() {
     }
   };
 
+  // Dropdown Handlers
+  const handleSaveDropdown = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingDropdown.id) {
+        await api.put(`/settings/dropdowns/${editingDropdown.id}`, editingDropdown);
+        toast.success('Dropdown option updated successfully');
+      } else {
+        await api.post('/settings/dropdowns', editingDropdown);
+        toast.success('Dropdown option created successfully');
+      }
+      setShowDropdownModal(false);
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to save dropdown option');
+    }
+  };
+
+  const handleDeleteDropdown = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this dropdown option?')) return;
+    try {
+      await api.delete(`/settings/dropdowns/${id}`);
+      toast.success('Option deleted successfully');
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to delete option');
+    }
+  };
+
   return (
     <AppLayout>
       <div className="p-6 max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500">
@@ -331,6 +369,12 @@ export default function SettingsPage() {
             className={`flex items-center gap-2 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'payroll' ? 'bg-white shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700'}`}
           >
             <Clock size={14} /> Payroll & Batches
+          </button>
+          <button 
+            onClick={() => setActiveTab('dropdowns')}
+            className={`flex items-center gap-2 px-5 py-2.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'dropdowns' ? 'bg-white shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <Layers size={14} /> Attendance Dropdowns
           </button>
           <button 
             onClick={() => setActiveTab('holidays')}
@@ -501,6 +545,113 @@ export default function SettingsPage() {
                     )}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* Attendance Dropdowns Management */}
+          {activeTab === 'dropdowns' && (
+            <div className="p-6">
+              <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b border-gray-100">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <Layers className="text-primary" size={20} />
+                    Attendance & Leave Master Options
+                  </h2>
+                  <p className="text-xs text-gray-500 font-medium">Manage all dynamic dropdown choices and categories available in the attendance section</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingDropdown({
+                      id: null,
+                      category: activeDropdownTab,
+                      key: '',
+                      label: '',
+                      description: '',
+                      color: 'slate',
+                      display_order: (dropdowns.filter(d => d.category === activeDropdownTab).length + 1),
+                      is_active: true
+                    });
+                    setShowDropdownModal(true);
+                  }}
+                  className="btn-primary"
+                >
+                  <Plus size={16} />
+                  <span className="font-bold uppercase tracking-widest text-[10px]">Add New Option</span>
+                </button>
+              </div>
+
+              {/* Sub-tabs for Dropdown Categories */}
+              <div className="flex gap-2 p-1 bg-gray-50 rounded-xl mb-6 border border-gray-100">
+                <button
+                  onClick={() => setActiveDropdownTab('request_category')}
+                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+                    activeDropdownTab === 'request_category' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  Request Categories
+                </button>
+                <button
+                  onClick={() => setActiveDropdownTab('leave_subtype')}
+                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+                    activeDropdownTab === 'leave_subtype' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  Leave Sub-types
+                </button>
+                <button
+                  onClick={() => setActiveDropdownTab('work_location')}
+                  className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+                    activeDropdownTab === 'work_location' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  Work Locations
+                </button>
+              </div>
+
+              {/* Grid of Dropdown items */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {dropdowns.filter(d => d.category === activeDropdownTab).map((item) => (
+                  <div key={item.id} className="bg-gray-50/70 border border-gray-200 rounded-2xl p-4 flex flex-col justify-between hover:border-primary/30 transition-all group">
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-50 text-primary border border-orange-200">
+                          ● {item.label}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${item.is_active ? 'bg-emerald-500' : 'bg-gray-300'}`} title={item.is_active ? 'Active' : 'Inactive'} />
+                          <span className="text-[10px] font-mono text-gray-400">Order: {item.display_order}</span>
+                        </div>
+                      </div>
+                      <p className="text-xs font-bold text-gray-900 mb-1">Key: <code className="bg-gray-200 px-1.5 py-0.5 rounded text-[10px]">{item.key}</code></p>
+                      <p className="text-xs text-gray-500 font-medium italic line-clamp-2">{item.description || 'No description provided'}</p>
+                    </div>
+                    
+                    <div className="flex items-center justify-end gap-2 pt-3 mt-3 border-t border-gray-200/60">
+                      <button
+                        onClick={() => {
+                          setEditingDropdown(item);
+                          setShowDropdownModal(true);
+                        }}
+                        className="p-1.5 text-gray-600 hover:text-primary hover:bg-orange-50 rounded-lg transition-all text-xs font-bold flex items-center gap-1"
+                      >
+                        <Pencil size={14} /> Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteDropdown(item.id)}
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                        title="Delete option"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {dropdowns.filter(d => d.category === activeDropdownTab).length === 0 && (
+                  <div className="col-span-full py-12 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">
+                    No dropdown options found for this category
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1537,6 +1688,93 @@ export default function SettingsPage() {
                 <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
                   <button type="button" onClick={() => setShowEditBatchModal(false)} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
                   <button type="submit" className="btn-primary px-8 py-2.5">Save Changes</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+        {/* Dropdown Master Option Modal */}
+        {showDropdownModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                <h3 className="text-xl font-bold text-gray-900">
+                  {editingDropdown.id ? 'Edit Dropdown Option' : 'Create Dropdown Option'}
+                </h3>
+                <button onClick={() => setShowDropdownModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+              </div>
+              <form onSubmit={handleSaveDropdown} className="p-6 space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Option Category</label>
+                  <select
+                    value={editingDropdown.category}
+                    onChange={(e) => setEditingDropdown({ ...editingDropdown, category: e.target.value })}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary font-bold"
+                  >
+                    <option value="request_category">Request Category</option>
+                    <option value="leave_subtype">Leave Sub-type</option>
+                    <option value="work_location">Work Location</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Label Name</label>
+                  <input
+                    type="text" required
+                    value={editingDropdown.label}
+                    onChange={(e) => setEditingDropdown({ ...editingDropdown, label: e.target.value })}
+                    placeholder="e.g. Maternity Leave / Half Day"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary font-bold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Key Slug (System Identifier)</label>
+                  <input
+                    type="text"
+                    value={editingDropdown.key || ''}
+                    onChange={(e) => setEditingDropdown({ ...editingDropdown, key: e.target.value })}
+                    placeholder="e.g. maternity_leave (auto-generated if blank)"
+                    disabled={!!editingDropdown.id}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary font-mono text-xs disabled:opacity-60"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Description</label>
+                  <textarea
+                    rows={2}
+                    value={editingDropdown.description || ''}
+                    onChange={(e) => setEditingDropdown({ ...editingDropdown, description: e.target.value })}
+                    placeholder="Brief description of this option..."
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Display Order</label>
+                    <input
+                      type="number" required min="1"
+                      value={editingDropdown.display_order || 1}
+                      onChange={(e) => setEditingDropdown({ ...editingDropdown, display_order: e.target.value })}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Status</label>
+                    <div className="flex items-center gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingDropdown({ ...editingDropdown, is_active: !editingDropdown.is_active })}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          editingDropdown.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                        }`}
+                      >
+                        {editingDropdown.is_active ? 'Active' : 'Disabled'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
+                  <button type="button" onClick={() => setShowDropdownModal(false)} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
+                  <button type="submit" className="btn-primary px-8 py-2.5">Save Option</button>
                 </div>
               </form>
             </div>

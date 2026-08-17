@@ -434,4 +434,131 @@ router.delete('/batches/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// ─── Attendance Master Dropdowns CRUD ────────────────────────────────────────
+
+// 1. Get dropdown options (public to all authenticated users)
+router.get('/dropdowns', async (req, res) => {
+  try {
+    const { category } = req.query;
+    let query = 'SELECT * FROM attendance_dropdown_masters WHERE is_active = true';
+    const params = [];
+
+    // If request has admin query string ?all=true, return inactive ones as well
+    if (req.query.all === 'true' && req.user?.role === 'admin') {
+      query = 'SELECT * FROM attendance_dropdown_masters';
+    }
+
+    if (category) {
+      query += (query.includes('WHERE') ? ' AND' : ' WHERE') + ' category = $1';
+      params.push(category);
+    }
+
+    query += ' ORDER BY category ASC, display_order ASC, label ASC';
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Settings: fetch dropdowns error:', err);
+    res.status(500).json({ error: 'Failed to fetch dropdown options' });
+  }
+});
+
+// 2. Create dropdown option (Admin only)
+router.post('/dropdowns', requireAdmin, async (req, res) => {
+  try {
+    const { category, key, label, description, color, display_order, meta_json, is_active } = req.body;
+
+    if (!category?.trim() || !label?.trim()) {
+      return res.status(400).json({ error: 'Category and Label are required' });
+    }
+
+    // Auto-generate key if not provided
+    const keySlug = (key || label).toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+
+    const { rows } = await pool.query(
+      `INSERT INTO attendance_dropdown_masters (category, key, label, description, color, display_order, meta_json, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [
+        category.trim(),
+        keySlug,
+        label.trim(),
+        description?.trim() || null,
+        color?.trim() || 'slate',
+        parseInt(display_order) || 0,
+        meta_json || {},
+        is_active !== false
+      ]
+    );
+
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('Settings: create dropdown option error:', err);
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'An option with this key already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create dropdown option' });
+  }
+});
+
+// 3. Update dropdown option (Admin only)
+router.put('/dropdowns/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid dropdown ID' });
+    }
+    const { label, description, color, display_order, meta_json, is_active } = req.body;
+
+    if (!label?.trim()) {
+      return res.status(400).json({ error: 'Label is required' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE attendance_dropdown_masters
+       SET label = $1, description = $2, color = $3, display_order = $4, meta_json = $5, is_active = $6, updated_at = NOW()
+       WHERE id = $7
+       RETURNING *`,
+      [
+        label.trim(),
+        description?.trim() || null,
+        color?.trim() || 'slate',
+        parseInt(display_order) || 0,
+        meta_json || {},
+        is_active !== false,
+        id
+      ]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Dropdown option not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Settings: update dropdown option error:', err);
+    res.status(500).json({ error: 'Failed to update dropdown option' });
+  }
+});
+
+// 4. Delete dropdown option (Admin only)
+router.delete('/dropdowns/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid dropdown ID' });
+    }
+    const { rowCount } = await pool.query('DELETE FROM attendance_dropdown_masters WHERE id = $1', [id]);
+
+    if (rowCount === 0) {
+      return res.status(404).json({ error: 'Dropdown option not found' });
+    }
+
+    res.json({ message: 'Option deleted successfully' });
+  } catch (err) {
+    console.error('Settings: delete dropdown option error:', err);
+    res.status(500).json({ error: 'Failed to delete dropdown option' });
+  }
+});
+
 module.exports = router;
+
