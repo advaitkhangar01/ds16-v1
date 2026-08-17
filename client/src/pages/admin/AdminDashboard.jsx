@@ -1133,8 +1133,9 @@ export default function AdminDashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 space-y-4">
             <AttendanceCard attendance={data?.my_attendance} onAction={handleAttendanceAction} />
+            <MyAdminSalaryStats salary={data?.salary_stats} onCardClick={openBreakdown} />
           </div>
           
           <div className="lg:col-span-2">
@@ -1148,21 +1149,6 @@ export default function AdminDashboard() {
                 <ProjectTypeStats counts={data?.type_counts} />
               </div>
             )}
-          </div>
-        </div>
-
-        {/* Adjustments (Salary Stats) & Leave Schedule Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
-          <div className="lg:col-span-1">
-            <MyAdminSalaryStats salary={data?.salary_stats} onCardClick={openBreakdown} />
-          </div>
-          <div className="lg:col-span-2">
-            <TeamApprovedLeavesWidget 
-              activeLeaves={data?.active_team_leaves || []} 
-              upcomingLeaves={data?.upcoming_team_leaves || []} 
-              title="Team Leave Schedule"
-              isAdmin={true}
-            />
           </div>
         </div>
 
@@ -1183,7 +1169,6 @@ export default function AdminDashboard() {
           type={financialModal.type}
           label={financialModal.label}
         />
-
 
         {/* Accounts: financial command center and task boards; Admin: task boards and pipeline */}
         {isAccounts && !isAdmin ? (
@@ -1219,6 +1204,16 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+
+        {/* Team Leave Schedule — Positioned at the bottom of the dashboard */}
+        <div className="w-full pt-2">
+          <TeamApprovedLeavesWidget 
+            activeLeaves={data?.active_team_leaves || []} 
+            upcomingLeaves={data?.upcoming_team_leaves || []} 
+            title="Team Leave Schedule"
+            isAdmin={true}
+          />
+        </div>
 
         {/* Quick links — accounts sees financial shortcuts, admin sees project overview */}
         {isAccounts && !isAdmin && (
