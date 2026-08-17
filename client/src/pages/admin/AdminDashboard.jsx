@@ -1133,15 +1133,8 @@ export default function AdminDashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-          <div className="lg:col-span-1 space-y-4">
+          <div className="lg:col-span-1">
             <AttendanceCard attendance={data?.my_attendance} onAction={handleAttendanceAction} />
-            <MyAdminSalaryStats salary={data?.salary_stats} onCardClick={openBreakdown} />
-            <TeamApprovedLeavesWidget 
-              activeLeaves={data?.active_team_leaves || []} 
-              upcomingLeaves={data?.upcoming_team_leaves || []} 
-              title="Team Leave Schedule"
-              isAdmin={true}
-            />
           </div>
           
           <div className="lg:col-span-2">
@@ -1156,17 +1149,32 @@ export default function AdminDashboard() {
               </div>
             )}
           </div>
-
-          {/* Financial Summary Section - Now part of the same grid to ensure proper flow */}
-          {!loading && (isAdmin || isAccounts) && (
-            <div className="lg:col-span-3 mt-1">
-              <FinancialStats 
-                finances={data?.finances} 
-                onOpenBreakdown={(type, label) => setFinancialModal({ isOpen: true, type, label })}
-              />
-            </div>
-          )}
         </div>
+
+        {/* Adjustments (Salary Stats) & Leave Schedule Row */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+          <div className="lg:col-span-1">
+            <MyAdminSalaryStats salary={data?.salary_stats} onCardClick={openBreakdown} />
+          </div>
+          <div className="lg:col-span-2">
+            <TeamApprovedLeavesWidget 
+              activeLeaves={data?.active_team_leaves || []} 
+              upcomingLeaves={data?.upcoming_team_leaves || []} 
+              title="Team Leave Schedule"
+              isAdmin={true}
+            />
+          </div>
+        </div>
+
+        {/* Financial Summary Section */}
+        {!loading && (isAdmin || isAccounts) && (
+          <div className="mt-1">
+            <FinancialStats 
+              finances={data?.finances} 
+              onOpenBreakdown={(type, label) => setFinancialModal({ isOpen: true, type, label })}
+            />
+          </div>
+        )}
 
         {/* Breakdown Modal */}
         <FinancialBreakdownModal 
