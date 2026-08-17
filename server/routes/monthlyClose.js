@@ -528,28 +528,7 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
     const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
     const monthEnd = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
 
-    const categoryRes = await client.query(
-      `SELECT DISTINCT category FROM (
-          SELECT category FROM transactions 
-          WHERE type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND vendor_id IS NULL
-            AND date >= $1 AND date <= $2
-         UNION
-         SELECT category FROM office_expenses WHERE date >= $1 AND date <= $2
-       ) sub`,
-      [monthStart, monthEnd]
-    );
-
-    for (const catRow of categoryRes.rows) {
-      await client.query(
-        `INSERT INTO expense_audits (category, month, year, is_verified, verified_by, verified_at)
-         VALUES (LOWER($1), $2, $3, TRUE, $4, NOW())
-         ON CONFLICT (category, month, year) 
-         DO UPDATE SET is_verified = TRUE, verified_by = EXCLUDED.verified_by, verified_at = NOW()`,
-        [catRow.category, month, year, closedByUserId]
-      );
-    }
-
-    // 4. Generate final financial snapshot
+    // 4. Generate final financial snapshot (respects existing expense_audits verified choices)
     const snapshot = await generateSnapshot(month, year, client);
 
     // 5. Soft-blocker auditing
@@ -760,6 +739,25 @@ router.post('/relock', requireAdmin, async (req, res) => {
        RETURNING *`,
       [req.user.id, month, year]
     );
+
+    // Regenerate snapshot in monthly_closing_log to reflect updated verified expenses
+    const snapshot = await generateSnapshot(month, year, pool);
+    await pool.query(
+      `UPDATE monthly_closing_log 
+       SET snapshot = $1 
+       WHERE month = $2 AND year = $3`,
+      [snapshot, month, year]
+    );
+
+    const profit = snapshot.profit_loss.realized;
+    await pool.query(
+      `INSERT INTO company_capital (month, year, amount, description)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (month, year) 
+       DO UPDATE SET amount = EXCLUDED.amount, description = EXCLUDED.description`,
+      [month, year, profit, `Capital transferred from profit of ${new Date(year, month - 1, 1).toLocaleString('default', { month: 'long' })} ${year}`]
+    );
+
     res.json({ message: 'Period re-locked successfully', logsUpdated: rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
