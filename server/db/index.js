@@ -644,6 +644,13 @@ if (process.env.NODE_ENV !== 'test') {
           END $$;
         `);
 
+        // 26. Align payroll payment_date with month/year if off-month
+        await pool.query(`
+          UPDATE payroll 
+          SET payment_date = (MAKE_DATE(year, month, 1) + INTERVAL '1 month - 1 day')::date 
+          WHERE EXTRACT(MONTH FROM payment_date) != month OR EXTRACT(YEAR FROM payment_date) != year;
+        `);
+
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
         console.error('❌ Migration failed:', mErr.message);

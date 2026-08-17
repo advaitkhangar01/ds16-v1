@@ -39,10 +39,20 @@ router.get('/expenses', async (req, res) => {
       LEFT JOIN period_unlock_log pul ON pul.id = oe.period_unlock_id
       LEFT JOIN users pul_user ON pul_user.id = pul.unlocked_by
       UNION ALL
-      SELECT id, 'Salaries' as category, (net_paid - incentives) as amount, payment_date as date, 'Monthly salary payment' as description, NULL as receipt_url, 'payroll' as source, NULL as period_unlock_id, NULL as unlock_reason, NULL as unlock_date, NULL as unlock_user 
+      SELECT id, 'Salaries' as category, (net_paid - incentives) as amount, 
+             CASE 
+               WHEN EXTRACT(MONTH FROM payment_date) = month AND EXTRACT(YEAR FROM payment_date) = year THEN payment_date
+               ELSE (MAKE_DATE(year, month, 1) + INTERVAL '1 month - 1 day')::date
+             END as date, 
+             'Monthly salary payment' as description, NULL as receipt_url, 'payroll' as source, NULL as period_unlock_id, NULL as unlock_reason, NULL as unlock_date, NULL as unlock_user 
       FROM payroll WHERE status = 'paid'
       UNION ALL
-      SELECT id, 'Incentives' as category, incentives as amount, payment_date as date, 'Performance incentive' as description, NULL as receipt_url, 'payroll' as source, NULL as period_unlock_id, NULL as unlock_reason, NULL as unlock_date, NULL as unlock_user 
+      SELECT id, 'Incentives' as category, incentives as amount, 
+             CASE 
+               WHEN EXTRACT(MONTH FROM payment_date) = month AND EXTRACT(YEAR FROM payment_date) = year THEN payment_date
+               ELSE (MAKE_DATE(year, month, 1) + INTERVAL '1 month - 1 day')::date
+             END as date, 
+             'Performance incentive' as description, NULL as receipt_url, 'payroll' as source, NULL as period_unlock_id, NULL as unlock_reason, NULL as unlock_date, NULL as unlock_user 
       FROM payroll WHERE status = 'paid' AND incentives > 0
       ORDER BY date DESC, id DESC
     `;

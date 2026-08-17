@@ -228,7 +228,10 @@ router.get('/transactions', authenticate, async (req, res) => {
             'expense' as type, 
             'Salaries' as category, 
             (p.net_paid - p.incentives) as amount, 
-            p.payment_date as date, 
+            CASE 
+              WHEN EXTRACT(MONTH FROM p.payment_date) = p.month AND EXTRACT(YEAR FROM p.payment_date) = p.year THEN p.payment_date
+              ELSE (MAKE_DATE(p.year, p.month, 1) + INTERVAL '1 month - 1 day')::date
+            END as date, 
             'Monthly salary payment' as description, 
             NULL as project_id, 
             NULL as vendor_id, 
@@ -250,7 +253,10 @@ router.get('/transactions', authenticate, async (req, res) => {
             'expense' as type, 
             'Incentives' as category, 
             p.incentives as amount, 
-            p.payment_date as date, 
+            CASE 
+              WHEN EXTRACT(MONTH FROM p.payment_date) = p.month AND EXTRACT(YEAR FROM p.payment_date) = p.year THEN p.payment_date
+              ELSE (MAKE_DATE(p.year, p.month, 1) + INTERVAL '1 month - 1 day')::date
+            END as date, 
             'Performance incentive' as description, 
             NULL as project_id, 
             NULL as vendor_id, 

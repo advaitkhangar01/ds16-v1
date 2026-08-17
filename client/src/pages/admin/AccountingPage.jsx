@@ -1229,6 +1229,7 @@ export default function AccountingPage() {
       ]);
       setEmployees(empRes.data);
       setPayrollHistory(histRes.data);
+      fetchAudits();
     } catch (err) {
       toast.error('Failed to load payroll data');
     }
