@@ -2252,8 +2252,8 @@ export default function AccountingPage() {
                                 type="checkbox" 
                                 checked={!!auditedCategories[cat.toLowerCase()]} 
                                 onChange={() => toggleAudit(cat)} 
-                                disabled={!isAdmin || cat.toLowerCase() === 'salaries' || cat.toLowerCase() === 'incentives'}
-                                className={`w-4 h-4 rounded border-gray-300 text-[#E05A1E] focus:ring-[#E05A1E] ${(!isAdmin || cat.toLowerCase() === 'salaries' || cat.toLowerCase() === 'incentives') ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`} 
+                                disabled={!isAdmin || isPeriodLocked}
+                                className={`w-4 h-4 rounded border-gray-300 text-[#E05A1E] focus:ring-[#E05A1E] ${(!isAdmin || isPeriodLocked) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`} 
                               />
                               {auditedCategories[cat.toLowerCase()] && (
                                 <CheckCircle2 size={12} className="text-emerald-500 animate-in zoom-in duration-200" />
