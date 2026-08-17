@@ -48,12 +48,13 @@ const EMP_LINKS = [
   { to: '/vendors', label: 'Vendors', icon: 'tool' },
 ];
 
-// Project Head / Design Head: restricted to Projects, Tasks & Vendors
+// Project Head / Design Head: restricted to Projects, Tasks, Vendors & Attendance
 const PROJECT_DESIGN_HEAD_LINKS = [
   { to: '/employee/dashboard', label: 'Dashboard', icon: 'grid' },
   { to: '/employee/profile', label: 'My Profile', icon: 'user' },
   { to: '/projects', label: 'Projects', icon: 'folder' },
   { to: '/tasks', label: 'Tasks', icon: 'check_square' },
+  { to: '/attendance', label: 'Attendance', icon: 'clock' },
   { to: '/daily-reports', label: 'Daily Reports', icon: 'file_spreadsheet' },
   { to: '/vendors', label: 'Vendors', icon: 'tool' },
 ];
