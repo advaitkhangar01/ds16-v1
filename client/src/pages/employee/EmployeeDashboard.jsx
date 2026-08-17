@@ -923,10 +923,6 @@ export default function EmployeeDashboard() {
             </div>
             <div className="xl:col-span-1 space-y-6">
               <TeamAttendanceCompact records={data?.team_attendance || []} />
-              <TeamApprovedLeavesWidget 
-                activeLeaves={data?.active_team_leaves || []} 
-                upcomingLeaves={data?.upcoming_team_leaves || []} 
-              />
             </div>
           </div>
 
@@ -940,6 +936,14 @@ export default function EmployeeDashboard() {
               </h2>
               <KanbanBoard kanban={data?.kanban} />
             </div>
+          </div>
+
+          {/* Edge-to-Edge Team Approved Leaves Schedule */}
+          <div className="w-full pt-2">
+            <TeamApprovedLeavesWidget 
+              activeLeaves={data?.active_team_leaves || []} 
+              upcomingLeaves={data?.upcoming_team_leaves || []} 
+            />
           </div>
         </div>
       </AppLayout>

@@ -137,7 +137,7 @@ function AppRoutes() {
           <ProtectedRoute><ProjectDetail /></ProtectedRoute>
         } />
         <Route path="/attendance" element={
-          <ProtectedRoute blockProjectDesignHead><AttendancePage /></ProtectedRoute>
+          <ProtectedRoute><AttendancePage /></ProtectedRoute>
         } />
         <Route path="/tasks" element={
           <ProtectedRoute><TasksPage /></ProtectedRoute>
