@@ -883,6 +883,11 @@ router.get('/employee', authenticate, async (req, res) => {
       if (kanban[col]) kanban[col].push(p);
     });
 
+    // 5. Calculate salary stats for employee
+    const settingsRes = await pool.query('SELECT key, value FROM app_settings');
+    const settings = settingsRes.rows.reduce((acc, row) => { acc[row.key] = row.value; return acc; }, {});
+    const salaryStats = await calculateSalaryStats(userId, month, year, todayStr, settings);
+
     // 6. Active approved team leaves today & upcoming approved team leaves (STRICTLY APPROVED ONLY)
     const { rows: activeTeamLeavesRows } = await pool.query(
       `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, lr.start_date, lr.end_date, lr.reason
