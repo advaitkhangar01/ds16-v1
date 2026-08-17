@@ -64,8 +64,12 @@ async function checkPeriodLock(req, res, next) {
             const { rows } = await pool.query('SELECT date FROM office_expenses WHERE id = $1', [id]);
             if (rows[0]) dateStr = rows[0].date;
           } else if (req.originalUrl.includes('payroll')) {
-            const { rows } = await pool.query('SELECT payment_date as date FROM payroll WHERE id = $1', [id]);
-            if (rows[0]) dateStr = rows[0].date;
+            // Use payroll period (month/year), not payment_date, to check the correct closed period
+            const { rows } = await pool.query('SELECT month, year FROM payroll WHERE id = $1', [id]);
+            if (rows[0]) {
+              month = rows[0].month;
+              year = rows[0].year;
+            }
           }
         }
       }

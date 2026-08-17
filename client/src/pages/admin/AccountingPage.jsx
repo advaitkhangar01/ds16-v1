@@ -1572,6 +1572,7 @@ export default function AccountingPage() {
         net_paid: parseFloat(finalAmount),
         month: selectedMonth,
         year: selectedYear,
+        payment_date: new Date(selectedYear, selectedMonth, 0).toISOString().split('T')[0], // last day of selected month
         status: 'paid'
       });
 
