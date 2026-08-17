@@ -33,7 +33,15 @@ echo "✓ All files syntax-OK"
 
 cd ..
 
-# 3. Graceful reload via PM2 (zero downtime — old workers finish in-flight requests)
+# 3. Build React Frontend Client
+echo "→ Building React frontend..."
+cd client
+npm install
+npm run build
+cd ..
+echo "✓ Frontend build complete"
+
+# 4. Graceful reload via PM2 (zero downtime — old workers finish in-flight requests)
 echo "→ Reloading PM2 processes..."
 pm2 reload all --update-env
 echo "✓ PM2 reloaded"
