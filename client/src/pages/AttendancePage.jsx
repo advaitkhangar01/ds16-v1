@@ -112,6 +112,8 @@ export default function AttendancePage() {
   const [statusFilter, setStatusFilter] = useState('all'); 
   const [showLeaveForm, setShowLeaveForm] = useState(false);
   const [requestCategory, setRequestCategory] = useState('leave'); // 'leave' | 'half_day' | 'advance' | 'resignation'
+  const [activeCategoryTab, setActiveCategoryTab] = useState('leave');
+  const [leaveCategoryFilter, setLeaveCategoryFilter] = useState('all'); // 'all' | 'leave' | 'half_day' | 'advance' | 'resignation'
   const [leaves, setLeaves] = useState([]);
   const [leaveLoading, setLeaveLoading] = useState(false);
   const [leaveStatusFilter, setLeaveStatusFilter] = useState('all');
@@ -150,6 +152,11 @@ export default function AttendancePage() {
     const defaultSub = masterSubtypes.length ? masterSubtypes[0].key : subType;
     setLeaveForm({ start_date: '', end_date: '', type: cat === 'leave' ? defaultSub : cat, reason: '', amount: '' });
     setShowLeaveForm(true);
+  };
+
+  const handleCategoryTabClick = (cat = 'leave', subType = 'casual') => {
+    setActiveCategoryTab(cat);
+    openApplyModal(cat, subType);
   };
 
   // Fetch complete user list from dedicated endpoint (all users, not just today's attendees)
@@ -337,9 +344,20 @@ export default function AttendancePage() {
   }, [leaves]);
 
   const filteredLeaves = useMemo(() => {
-    if (leaveStatusFilter === 'all') return leaves;
-    return leaves.filter(l => l.status === leaveStatusFilter);
-  }, [leaves, leaveStatusFilter]);
+    let result = leaves;
+    if (leaveStatusFilter !== 'all') {
+      result = result.filter(l => l.status === leaveStatusFilter);
+    }
+    if (leaveCategoryFilter !== 'all') {
+      result = result.filter(l => {
+        if (leaveCategoryFilter === 'leave') {
+          return ['casual', 'sick', 'emergency', 'unpaid', 'leave'].includes(l.type);
+        }
+        return l.type === leaveCategoryFilter;
+      });
+    }
+    return result;
+  }, [leaves, leaveStatusFilter, leaveCategoryFilter]);
 
   async function handleManualMark(e) {
     e.preventDefault();
@@ -363,32 +381,48 @@ export default function AttendancePage() {
             <p className="text-muted text-sm font-medium">{todayIST()}</p>
           </div>
            <div className="flex items-center gap-2 flex-wrap">
-             {/* Quick Apply Action Buttons */}
+             {/* Quick Apply Category Action Tabs */}
              <div className="flex items-center bg-[#F4F4F5] p-1 rounded-xl gap-1 border border-slate-200/60 shadow-sm">
                <button
-                 onClick={() => openApplyModal('leave', 'casual')}
-                 className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white text-[#1A1A1A] shadow-sm hover:text-[#E05A1E] transition-all flex items-center gap-1.5"
+                 onClick={() => handleCategoryTabClick('leave', 'casual')}
+                 className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                   activeCategoryTab === 'leave'
+                     ? 'bg-white text-[#E05A1E] shadow-sm border border-slate-200/50 font-black'
+                     : 'text-muted hover:text-[#1A1A1A] hover:bg-white/60'
+                 }`}
                  title="Apply Full Day Leave"
                >
                  <span>🌴</span> Full Leave
                </button>
                <button
-                 onClick={() => openApplyModal('half_day')}
-                 className="px-3 py-1.5 text-xs font-bold rounded-lg text-muted hover:text-[#1A1A1A] hover:bg-white/60 transition-all flex items-center gap-1.5"
+                 onClick={() => handleCategoryTabClick('half_day')}
+                 className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                   activeCategoryTab === 'half_day'
+                     ? 'bg-white text-[#E05A1E] shadow-sm border border-slate-200/50 font-black'
+                     : 'text-muted hover:text-[#1A1A1A] hover:bg-white/60'
+                 }`}
                  title="Request Half Day"
                >
                  <span>⏱️</span> Half Day
                </button>
                <button
-                 onClick={() => openApplyModal('advance')}
-                 className="px-3 py-1.5 text-xs font-bold rounded-lg text-muted hover:text-[#1A1A1A] hover:bg-white/60 transition-all flex items-center gap-1.5"
+                 onClick={() => handleCategoryTabClick('advance')}
+                 className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                   activeCategoryTab === 'advance'
+                     ? 'bg-white text-[#E05A1E] shadow-sm border border-slate-200/50 font-black'
+                     : 'text-muted hover:text-[#1A1A1A] hover:bg-white/60'
+                 }`}
                  title="Request Salary Advance"
                >
                  <span>💵</span> Advance
                </button>
                <button
-                 onClick={() => openApplyModal('resignation')}
-                 className="px-3 py-1.5 text-xs font-bold rounded-lg text-muted hover:text-[#1A1A1A] hover:bg-white/60 transition-all flex items-center gap-1.5"
+                 onClick={() => handleCategoryTabClick('resignation')}
+                 className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                   activeCategoryTab === 'resignation'
+                     ? 'bg-white text-[#E05A1E] shadow-sm border border-slate-200/50 font-black'
+                     : 'text-muted hover:text-[#1A1A1A] hover:bg-white/60'
+                 }`}
                  title="Submit Resignation Notice"
                >
                  <span>📝</span> Resignation
@@ -833,18 +867,42 @@ export default function AttendancePage() {
                   </p>
                </div>
                
-               <div className="flex items-center gap-2 bg-[#F0F0F0] p-1 rounded-xl border border-[#E0E0E0]">
-                  {['all', 'pending', 'approved', 'rejected'].map(stat => (
-                    <button
-                      key={stat}
-                      onClick={() => setLeaveStatusFilter(stat)}
-                      className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                        leaveStatusFilter === stat ? 'bg-white text-[#E05A1E] shadow-sm' : 'text-muted hover:text-[#1A1A1A]'
-                      }`}
-                    >
-                      {stat}
-                    </button>
-                  ))}
+               <div className="flex items-center gap-3 flex-wrap">
+                 {/* Category Filters */}
+                 <div className="flex items-center gap-1 bg-[#F4F4F5] p-1 rounded-xl border border-slate-200/60 shadow-sm">
+                   {[
+                     { key: 'all', label: 'All Requests' },
+                     { key: 'leave', label: '🌴 Full Leave' },
+                     { key: 'half_day', label: '⏱️ Half Day' },
+                     { key: 'advance', label: '💵 Advance' },
+                     { key: 'resignation', label: '📝 Resignation' }
+                   ].map(cat => (
+                     <button
+                       key={cat.key}
+                       onClick={() => setLeaveCategoryFilter(cat.key)}
+                       className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                         leaveCategoryFilter === cat.key ? 'bg-white text-[#E05A1E] shadow-sm font-black' : 'text-muted hover:text-[#1A1A1A]'
+                       }`}
+                     >
+                       {cat.label}
+                     </button>
+                   ))}
+                 </div>
+
+                 {/* Status Filters */}
+                 <div className="flex items-center gap-1 bg-[#F0F0F0] p-1 rounded-xl border border-[#E0E0E0]">
+                    {['all', 'pending', 'approved', 'rejected'].map(stat => (
+                      <button
+                        key={stat}
+                        onClick={() => setLeaveStatusFilter(stat)}
+                        className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                          leaveStatusFilter === stat ? 'bg-white text-[#E05A1E] shadow-sm' : 'text-muted hover:text-[#1A1A1A]'
+                        }`}
+                      >
+                        {stat}
+                      </button>
+                    ))}
+                 </div>
                </div>
             </div>
 
