@@ -10,7 +10,13 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo " DS16 — Robustness Fix Deployment"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# 1. Install new dependency (express-rate-limit)
+# 0. Pre-deployment Database Backup
+if [ -f "scripts/backup_db.sh" ]; then
+  echo "→ Creating pre-deployment database backup..."
+  bash scripts/backup_db.sh || echo "⚠️ Pre-deploy backup warning (continuing deployment)"
+fi
+
+# 1. Install server dependencies
 echo "→ Installing npm dependencies..."
 cd server
 npm install --omit=dev

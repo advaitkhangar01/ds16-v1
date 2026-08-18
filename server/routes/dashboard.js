@@ -7,23 +7,38 @@ const { autoCheckoutPendingRecords } = require('./attendance');
 const { calculatePayrollForEmployee } = require('../utils/payroll');
 
 async function calculateSalaryStats(userId, month, year, todayStr, settings) {
-  const payrollData = await calculatePayrollForEmployee(userId, month, year, settings, pool);
-  if (!payrollData) return null;
+  try {
+    const payrollData = await calculatePayrollForEmployee(userId, month, year, settings, pool);
+    if (!payrollData) return null;
 
-  // Find today's daily record in the processed daily logs
-  const todayRecord = payrollData.processedAttendance.find(r => r.date === todayStr);
+    // Find today's daily record in the processed daily logs
+    const todayRecord = payrollData.processedAttendance?.find(r => r.date === todayStr);
 
-  return {
-    earned_this_month: payrollData.suggested_salary,
-    deductions_this_month: payrollData.deductions,
-    today_earned: todayRecord ? Math.round(todayRecord.earnings) : 0,
-    today_deductions: todayRecord ? Math.round(todayRecord.deduction) : 0,
-    late_count: payrollData.late_count,
-    half_day_count: payrollData.half_days,
-    leaves_count: payrollData.leaves_count,
-    unpaid_leaves: payrollData.unpaid_leaves,
-    unmarked_absent_count: payrollData.unmarked_absent_count
-  };
+    return {
+      earned_this_month: payrollData.suggested_salary || 0,
+      deductions_this_month: payrollData.deductions || 0,
+      today_earned: todayRecord ? Math.round(todayRecord.earnings) : 0,
+      today_deductions: todayRecord ? Math.round(todayRecord.deduction) : 0,
+      late_count: payrollData.late_count || 0,
+      half_day_count: payrollData.half_days || 0,
+      leaves_count: payrollData.leaves_count || 0,
+      unpaid_leaves: payrollData.unpaid_leaves || 0,
+      unmarked_absent_count: payrollData.unmarked_absent_count || 0
+    };
+  } catch (err) {
+    console.error('[Dashboard Warning] calculateSalaryStats failed, using fallback stats:', err.message);
+    return {
+      earned_this_month: 0,
+      deductions_this_month: 0,
+      today_earned: 0,
+      today_deductions: 0,
+      late_count: 0,
+      half_day_count: 0,
+      leaves_count: 0,
+      unpaid_leaves: 0,
+      unmarked_absent_count: 0
+    };
+  }
 }
 
 // Helper: get IST date string removed in favor of shared util
@@ -31,7 +46,6 @@ async function calculateSalaryStats(userId, month, year, todayStr, settings) {
 // GET /api/dashboard/admin
 router.get('/admin', authenticate, requireAccounting, async (req, res) => {
   try {
-    await autoCheckoutPendingRecords();
     const today = getISTDate();
 
     // 1. Attendance summary (include everyone, separating leaves from absences)
@@ -732,7 +746,6 @@ router.get('/salary-breakdown', authenticate, async (req, res) => {
 // GET /api/dashboard/employee
 router.get('/employee', authenticate, async (req, res) => {
   try {
-    await autoCheckoutPendingRecords();
     const todayStr = getISTDate();
     // Extract month/year directly from IST date string to avoid UTC midnight parse issue
     const [year, month] = todayStr.split('-').map(Number);

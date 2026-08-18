@@ -153,9 +153,6 @@ async function autoCheckoutPendingRecords() {
 // ─── POST /api/attendance/checkin ─────────────────────────────────────────────
 router.post('/checkin', authenticate, async (req, res) => {
   try {
-    // Automatically check out any pending records from previous days first
-    await autoCheckoutPendingRecords();
-
     const { lat, lng, accuracy } = req.body;
     const userId = req.user.id;
     const today  = getISTDate();
@@ -421,9 +418,6 @@ router.post('/checkin', authenticate, async (req, res) => {
 // ─── POST /api/attendance/checkout ────────────────────────────────────────────
 router.post('/checkout', authenticate, async (req, res) => {
   try {
-    // Automatically check out any pending records from previous days first
-    await autoCheckoutPendingRecords();
-
     const { lat, lng, accuracy } = req.body || {};
     const userId = req.user.id;
     const today  = getISTDate();
@@ -543,9 +537,6 @@ router.post('/checkout', authenticate, async (req, res) => {
 // ─── GET /api/attendance/today ────────────────────────────────────────────────
 router.get('/today', authenticate, async (req, res) => {
   try {
-    // Automatically check out any pending records from previous days first
-    await autoCheckoutPendingRecords();
-
     const today = getISTDate();
 
     const { rows } = await pool.query(
@@ -599,9 +590,6 @@ router.get('/today', authenticate, async (req, res) => {
 // ─── GET /api/attendance/all ──────────────────────────────────────────────────
 router.get('/all', authenticate, async (req, res) => {
   try {
-    // Automatically check out any pending records from previous days first
-    await autoCheckoutPendingRecords();
-
     const { page = 1, limit, from, to } = req.query;
     const parsedLimit = limit ? parseInt(limit) : 5000;
     const parsedOffset = (page - 1) * parsedLimit;

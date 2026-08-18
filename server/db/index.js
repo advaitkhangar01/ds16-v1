@@ -9,9 +9,9 @@ const { Pool } = require('pg');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  max: process.env.DB_POOL_MAX ? parseInt(process.env.DB_POOL_MAX, 10) : 8,
+  idleTimeoutMillis: 10000,
+  connectionTimeoutMillis: 5000,
   ssl: (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL.includes('localhost') && !process.env.DATABASE_URL.includes('127.0.0.1')) 
     ? { rejectUnauthorized: false } 
     : false,
@@ -686,12 +686,30 @@ if (process.env.NODE_ENV !== 'test') {
           ON CONFLICT (key) DO NOTHING;
         `);
 
+        // 28. Non-destructive Compound Performance Indexes
+        await pool.query(`
+          CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
+          CREATE INDEX IF NOT EXISTS idx_attendance_date_status ON attendance(date, status);
+          CREATE INDEX IF NOT EXISTS idx_project_assignments_user_proj ON project_assignments(user_id, project_id);
+          CREATE INDEX IF NOT EXISTS idx_project_stages_proj_status ON project_stages(project_id, status);
+          CREATE INDEX IF NOT EXISTS idx_tasks_assigned_status ON tasks(assigned_to, status, start_date);
+          CREATE INDEX IF NOT EXISTS idx_client_contacts_primary ON client_contacts(client_id, is_primary);
+          CREATE INDEX IF NOT EXISTS idx_documents_proj_cat ON documents(project_id, category);
+          CREATE INDEX IF NOT EXISTS idx_tasks_proj_stage ON tasks(project_id, stage);
+        `);
+
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
         console.error('❌ Migration failed:', mErr.message);
       }
     };
-    runMigrations();
+
+    const isPrimaryInstance = process.env.NODE_APP_INSTANCE === undefined || process.env.NODE_APP_INSTANCE === '0';
+    if (isPrimaryInstance) {
+      runMigrations();
+    } else {
+      console.log('ℹ️ Secondary cluster instance: skipping startup schema migrations');
+    }
   }
 });
 }

@@ -26,23 +26,12 @@ const StaffDetailPage = lazy(() => import('./pages/admin/StaffDetailPage'));
 const HistoryPage = lazy(() => import('./pages/admin/HistoryPage'));
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage'));
 
-function ProtectedRoute({ children, adminOnly = false, allowAccounts = false, blockAccounts = false, blockProjectDesignHead = false }) {
+function ProtectedRoute({ children, adminOnly = false, allowAccounts = false }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   
   const isAccounts = user.role === 'back_office' || user.role === 'accounts' || user.department?.toLowerCase() === 'accounts';
-  const isProjectOrDesignHead = user.role === 'project_head' || user.role === 'design_head' || user.role === 'design';
-  
-  // Block project_head / design_head from pages outside their scope
-  if (blockProjectDesignHead && isProjectOrDesignHead) {
-    return <Navigate to="/employee/dashboard" replace />;
-  }
-
-  // Explicitly block accounts from certain routes (e.g. projects list)
-  if (blockAccounts && isAccounts && user.role !== 'admin') {
-    return <Navigate to="/admin/dashboard" replace />;
-  }
 
   if (adminOnly && !allowAccounts && user.role !== 'admin') {
     return <Navigate to="/employee/dashboard" replace />;
@@ -52,7 +41,7 @@ function ProtectedRoute({ children, adminOnly = false, allowAccounts = false, bl
     return <Navigate to="/employee/dashboard" replace />;
   }
   
-  if (!adminOnly && allowAccounts && user.role !== 'admin' && !isAccounts) {
+  if (allowAccounts && user.role !== 'admin' && !isAccounts) {
     return <Navigate to="/employee/dashboard" replace />;
   }
   
@@ -131,7 +120,7 @@ function AppRoutes() {
           <ProtectedRoute><DailyReportsPage /></ProtectedRoute>
         } />
         <Route path="/projects" element={
-          <ProtectedRoute blockAccounts><ProjectsPage /></ProtectedRoute>
+          <ProtectedRoute><ProjectsPage /></ProtectedRoute>
         } />
         <Route path="/projects/:id" element={
           <ProtectedRoute><ProjectDetail /></ProtectedRoute>
@@ -146,10 +135,10 @@ function AppRoutes() {
           <ProtectedRoute><VendorsPage /></ProtectedRoute>
         } />
         <Route path="/clients" element={
-          <ProtectedRoute blockProjectDesignHead><ClientsPage /></ProtectedRoute>
+          <ProtectedRoute><ClientsPage /></ProtectedRoute>
         } />
         <Route path="/clients/:id" element={
-          <ProtectedRoute blockProjectDesignHead><ClientDetail /></ProtectedRoute>
+          <ProtectedRoute><ClientDetail /></ProtectedRoute>
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />

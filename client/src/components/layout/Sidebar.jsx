@@ -27,6 +27,7 @@ const ADMIN_LINKS = [
 const ACCOUNTS_LINKS = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: 'grid' },
   { to: '/admin/profile', label: 'My Profile', icon: 'user' },
+  { to: '/projects', label: 'Projects', icon: 'folder' },
   { to: '/tasks', label: 'Tasks', icon: 'check_square' },
   { to: '/admin/invoice', label: 'Invoice', icon: 'receipt' },
   { to: '/admin/accounting', label: 'Accounting', icon: 'calculator' },
@@ -48,12 +49,13 @@ const EMP_LINKS = [
   { to: '/vendors', label: 'Vendors', icon: 'tool' },
 ];
 
-// Project Head / Design Head: restricted to Projects, Tasks, Vendors & Attendance
+// Project Head / Design Head: Projects, Tasks, Clients, Vendors, Attendance & Daily Reports
 const PROJECT_DESIGN_HEAD_LINKS = [
   { to: '/employee/dashboard', label: 'Dashboard', icon: 'grid' },
   { to: '/employee/profile', label: 'My Profile', icon: 'user' },
   { to: '/projects', label: 'Projects', icon: 'folder' },
   { to: '/tasks', label: 'Tasks', icon: 'check_square' },
+  { to: '/clients', label: 'Clients', icon: 'users' },
   { to: '/attendance', label: 'Attendance', icon: 'clock' },
   { to: '/daily-reports', label: 'Daily Reports', icon: 'file_spreadsheet' },
   { to: '/vendors', label: 'Vendors', icon: 'tool' },
