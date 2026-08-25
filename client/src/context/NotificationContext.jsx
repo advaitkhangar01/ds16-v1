@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from './AuthContext';
+import api from '../api/client';
 
 const NotificationContext = createContext();
 
@@ -32,15 +33,8 @@ export function NotificationProvider({ children }) {
   const checkUnreadCount = useCallback(async () => {
     if (!user) return;
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-
-      const res = await fetch('/api/notifications/unread-count', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) return;
-
-      const data = await res.json();
+      const res = await api.get('/notifications/unread-count');
+      const data = res.data;
       const newUnread = data.unreadCount || 0;
       const newMaxId = data.lastNotificationId || 0;
 
@@ -80,14 +74,12 @@ export function NotificationProvider({ children }) {
     if (!user) return;
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const url = `/api/notifications?page=${pageNum}&limit=20${filterSection !== 'all' ? `&section=${filterSection}` : ''}`;
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error('Failed to load notifications');
+      const params = { page: pageNum, limit: 20 };
+      if (filterSection !== 'all') params.section = filterSection;
 
-      const data = await res.json();
+      const res = await api.get('/notifications', { params });
+      const data = res.data;
+
       setNotifications(prev => append ? [...prev, ...data.notifications] : data.notifications);
       setUnreadCount(data.unreadCount);
       setHasMore(data.notifications.length === 20);
@@ -103,12 +95,8 @@ export function NotificationProvider({ children }) {
   // 3. Mark Single as Read
   const markAsRead = async (id) => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/notifications/${id}/read`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
+      const res = await api.patch(`/notifications/${id}/read`);
+      if (res.status === 200) {
         setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
         setUnreadCount(prev => Math.max(0, prev - 1));
       }
@@ -120,12 +108,8 @@ export function NotificationProvider({ children }) {
   // 4. Mark All as Read
   const markAllAsRead = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/notifications/read-all', {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
+      const res = await api.patch('/notifications/read-all');
+      if (res.status === 200) {
         setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
         setUnreadCount(0);
         toast.success('All notifications marked as read');
@@ -138,23 +122,14 @@ export function NotificationProvider({ children }) {
   // 5. Admin Broadcast Announcement
   const sendBroadcast = async (broadcastData) => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/notifications/broadcast', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(broadcastData)
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to send broadcast');
-
+      const res = await api.post('/notifications/broadcast', broadcastData);
+      const data = res.data;
       toast.success(data.message || 'Announcement broadcasted successfully');
       checkUnreadCount();
       return true;
     } catch (err) {
-      toast.error(err.message);
+      const errMsg = err.response?.data?.error || err.message || 'Failed to send broadcast';
+      toast.error(errMsg);
       return false;
     }
   };
