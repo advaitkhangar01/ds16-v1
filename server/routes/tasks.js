@@ -3,7 +3,7 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
-const { createNotification } = require('../utils/notifier');
+const { createNotification, deleteEntityNotifications } = require('../utils/notifier');
 
 // Helper: Parse @mentions
 async function parseMentions(message) {
@@ -538,6 +538,7 @@ router.delete('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'tas
     }
 
     await pool.query('DELETE FROM tasks WHERE id = $1', [task_id]);
+    deleteEntityNotifications('task', task_id);
     res.json({ message: 'Task deleted successfully' });
   } catch (err) {
     console.error('Delete task error:', err);

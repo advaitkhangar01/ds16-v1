@@ -158,9 +158,28 @@ async function cleanupOldNotifications() {
   }
 }
 
+/**
+ * Deletes all notifications linked to a deleted entity (task, leave, project, invoice, etc.)
+ */
+async function deleteEntityNotifications(entityType, entityId) {
+  try {
+    if (!entityType || !entityId) return;
+    const eid = parseInt(entityId, 10);
+    if (isNaN(eid)) return;
+
+    await pool.query(
+      'DELETE FROM notifications WHERE entity_type = $1 AND entity_id = $2',
+      [entityType, eid]
+    );
+  } catch (err) {
+    console.error('⚠️ [Notification Cleanup Warning] Failed to delete entity notifications:', err.message);
+  }
+}
+
 module.exports = {
   createNotification,
   getAdminAndAccountsUserIds,
   getAllActiveUserIds,
   cleanupOldNotifications,
+  deleteEntityNotifications,
 };
