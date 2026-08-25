@@ -5,6 +5,7 @@ import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { NotificationProvider } from './context/NotificationContext';
 
 // Pages - Lazy loaded
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -150,23 +151,25 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <AppRoutes />
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 3000,
-            style: {
-              background: '#FFFFFF',
-              color: '#1A1A1A',
-              border: '1px solid #E0E0E0',
-              fontSize: '14px',
-            },
-            success: { iconTheme: { primary: '#10b981', secondary: '#FFFFFF' } },
-            error: { iconTheme: { primary: '#ef4444', secondary: '#FFFFFF' } },
-          }}
-        />
-      </BrowserRouter>
+      <NotificationProvider>
+        <BrowserRouter>
+          <AppRoutes />
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              duration: 3000,
+              style: {
+                background: '#FFFFFF',
+                color: '#1A1A1A',
+                border: '1px solid #E0E0E0',
+                fontSize: '14px',
+              },
+              success: { iconTheme: { primary: '#10b981', secondary: '#FFFFFF' } },
+              error: { iconTheme: { primary: '#ef4444', secondary: '#FFFFFF' } },
+            }}
+          />
+        </BrowserRouter>
+      </NotificationProvider>
     </AuthProvider>
   );
 }

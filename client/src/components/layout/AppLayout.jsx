@@ -3,6 +3,8 @@
 
 import { useState } from 'react';
 import Sidebar from './Sidebar';
+import NotificationBell from '../notifications/NotificationBell';
+import NotificationDrawer from '../notifications/NotificationDrawer';
 
 export default function AppLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -29,6 +31,9 @@ export default function AppLayout({ children }) {
 
   return (
     <div className="flex min-h-screen bg-base">
+      {/* Slide-over Notification Center Drawer */}
+      <NotificationDrawer />
+
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -64,21 +69,29 @@ export default function AppLayout({ children }) {
 
       {/* Content */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Mobile top bar */}
-        <div className="no-print lg:hidden sticky top-0 z-10 glass border-b border-[#E0E0E0] px-4 py-3 flex items-center gap-3">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="p-2 rounded-lg hover:bg-[#F0F0F0] text-muted"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="3" y1="6" x2="21" y2="6"/>
-              <line x1="3" y1="12" x2="21" y2="12"/>
-              <line x1="3" y1="18" x2="21" y2="18"/>
-            </svg>
-          </button>
-          <img src="/logo.jpg" alt="DS16" className="h-7 w-7 object-contain rounded" />
-          <span className="font-semibold text-[#1A1A1A] text-sm">Design Studio 16</span>
-        </div>
+        {/* Top Header Bar (Desktop & Mobile) */}
+        <header className="no-print sticky top-0 z-10 glass border-b border-[#E0E0E0] px-4 lg:px-6 py-2.5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden p-2 rounded-lg hover:bg-[#F0F0F0] text-muted"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <line x1="3" y1="18" x2="21" y2="18"/>
+              </svg>
+            </button>
+            <div className="flex items-center gap-2">
+              <img src="/logo.jpg" alt="DS16" className="h-7 w-7 object-contain rounded lg:hidden" />
+              <span className="font-semibold text-[#1A1A1A] text-sm hidden sm:inline">Design Studio 16</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+          </div>
+        </header>
 
         {/* Page content */}
         <main className="flex-1 p-4 lg:p-6">

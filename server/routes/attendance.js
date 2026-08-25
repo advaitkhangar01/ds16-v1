@@ -5,6 +5,7 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const { getISTDate } = require('../utils/date');
 const { ATTENDANCE_STATUS, LEAVE_STATUS } = require('../utils/constants');
 const { validateLocation, getDistance } = require('../utils/geofence');
+const { createNotification, getAdminAndAccountsUserIds } = require('../utils/notifier');
 
 // Helper: Get specific app setting
 async function getSetting(key, defaultValue) {
@@ -391,6 +392,22 @@ router.post('/checkin', authenticate, async (req, res) => {
         return res.status(400).json({ error: 'Already checked in today' });
       }
       row = rows[0];
+    }
+
+    if (isLate) {
+      (async () => {
+        const adminIds = await getAdminAndAccountsUserIds();
+        createNotification({
+          recipientIds: [...adminIds, userId],
+          senderId: userId,
+          section: 'attendance',
+          title: '⏰ Late Check-In Alert',
+          message: `${req.user.name} checked in late (${lateMins} mins late) on ${today}`,
+          entityType: 'attendance',
+          entityId: row.id,
+          actionUrl: `/attendance`,
+        });
+      })();
     }
 
     res.json({

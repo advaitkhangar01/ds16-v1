@@ -6,6 +6,11 @@ const bcrypt = require('bcryptjs');
 const pool = require('../db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { executeFactoryReset, getResetPreview } = require('../utils/factoryReset');
+const {
+  recalculateAttendanceForUser,
+  recalculateAttendanceForBatch,
+  recalculateAttendanceForAll
+} = require('../utils/attendanceRecalculator');
 
 const confirmCodes = new Map(); // userId -> { code, expires }
 
@@ -57,14 +62,29 @@ router.post('/users', requireAdmin, async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    const { rows } = await pool.query(
-      `INSERT INTO users (name, username, password_hash, role, department, phone, base_salary, hourly_rate, batch_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, name, username, role, department, phone, base_salary, hourly_rate, batch_id, created_at`,
-      [name.trim(), username.toLowerCase().trim(), passwordHash, role, department?.trim() || null, phone?.trim() || null, parseFloat(base_salary) || 0, parseFloat(hourly_rate) || 0, batch_id ? parseInt(batch_id) : null]
-    );
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    res.status(201).json(rows[0]);
+      const { rows } = await client.query(
+        `INSERT INTO users (name, username, password_hash, role, department, phone, base_salary, hourly_rate, batch_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, name, username, role, department, phone, base_salary, hourly_rate, batch_id, created_at`,
+        [name.trim(), username.toLowerCase().trim(), passwordHash, role, department?.trim() || null, phone?.trim() || null, parseFloat(base_salary) || 0, parseFloat(hourly_rate) || 0, batch_id ? parseInt(batch_id) : null]
+      );
+
+      if (rows[0]) {
+        await recalculateAttendanceForUser(rows[0].id, { dbClient: client });
+      }
+
+      await client.query('COMMIT');
+      res.status(201).json(rows[0]);
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
   } catch (err) {
     console.error('Settings: create user error:', err);
     res.status(500).json({ error: 'Failed to create user' });
@@ -144,29 +164,42 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
       return res.status(409).json({ error: 'Username already exists' });
     }
 
-    const { rows } = await pool.query(
-      `UPDATE users 
-       SET name = $1, username = $2, role = $3, department = $4, phone = $5, base_salary = $6, hourly_rate = $7, batch_id = $8
-       WHERE id = $9
-       RETURNING id, name, username, role, department, phone, base_salary, hourly_rate, batch_id, created_at`,
-      [
-        name.trim(), 
-        username.toLowerCase().trim(), 
-        role, 
-        department?.trim() || null, 
-        phone?.trim() || null, 
-        parseFloat(base_salary) || 0, 
-        parseFloat(hourly_rate) || 0,
-        batch_id ? parseInt(batch_id) : null,
-        userId
-      ]
-    );
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+      const { rows } = await client.query(
+        `UPDATE users 
+         SET name = $1, username = $2, role = $3, department = $4, phone = $5, base_salary = $6, hourly_rate = $7, batch_id = $8
+         WHERE id = $9
+         RETURNING id, name, username, role, department, phone, base_salary, hourly_rate, batch_id, created_at`,
+        [
+          name.trim(), 
+          username.toLowerCase().trim(), 
+          role, 
+          department?.trim() || null, 
+          phone?.trim() || null, 
+          parseFloat(base_salary) || 0, 
+          parseFloat(hourly_rate) || 0,
+          batch_id ? parseInt(batch_id) : null,
+          userId
+        ]
+      );
+
+      if (rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      await recalculateAttendanceForUser(userId, { dbClient: client });
+      await client.query('COMMIT');
+      res.json({ ...rows[0], recalculated: true });
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
     }
-
-    res.json(rows[0]);
   } catch (err) {
     console.error('Settings: update user error:', err);
     res.status(500).json({ error: 'Failed to update user' });
@@ -242,21 +275,39 @@ router.post('/app', requireAdmin, async (req, res) => {
     'overtime_threshold_hour',
   ]);
 
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
     const settings = req.body; // { key: value, ... }
+    let timingSettingUpdated = false;
+    const timingKeys = new Set(['office_start_time', 'late_threshold_time', 'half_day_cutoff_time', 'late_threshold_mins', 'min_working_hours']);
+
     for (const [key, value] of Object.entries(settings)) {
       if (!ALLOWED_SETTINGS_KEYS.has(key)) {
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: `Unknown setting key: "${key}". Contact a developer to add new setting keys.` });
       }
-      await pool.query(
+      if (timingKeys.has(key)) {
+        timingSettingUpdated = true;
+      }
+      await client.query(
         'INSERT INTO app_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value',
         [key, String(value)]
       );
     }
+
+    if (timingSettingUpdated) {
+      await recalculateAttendanceForAll({ dbClient: client });
+    }
+
+    await client.query('COMMIT');
     res.json({ message: 'Settings updated successfully' });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Settings: update app settings error:', err);
     res.status(500).json({ error: 'Failed to update settings' });
+  } finally {
+    client.release();
   }
 });
 
@@ -387,15 +438,19 @@ router.post('/batches', requireAdmin, async (req, res) => {
 
 // 3. Update batch
 router.put('/batches/:id', requireAdmin, async (req, res) => {
+  const client = await pool.connect();
   try {
     const batchId = parseInt(req.params.id);
     const { name, office_start_time, late_threshold_time, half_day_cutoff_time, min_working_hours } = req.body;
 
     if (!name?.trim() || !office_start_time || !late_threshold_time || !half_day_cutoff_time) {
+      client.release();
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
       `UPDATE attendance_batches
        SET name = $1, office_start_time = $2, late_threshold_time = $3, half_day_cutoff_time = $4, min_working_hours = $5
        WHERE id = $6
@@ -404,33 +459,61 @@ router.put('/batches/:id', requireAdmin, async (req, res) => {
     );
 
     if (rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Batch not found' });
     }
 
-    res.json(rows[0]);
+    const { recalculatedCount, affectedUsersCount } = await recalculateAttendanceForBatch(batchId, { dbClient: client });
+    await client.query('COMMIT');
+
+    res.json({ ...rows[0], recalculatedCount, affectedUsersCount });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Settings: update batch error:', err);
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Batch name already exists' });
     }
     res.status(500).json({ error: 'Failed to update attendance batch' });
+  } finally {
+    client.release();
   }
 });
 
 // 4. Delete batch
 router.delete('/batches/:id', requireAdmin, async (req, res) => {
+  const client = await pool.connect();
   try {
     const batchId = parseInt(req.params.id);
-    const { rowCount } = await pool.query('DELETE FROM attendance_batches WHERE id = $1', [batchId]);
+    await client.query('BEGIN');
+
+    const { rowCount } = await client.query('DELETE FROM attendance_batches WHERE id = $1', [batchId]);
 
     if (rowCount === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Batch not found' });
     }
 
+    await recalculateAttendanceForAll({ dbClient: client });
+    await client.query('COMMIT');
+
     res.json({ message: 'Batch deleted successfully' });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Settings: delete batch error:', err);
     res.status(500).json({ error: 'Failed to delete attendance batch' });
+  } finally {
+    client.release();
+  }
+});
+
+// 5. Manual recalculate all attendance
+router.post('/batches/recalculate', requireAdmin, async (req, res) => {
+  try {
+    const result = await recalculateAttendanceForAll();
+    res.json({ message: 'Past attendance records recalculated successfully', ...result });
+  } catch (err) {
+    console.error('Settings: manual recalculation error:', err);
+    res.status(500).json({ error: 'Failed to recalculate attendance' });
   }
 });
 

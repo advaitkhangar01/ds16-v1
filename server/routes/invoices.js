@@ -3,6 +3,7 @@ const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
 const { getISTDate } = require('../utils/date');
+const { createNotification, getAdminAndAccountsUserIds } = require('../utils/notifier');
 
 // GET /api/invoices - List all invoices
 router.get('/', authenticate, async (req, res) => {
@@ -423,7 +424,25 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
     }
 
     await client.query('COMMIT');
-    res.status(201).json({ invoice: rows[0] });
+
+    const createdInvoice = rows[0];
+
+    // Trigger notification to Accounts & Admin team
+    (async () => {
+      const adminAccountsIds = await getAdminAndAccountsUserIds();
+      createNotification({
+        recipientIds: adminAccountsIds,
+        senderId: req.user.id,
+        section: 'invoices',
+        title: `🧾 Invoice #${createdInvoice.invoice_no} Generated`,
+        message: `${req.user.name} created invoice #${createdInvoice.invoice_no} for ${createdInvoice.client_name} (₹${parseFloat(createdInvoice.amount).toLocaleString('en-IN')})`,
+        entityType: 'invoice',
+        entityId: createdInvoice.id,
+        actionUrl: `/admin/invoice`,
+      });
+    })();
+
+    res.status(201).json({ invoice: createdInvoice });
   } catch (err) {
     await client.query('ROLLBACK');
     // PostgreSQL unique_violation error code

@@ -1,8 +1,8 @@
-// server/routes/dailyReports.js
 const router = require('express').Router();
 const pool = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { getISTDate } = require('../utils/date');
+const { createNotification, getAdminAndAccountsUserIds } = require('../utils/notifier');
 
 // POST /api/daily-reports (Submit Today's Report)
 router.post('/', authenticate, async (req, res) => {
@@ -40,7 +40,24 @@ router.post('/', authenticate, async (req, res) => {
       [req.tenantId, req.user.id, formattedDate, work_done.trim(), blockers?.trim() || null, next_day_plan?.trim() || null, finalHours]
     );
 
-    res.status(201).json(insertResult.rows[0]);
+    const report = insertResult.rows[0];
+
+    // Trigger notification to Admin / Management
+    (async () => {
+      const adminIds = await getAdminAndAccountsUserIds();
+      createNotification({
+        recipientIds: adminIds,
+        senderId: req.user.id,
+        section: 'daily_reports',
+        title: '📋 Daily Report Submitted',
+        message: `${req.user.name} submitted a daily report for ${formattedDate}`,
+        entityType: 'daily_report',
+        entityId: report.id,
+        actionUrl: `/daily-reports`,
+      });
+    })();
+
+    res.status(201).json(report);
   } catch (err) {
     console.error('Error submitting daily report:', err);
     res.status(500).json({ error: 'Server error while submitting report' });

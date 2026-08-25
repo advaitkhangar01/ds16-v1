@@ -3,6 +3,7 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
+const { createNotification } = require('../utils/notifier');
 
 // Helper: Parse @mentions
 async function parseMentions(message) {
@@ -54,13 +55,31 @@ router.post('/', authenticate, checkProjectAccess(), async (req, res) => {
 
     // Fetch full task data with assigned user name
     const { rows: fullTask } = await pool.query(`
-      SELECT t.*, u.name as assigned_to_name, u.username as assigned_to_username
+      SELECT t.*, u.name as assigned_to_name, u.username as assigned_to_username, p.name as project_name
       FROM tasks t
+      JOIN projects p ON p.id = t.project_id
       LEFT JOIN users u ON u.id = t.assigned_to
       WHERE t.id = $1
     `, [task.id]);
 
-    res.status(201).json({ task: fullTask[0] });
+    const createdTask = fullTask[0];
+
+    // Trigger notification to assignee & participants asynchronously
+    if (createdTask) {
+      const recipientIds = Array.from(uniqueParticipants);
+      createNotification({
+        recipientIds,
+        senderId: req.user.id,
+        section: 'tasks',
+        title: '📌 New Task Assigned',
+        message: `${req.user.name} assigned you to task "${createdTask.title}" in project "${createdTask.project_name || 'General'}"`,
+        entityType: 'task',
+        entityId: createdTask.id,
+        actionUrl: `/tasks`,
+      });
+    }
+
+    res.status(201).json({ task: createdTask });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Create task error:', err);
@@ -320,13 +339,48 @@ router.post('/:task_id/messages', authenticate, checkProjectAccess({ idIsResourc
 
     // Fetch full message data with sender
     const { rows: fullMsg } = await pool.query(`
-      SELECT tm.*, u.name as sender_name, u.username as sender_username, u.role as sender_role
+      SELECT tm.*, u.name as sender_name, u.username as sender_username, u.role as sender_role, t.title as task_title
       FROM task_messages tm
       LEFT JOIN users u ON u.id = tm.sender_id
+      JOIN tasks t ON t.id = tm.task_id
       WHERE tm.id = $1
     `, [newMsg.id]);
 
-    res.status(201).json({ message: fullMsg[0] });
+    const msgObj = fullMsg[0];
+
+    if (msgObj) {
+      // 1. Send mention notification if user was tagged
+      if (mentionedUserIds.length > 0) {
+        createNotification({
+          recipientIds: mentionedUserIds,
+          senderId: req.user.id,
+          section: 'tasks',
+          title: '💬 Tagged in Task Chat',
+          message: `${req.user.name} mentioned you in task "${msgObj.task_title}": "${msgObj.message}"`,
+          entityType: 'task',
+          entityId: parseInt(task_id, 10),
+          actionUrl: `/tasks`,
+        });
+      }
+
+      // 2. Send task message notification to task participants
+      const { rows: partRows } = await pool.query('SELECT user_id FROM task_participants WHERE task_id = $1', [task_id]);
+      const participantIds = partRows.map(p => p.user_id).filter(id => !mentionedUserIds.includes(id));
+      if (participantIds.length > 0) {
+        createNotification({
+          recipientIds: participantIds,
+          senderId: req.user.id,
+          section: 'tasks',
+          title: '💬 New Task Message',
+          message: `${req.user.name} commented on task "${msgObj.task_title}"`,
+          entityType: 'task',
+          entityId: parseInt(task_id, 10),
+          actionUrl: `/tasks`,
+        });
+      }
+    }
+
+    res.status(201).json({ message: msgObj });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Send message error:', err);
@@ -440,7 +494,28 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
       `, [task_id, assigned_to, req.user.id]);
     }
 
-    res.json({ task: rows[0] });
+    const updatedTask = rows[0];
+
+    // Trigger notification to task creator & assignee on status change
+    if (updatedTask) {
+      const { rows: partRows } = await pool.query('SELECT user_id FROM task_participants WHERE task_id = $1', [task_id]);
+      const recipientIds = partRows.map(p => p.user_id);
+      if (updatedTask.assigned_to) recipientIds.push(updatedTask.assigned_to);
+      if (updatedTask.created_by) recipientIds.push(updatedTask.created_by);
+
+      createNotification({
+        recipientIds,
+        senderId: req.user.id,
+        section: 'tasks',
+        title: status ? `📌 Task Status: ${status.toUpperCase()}` : '📌 Task Updated',
+        message: `${req.user.name} updated task "${updatedTask.title}"${status ? ` (Status: ${status})` : ''}`,
+        entityType: 'task',
+        entityId: updatedTask.id,
+        actionUrl: `/tasks`,
+      });
+    }
+
+    res.json({ task: updatedTask });
   } catch (err) {
     console.error('Update task error:', err);
     res.status(500).json({ error: 'Server error' });

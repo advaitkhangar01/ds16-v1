@@ -2,6 +2,7 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { LEAVE_STATUS, USER_ROLES } = require('../utils/constants');
+const { createNotification, getAdminAndAccountsUserIds } = require('../utils/notifier');
 
 // GET /api/leaves - Get leaves
 // Admins see all, employees see their own
@@ -75,7 +76,24 @@ router.post('/', authenticate, async (req, res) => {
       [userId, start_date, finalEndDate, type, finalAmount, reason, LEAVE_STATUS.PENDING]
     );
 
-    res.status(201).json({ message: 'Request submitted successfully', leave: rows[0] });
+    const newLeave = rows[0];
+
+    // Trigger notification to Admin & Accounts team asynchronously
+    (async () => {
+      const adminIds = await getAdminAndAccountsUserIds();
+      createNotification({
+        recipientIds: adminIds,
+        senderId: req.user.id,
+        section: 'leaves',
+        title: `📝 New ${type.toUpperCase()} Request`,
+        message: `${req.user.name} submitted a ${type} request for ${start_date}`,
+        entityType: 'leave_request',
+        entityId: newLeave.id,
+        actionUrl: `/attendance`,
+      });
+    })();
+
+    res.status(201).json({ message: 'Request submitted successfully', leave: newLeave });
   } catch (err) {
     console.error('[Leaves Error] POST /:', err.message);
     res.status(500).json({ error: 'Server error', details: err.message });
@@ -105,7 +123,21 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Leave request not found' });
     }
 
-    res.json({ message: `Leave request ${status}`, leave: rows[0] });
+    const updatedLeave = rows[0];
+
+    // Trigger notification to requesting employee
+    createNotification({
+      recipientIds: updatedLeave.user_id,
+      senderId: req.user.id,
+      section: 'leaves',
+      title: `📝 Leave Request ${status.toUpperCase()}`,
+      message: `Your ${updatedLeave.type} request starting ${updatedLeave.start_date} was ${status}`,
+      entityType: 'leave_request',
+      entityId: updatedLeave.id,
+      actionUrl: `/attendance`,
+    });
+
+    res.json({ message: `Leave request ${status}`, leave: updatedLeave });
   } catch (err) {
     console.error('[Leaves Error] PATCH /:id:', err.message);
     res.status(500).json({ error: 'Server error', details: err.message });

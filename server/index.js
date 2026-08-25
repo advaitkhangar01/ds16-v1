@@ -33,6 +33,8 @@ const dailyReportsRoutes = require('./routes/dailyReports');
 const leaveRoutes = require('./routes/leaves');
 const reportsRoutes = require('./routes/reports');
 const staffRoutes = require('./routes/staff');
+const notificationsRoutes = require('./routes/notifications');
+const { cleanupOldNotifications } = require('./utils/notifier');
 
 const app = express();
 
@@ -103,6 +105,7 @@ app.use('/api/daily-reports', dailyReportsRoutes);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 // 404 handler for API routes
 app.all(/\/api\/.*/, (req, res) => {
@@ -160,6 +163,12 @@ if (autoCheckout && isPrimaryInstance) {
   setInterval(autoCheckout, 1 * 60 * 60 * 1000);
   // Also run 5 seconds after startup for immediate cleanup of past days
   setTimeout(autoCheckout, 5000);
+}
+
+if (isPrimaryInstance) {
+  // Run notification maintenance every 24 hours (and 10 seconds after startup)
+  setInterval(cleanupOldNotifications, 24 * 60 * 60 * 1000);
+  setTimeout(cleanupOldNotifications, 10000);
 }
 
 module.exports = app;

@@ -5,6 +5,7 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
+const { createNotification } = require('../utils/notifier');
 
 // Default stages
 const DEFAULT_STAGES = ['Proposal', 'Design', 'Submission', 'Working', 'Execution'];
@@ -419,10 +420,28 @@ router.patch('/:id/stages/:stageId', authenticate, async (req, res) => {
 router.post('/:id/assign', authenticate, requireAdmin, async (req, res) => {
   try {
     const { user_id } = req.body;
+    const projectId = req.params.id;
+
     await pool.query(
       `INSERT INTO project_assignments (project_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [req.params.id, user_id]
+      [projectId, user_id]
     );
+
+    // Fetch project name for notification
+    const { rows: projRows } = await pool.query('SELECT name FROM projects WHERE id = $1', [projectId]);
+    const projectName = projRows[0]?.name || 'Project';
+
+    createNotification({
+      recipientIds: user_id,
+      senderId: req.user.id,
+      section: 'projects',
+      title: '🏗️ Assigned to Project',
+      message: `${req.user.name} assigned you to project "${projectName}"`,
+      entityType: 'project',
+      entityId: parseInt(projectId, 10),
+      actionUrl: `/projects/${projectId}`,
+    });
+
     res.json({ message: 'Assigned successfully' });
   } catch (err) {
     console.error('Assign error:', err);

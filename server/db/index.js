@@ -698,6 +698,29 @@ if (process.env.NODE_ENV !== 'test') {
           CREATE INDEX IF NOT EXISTS idx_tasks_proj_stage ON tasks(project_id, stage);
         `);
 
+        // 29. Ensure notifications table and performance indexes exist
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS notifications (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            sender_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            section VARCHAR(50) NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            message TEXT NOT NULL,
+            entity_type VARCHAR(50),
+            entity_id INTEGER,
+            action_url VARCHAR(255),
+            is_read BOOLEAN DEFAULT FALSE,
+            read_at TIMESTAMPTZ,
+            tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE DEFAULT 1,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, is_read) WHERE is_read = FALSE;
+          CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_notifications_section ON notifications(section);
+        `);
+
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
         console.error('❌ Migration failed:', mErr.message);

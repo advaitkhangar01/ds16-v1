@@ -45,6 +45,7 @@ export default function SettingsPage() {
   const [showEditBatchModal, setShowEditBatchModal] = useState(false);
   const [newBatch, setNewBatch] = useState({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '4' });
   const [editingBatch, setEditingBatch] = useState({ id: null, name: '', office_start_time: '', late_threshold_time: '', half_day_cutoff_time: '', min_working_hours: '' });
+  const [recalculating, setRecalculating] = useState(false);
 
   // Payroll Rules State
   const [payrollSettings, setPayrollSettings] = useState({
@@ -294,11 +295,25 @@ export default function SettingsPage() {
     }
   };
 
+  const handleRecalculateAllAttendance = async () => {
+    if (!window.confirm('Are you sure you want to recalculate past attendance for all employees against their current assigned batches?')) return;
+    setRecalculating(true);
+    try {
+      const { data } = await api.post('/settings/batches/recalculate');
+      toast.success(data.message || 'Past attendance records recalculated successfully');
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to recalculate attendance');
+    } finally {
+      setRecalculating(false);
+    }
+  };
+
   const handleUpdateBatch = async (e) => {
     e.preventDefault();
     try {
       await api.put(`/settings/batches/${editingBatch.id}`, editingBatch);
-      toast.success('Attendance batch updated successfully');
+      toast.success('Attendance batch updated & past records recalculated');
       setShowEditBatchModal(false);
       fetchData();
     } catch (err) {
@@ -310,7 +325,7 @@ export default function SettingsPage() {
     if (!window.confirm('Are you sure you want to delete this batch? All users assigned to it will fallback to global settings.')) return;
     try {
       await api.delete(`/settings/batches/${id}`);
-      toast.success('Attendance batch deleted');
+      toast.success('Attendance batch deleted & records recalculated');
       fetchData();
     } catch (err) {
       toast.error('Failed to delete batch');
@@ -1014,16 +1029,28 @@ export default function SettingsPage() {
                     <h2 className="text-lg font-bold text-gray-800">Attendance Batches</h2>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Configure shifts and timings for employees</p>
                   </div>
-                  <button 
-                    onClick={() => {
-                      setNewBatch({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '4' });
-                      setShowBatchModal(true);
-                    }}
-                    className="btn-primary"
-                  >
-                    <Plus size={18} /> 
-                    <span className="font-bold uppercase tracking-widest text-[10px]">Add Batch</span>
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleRecalculateAllAttendance}
+                      disabled={recalculating}
+                      className="px-4 py-2.5 bg-orange-50 hover:bg-orange-100 text-primary border border-orange-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                      title="Recalculate past attendance records for all employees based on current batches"
+                    >
+                      <RefreshCw size={14} className={recalculating ? 'animate-spin' : ''} />
+                      <span className="uppercase tracking-wider text-[10px]">{recalculating ? 'Recalculating...' : 'Recalculate Past Attendance'}</span>
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setNewBatch({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '4' });
+                        setShowBatchModal(true);
+                      }}
+                      className="btn-primary"
+                    >
+                      <Plus size={18} /> 
+                      <span className="font-bold uppercase tracking-widest text-[10px]">Add Batch</span>
+                    </button>
+                  </div>
                 </div>
                 <div className="overflow-x-auto border border-gray-200 rounded-2xl bg-white shadow-sm">
                   <table className="w-full text-left text-sm">
