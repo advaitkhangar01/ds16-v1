@@ -375,19 +375,83 @@ export default function StaffDetailPage() {
       ]);
     });
 
+    // Calculate Salary Justification Metrics
+    const baseSalary = Number(employee.base_salary || currentMonthPayroll?.employee?.base_salary || 0);
+    const today = new Date();
+    const currentMonthNum = today.getMonth() + 1;
+    const currentYearNum = today.getFullYear();
+    const daysInMonth = new Date(currentYearNum, currentMonthNum, 0).getDate();
+    const perDaySalary = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
+
+    let lateCount = 0;
+    let halfDayCount = 0;
+    let absenceCount = 0;
+
+    attendance.forEach((att) => {
+      if (att.is_late === true) lateCount++;
+      if (att.status === 'half_day') halfDayCount++;
+      if (att.status === 'absent') absenceCount++;
+    });
+
+    const lateGroups = Math.floor(lateCount / 3);
+    const lateDeductionDays = lateGroups * 0.15;
+    const lateDeductionAmount = lateDeductionDays * perDaySalary;
+
+    const halfDayDeductionDays = halfDayCount * 0.50;
+    const halfDayDeductionAmount = halfDayDeductionDays * perDaySalary;
+
+    const absenceDeductionDays = absenceCount * 1.00;
+    const absenceDeductionAmount = absenceDeductionDays * perDaySalary;
+
+    const totalDeductionDays = lateDeductionDays + halfDayDeductionDays + absenceDeductionDays;
+    const totalDeductionAmount = lateDeductionAmount + halfDayDeductionAmount + absenceDeductionAmount;
+    const netSalaryPayable = Math.max(0, baseSalary - totalDeductionAmount);
+
+    // Append Salary Justification Section below existing attendance table
+    rows.push([]);
+    rows.push([]);
+    rows.push(['SALARY JUSTIFICATION & DEDUCTION BREAKDOWN']);
+    rows.push(['Salary Period', filterText]);
+    rows.push(['Monthly Base Salary', baseSalary > 0 ? `₹${baseSalary.toLocaleString('en-IN')}` : '—']);
+    rows.push([]);
+
+    // Table Headers
+    rows.push(['Salary Component', 'Calculation / Basis', 'Days / Units', 'Amount (₹)']);
+
+    // Table Rows
+    rows.push(['Monthly Salary', 'Fixed monthly salary', '1 month', baseSalary > 0 ? `₹${baseSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—']);
+    rows.push(['Daily Salary', `₹${baseSalary.toLocaleString('en-IN')} ÷ ${daysInMonth} days`, `₹${perDaySalary.toFixed(2)}/day`, `₹${perDaySalary.toFixed(2)}`]);
+    rows.push(['Late Arrivals', 'Attendance records counted as late', `${lateCount} lates`, '—']);
+    rows.push(['Late Deduction Groups', `FLOOR(${lateCount} ÷ 3)`, `${lateGroups} groups`, '—']);
+    rows.push(['Late Deduction', `${lateGroups} groups × 0.15 day × ₹${perDaySalary.toFixed(2)}`, `${lateDeductionDays.toFixed(2)} day`, `₹${lateDeductionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    rows.push(['Half Days', `${halfDayCount} half-day attendance records × 0.50 day`, `${halfDayCount} half days`, '—']);
+    rows.push(['Half-Day Deduction', `${halfDayDeductionDays.toFixed(2)} days × ₹${perDaySalary.toFixed(2)}`, `${halfDayDeductionDays.toFixed(2)} days`, `₹${halfDayDeductionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    rows.push(['Absences', `${absenceCount} absent attendance records × 1 day`, `${absenceCount} absences`, '—']);
+    rows.push(['Absence Deduction', `${absenceDeductionDays.toFixed(2)} days × ₹${perDaySalary.toFixed(2)}`, `${absenceDeductionDays.toFixed(2)} days`, `₹${absenceDeductionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    rows.push(['Total Salary Deduction', 'Late + Half-Day + Absence deductions', `${totalDeductionDays.toFixed(2)} days equivalent`, `₹${totalDeductionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    rows.push(['Net Salary Payable', `₹${baseSalary.toLocaleString('en-IN')} – ₹${totalDeductionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Final payable', `₹${netSalaryPayable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+
+    // Additional Notes / Rules Section
+    rows.push([]);
+    rows.push(['Payroll Rule', 'Every 3 late arrivals = 0.15 day salary deduction.']);
+    rows.push(['Late Count', `${lateCount} late arrivals → ${lateGroups} complete groups + ${lateCount % 3} remaining late → ${lateDeductionDays.toFixed(2)} day deduction.`]);
+    rows.push(['Half-Day Count', `${halfDayCount} half days recorded.`]);
+    rows.push(['Absence Count', `${absenceCount} absences recorded.`]);
+    rows.push(['Salary Basis', `${daysInMonth}-day monthly salary basis used for this calculation.`]);
+
     const ws = XLSX.utils.aoa_to_sheet(rows);
 
     ws['!cols'] = [
-      { wch: 15 },
-      { wch: 12 },
-      { wch: 12 },
-      { wch: 14 },
-      { wch: 15 },
-      { wch: 14 },
-      { wch: 14 },
-      { wch: 25 },
-      { wch: 25 },
-      { wch: 12 }
+      { wch: 26 }, // Column 1: Date / Salary Component
+      { wch: 45 }, // Column 2: Check-In / Calculation / Basis
+      { wch: 30 }, // Column 3: Check-Out / Days / Units
+      { wch: 20 }, // Column 4: Hours Worked / Amount (₹)
+      { wch: 15 }, // Column 5: Overtime
+      { wch: 15 }, // Column 6: Earnings
+      { wch: 15 }, // Column 7: Deductions
+      { wch: 25 }, // Column 8: Anomaly / Late
+      { wch: 25 }, // Column 9: Geo Location
+      { wch: 12 }  // Column 10: Status
     ];
 
     const wb = XLSX.utils.book_new();
