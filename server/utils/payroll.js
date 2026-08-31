@@ -112,7 +112,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   const latePenaltyAmount = parseFloat(settings.late_penalty_amount || 0);
   const halfDayPenaltyPercent = parseFloat(settings.half_day_penalty_percent || 50);
   const latePenaltyRuleCount = parseInt(settings.late_penalty_rule_count || 3);
-  const latePenaltyRuleDays = parseFloat(settings.late_penalty_rule_days || 0.5);
+  const latePenaltyRuleDays = parseFloat(settings.late_penalty_rule_days || 0.15);
 
   const formatDate = (dateInput) => {
     if (!dateInput) return '';
@@ -128,7 +128,6 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
 
   let fullDaysWorked = 0;
   let halfDaysWorked = 0;
-  let lateHalfDayCount = 0; // half-day days that are also late — get late penalty only
   let sundaysCount = 0;
   let holidaysCount = 0;
   let leavesCount = 0;
@@ -226,10 +225,6 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
 
       if (isLate && status !== 'absent') {
         lateCount++;
-        if (status === 'half_day') {
-          // Late on a half-day → penalise as late arrival only, treat day as full for payroll
-          lateHalfDayCount++;
-        }
       }
     } else if (isFuture) {
       dayStatus = 'future';
@@ -271,6 +266,11 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   let finalPayableDays = 0;
   let latePenaltyDays = 0;
 
+  let lateDeductionAmount = 0;
+  let halfDayDeductionAmount = 0;
+  let absenceDeductionAmount = 0;
+  let unpaidLeaveDeductionAmount = 0;
+
   if (hourlyRate > 0 && !(baseSalary > 0)) {
     calcMethod = 'hourly';
     totalEarnings = totalHours * hourlyRate;
@@ -281,26 +281,28 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   } else {
     // Salaried calculation
     const halfDayFactor = 1 - (halfDayPenaltyPercent / 100);
-
-    // late+half-day days count as full days (only late penalty applies, not the half-day deduction)
-    const netHalfDays = halfDaysWorked - lateHalfDayCount;
-    effectiveDays = (fullDaysWorked + lateHalfDayCount + (netHalfDays * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
+    effectiveDays = (fullDaysWorked + (halfDaysWorked * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
     
-    // Check late penalty
-    latePenaltyDays = Math.floor(lateCount / latePenaltyRuleCount) * latePenaltyRuleDays;
+    // Check late penalty rule (e.g. floor(16 / 3) * 0.15 = 5 * 0.15 = 0.75 days)
+    const completedLateGroups = Math.floor(lateCount / latePenaltyRuleCount);
+    latePenaltyDays = Math.round(completedLateGroups * latePenaltyRuleDays * 100) / 100;
 
     finalPayableDays = Math.max(0, effectiveDays - latePenaltyDays);
 
     suggestedSalary = Math.round(perDaySalary * finalPayableDays);
     totalEarnings = baseSalary; // Gross expected earnings is baseSalary
+
+    // Itemized deductions
+    lateDeductionAmount = latePenaltyDays * perDaySalary;
+    halfDayDeductionAmount = halfDaysWorked * (halfDayPenaltyPercent / 100) * perDaySalary;
+    absenceDeductionAmount = unmarkedAbsentCount * perDaySalary;
+    unpaidLeaveDeductionAmount = unpaidLeaves * perDaySalary;
+
     totalDeductions = Math.max(0, baseSalary - suggestedSalary);
   }
 
   // Pre-calculate earnings and deduction for each daily record
   let unpaidLeavesRemaining = unpaidLeaves;
-  const calculatedLatePenaltyDays = Math.floor(lateCount / latePenaltyRuleCount) * latePenaltyRuleDays;
-  const totalLatePenalty = calculatedLatePenaltyDays * perDaySalary;
-  const latePenaltyPerLate = lateCount > 0 ? (totalLatePenalty / lateCount) : 0;
   const halfDayPenaltyFactor = halfDayPenaltyPercent / 100;
 
   const processedAttendance = dailyRecords.map(att => {
@@ -333,12 +335,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       if (statusLower === 'absent') {
         dayDeduction = perDaySalary;
       } else if (statusLower === 'half_day') {
-        // If also late: apply only late penalty (day already counts as full in effectiveDays)
-        if (att.is_late) {
-          dayDeduction = latePenaltyPerLate;
-        } else {
-          dayDeduction = perDaySalary * halfDayPenaltyFactor;
-        }
+        dayDeduction = perDaySalary * halfDayPenaltyFactor;
       } else if (statusLower === 'leave') {
         if (unpaidLeavesRemaining > 0) {
           if (unpaidLeavesRemaining >= 1) {
@@ -356,9 +353,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
         dayDeduction = 0;
       } else {
         // present, working, completed, sunday, holiday
-        if (att.is_late && statusLower !== 'sunday' && statusLower !== 'holiday') {
-          dayDeduction = latePenaltyPerLate;
-        }
+        dayDeduction = 0;
       }
     }
 
@@ -370,15 +365,6 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       deduction: Math.round(dayDeduction * 100) / 100
     };
   });
-
-  // Calculate total deductions as the sum of all daily deductions
-  let calculatedDeductions = 0;
-  if (hourlyRate <= 0 || baseSalary > 0) {
-    processedAttendance.forEach(att => {
-      calculatedDeductions += att.deduction;
-    });
-  }
-  totalDeductions = Math.round(calculatedDeductions);
 
   return {
     employee,
@@ -402,6 +388,11 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     suggested_salary: suggestedSalary < 0 ? 0 : suggestedSalary,
     earnings: Math.round(totalEarnings),
     deductions: Math.round(totalDeductions),
+    late_deduction_days: latePenaltyDays,
+    late_deduction_amount: Math.round(lateDeductionAmount * 100) / 100,
+    half_day_deduction_amount: Math.round(halfDayDeductionAmount * 100) / 100,
+    absence_deduction_amount: Math.round(absenceDeductionAmount * 100) / 100,
+    unpaid_leave_deduction_amount: Math.round(unpaidLeaveDeductionAmount * 100) / 100,
     total_present: fullDaysWorked + halfDaysWorked + sundaysCount + holidaysCount,
     total_absent: leavesCount + unmarkedAbsentCount,
     processedAttendance

@@ -95,20 +95,23 @@ router.get('/:id', async (req, res) => {
     }
     const { rows: attStats } = await pool.query(statsQuery, statsParams);
 
-    // All-time check-in count (never filtered by date range)
+    // All-time stats (never filtered by date range)
     const { rows: allTimeStats } = await pool.query(
-      `SELECT COUNT(*) as all_time_checkins
+      `SELECT 
+         COUNT(*) FILTER (WHERE LOWER(status) = 'working' OR LOWER(status) = 'completed' OR LOWER(status) = 'present') as all_time_checkins,
+         COUNT(*) FILTER (WHERE is_late = true) as all_time_late
        FROM attendance
-       WHERE user_id = $1
-         AND (LOWER(status) = 'working' OR LOWER(status) = 'completed' OR LOWER(status) = 'present')`,
+       WHERE user_id = $1`,
       [id]
     );
 
-    // This-month check-in count (always current calendar month, IST)
+    // This-month check-in & late count (always current calendar month, IST)
     const todayISTForCheckins = getISTDate(); // YYYY-MM-DD
     const [cYearCI, cMonthCI] = todayISTForCheckins.split('-').map(Number);
+    const daysInCurrentMonth = new Date(cYearCI, cMonthCI, 0).getDate();
     const thisMonthStart = `${cYearCI}-${String(cMonthCI).padStart(2, '0')}-01`;
-    const thisMonthEnd   = todayISTForCheckins;
+    const thisMonthEnd   = `${cYearCI}-${String(cMonthCI).padStart(2, '0')}-${String(daysInCurrentMonth).padStart(2, '0')}`;
+
     const { rows: thisMonthStats } = await pool.query(
       `SELECT COUNT(*) as this_month_checkins
        FROM attendance
@@ -118,7 +121,7 @@ router.get('/:id', async (req, res) => {
       [id, thisMonthStart, thisMonthEnd]
     );
 
-    // This-month late arrivals count (always current calendar month, IST)
+    // This-month late arrivals count
     const { rows: thisMonthLateStats } = await pool.query(
       `SELECT COUNT(*) as this_month_late
        FROM attendance
@@ -292,7 +295,9 @@ router.get('/:id', async (req, res) => {
       tasks,
       attendanceStats: {
         total_present: parseInt(attStats[0]?.total_present || 0),
-        total_late: parseInt(attStats[0]?.total_late || 0),
+        total_late: req.query.startDate || req.query.endDate ? parseInt(attStats[0]?.total_late || 0) : parseInt(thisMonthLateStats[0]?.this_month_late || 0),
+        period_late: parseInt(attStats[0]?.total_late || 0),
+        all_time_late: parseInt(allTimeStats[0]?.all_time_late || 0),
         avg_hours: parseFloat(attStats[0]?.avg_hours || 0).toFixed(1),
         all_time_checkins: parseInt(allTimeStats[0]?.all_time_checkins || 0),
         this_month_checkins: parseInt(thisMonthStats[0]?.this_month_checkins || 0),

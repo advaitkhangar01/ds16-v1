@@ -8,6 +8,7 @@ import { formatDateIST, formatTimeIST } from '../../utils/time';
 import UserModal from '../../components/staff/UserModal';
 import ResetPasswordModal from '../../components/staff/ResetPasswordModal';
 import { useAuth } from '../../context/AuthContext';
+import * as XLSX from 'xlsx';
 import { 
   ArrowLeft, 
   User, 
@@ -20,6 +21,7 @@ import {
   CheckCircle,
   AlertTriangle,
   FileText,
+  FileSpreadsheet,
   PieChart,
   Activity,
   Plus,
@@ -219,6 +221,12 @@ export default function StaffDetailPage() {
     if (currentMonthPayroll) {
       earningsThisMonth = Number(currentMonthPayroll.suggested_salary || 0);
       deductionsThisMonth = Number(currentMonthPayroll.deductions || 0);
+      if (!totalDeduction || totalDeduction === 0) {
+        totalDeduction = deductionsThisMonth;
+      }
+      if (!totalEarnings || totalEarnings === 0) {
+        totalEarnings = Number(currentMonthPayroll.earnings || currentMonthPayroll.employee?.base_salary || 0);
+      }
     }
 
     return {
@@ -285,6 +293,111 @@ export default function StaffDetailPage() {
   const activeBalance = isCurrentMonthClosed ? latestClosedBalance : estCurrentMonthClosing;
   const totalUnpaidLeaves = ledgerRows.reduce((sum, r) => sum + parseFloat(r.unpaid_leaves || 0), 0);
   const monthOptions = generateMonthOptions();
+
+  const handleExportExcel = () => {
+    if (!attendance || attendance.length === 0) {
+      toast.error('No attendance records to export');
+      return;
+    }
+
+    let filterText = 'All Time (Last 50 Check-ins)';
+    if (startDate || endDate) {
+      filterText = `From ${formatDateIST(startDate || 'Beginning')} to ${formatDateIST(endDate || 'Today')}`;
+    } else if (activePreset && activePreset.includes('-')) {
+      const [y, m] = activePreset.split('-');
+      const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      filterText = `${monthNames[parseInt(m) - 1]} ${y}`;
+    } else if (activePreset === 'this_month') {
+      filterText = 'This Month';
+    } else if (activePreset === 'last_month') {
+      filterText = 'Last Month';
+    } else if (activePreset === 'last_30_days') {
+      filterText = 'Last 30 Days';
+    }
+
+    const rows = [
+      [`Attendance & Payroll Report: ${employee?.name || 'Employee'}`],
+      [`Date Filter: ${filterText}`],
+      [`Generated On: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`],
+      [],
+      [
+        'Date',
+        'Check-In',
+        'Check-Out',
+        'Hours Worked',
+        'Overtime (hrs)',
+        'Earnings (₹)',
+        'Deductions (₹)',
+        'Anomaly / Late',
+        'Geo Location',
+        'Status'
+      ]
+    ];
+
+    attendance.forEach((att) => {
+      const isLate = att.is_late === true;
+      let anomalyLabel = 'Regular';
+      if (att.status === 'absent') {
+        anomalyLabel = `Absent${att.deduction > 0 ? ` (₹${Math.round(att.deduction)})` : ''}`;
+      } else if (att.status === 'half_day') {
+        anomalyLabel = `Half Day${att.deduction > 0 ? ` (₹${Math.round(att.deduction)})` : ''}`;
+      } else if (isLate) {
+        anomalyLabel = `Late Arrival (+${att.late_minutes || 0}m)${att.deduction > 0 ? ` (₹${Math.round(att.deduction)})` : ''}`;
+      }
+
+      let geoInfo = '—';
+      if (att.checkin_zone) {
+        geoInfo = `${att.checkin_zone} zone`;
+        if (att.checkin_distance) {
+          geoInfo += ` (${parseFloat(att.checkin_distance).toFixed(1)}m)`;
+        }
+      }
+
+      let statusStr = 'Absent';
+      if (att.status === 'working') statusStr = 'Present';
+      else if (att.status === 'completed') statusStr = 'Done';
+      else if (att.status === 'half_day') statusStr = 'Half Day';
+      else if (att.status === 'leave') statusStr = 'On Leave';
+      else if (att.status === 'sunday') statusStr = 'Sunday';
+      else if (att.status === 'holiday') statusStr = 'Holiday';
+
+      rows.push([
+        formatDateIST(att.date),
+        att.check_in ? formatTimeIST(att.check_in) : '—',
+        att.check_out ? formatTimeIST(att.check_out) : '—',
+        att.hours_worked > 0 ? parseFloat(att.hours_worked).toFixed(1) : '0',
+        att.overtime_hours > 0 ? parseFloat(att.overtime_hours).toFixed(1) : '0',
+        att.earnings > 0 ? Number(att.earnings) : 0,
+        att.deduction > 0 ? Number(att.deduction) : 0,
+        anomalyLabel,
+        geoInfo,
+        statusStr
+      ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+
+    ws['!cols'] = [
+      { wch: 15 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 14 },
+      { wch: 15 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 25 },
+      { wch: 25 },
+      { wch: 12 }
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+
+    const safeName = (employee?.name || 'Employee').replace(/[^a-zA-Z0-9]/g, '_');
+    const filename = `Attendance_${safeName}_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    toast.success('Excel report exported successfully!');
+  };
 
   const roleColors = 
     employee.role === 'admin' ? 'bg-purple-50 text-purple-700 border-purple-100' :
@@ -510,13 +623,13 @@ export default function StaffDetailPage() {
                 </div>
 
                 {/* Quick Info Alerts */}
-                {attendanceStats.total_late >= 3 && (
+                {(attendanceStats.this_month_late >= 3 || attendanceStats.total_late >= 3) && (
                   <div className="bg-amber-50 border border-amber-200 p-5 rounded-2xl flex gap-3.5">
                     <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20} />
                     <div>
                       <h4 className="text-xs font-black text-amber-900 uppercase">Late compliance warning</h4>
                       <p className="text-[11px] text-amber-700 mt-1 leading-relaxed">
-                        This employee has recorded <strong>{attendanceStats.total_late}</strong> late arrivals. According to payroll settings, every 3 late arrivals may incur deductions.
+                        This employee has recorded <strong>{attendanceStats.this_month_late ?? attendanceStats.total_late}</strong> late arrival(s) this month ({attendanceStats.all_time_late ?? attendanceStats.total_late} lifetime). According to payroll settings, every 3 late arrivals incur a 0.15-day salary deduction.
                       </p>
                     </div>
                   </div>
@@ -544,6 +657,13 @@ export default function StaffDetailPage() {
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-700 border border-red-100 rounded-full text-[10px] font-black uppercase tracking-wider">
                     Lates: {attendanceStats.total_late}
                   </span>
+                  <button 
+                    onClick={handleExportExcel}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-sm shadow-emerald-600/20 no-print"
+                  >
+                    <FileSpreadsheet size={13} />
+                    Export Excel
+                  </button>
                   <button 
                     onClick={() => window.print()}
                     className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary hover:bg-primary/95 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-sm shadow-primary/20 no-print"

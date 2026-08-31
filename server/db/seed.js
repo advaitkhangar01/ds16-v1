@@ -32,7 +32,9 @@ async function seed() {
       ['late_threshold_mins', '15', 'Minutes after start time to mark as late'],
       ['half_day_threshold_hours', '4', 'Minimum hours for a full day'],
       ['late_penalty_amount', '100', 'Flat deduction for late arrival'],
-      ['half_day_penalty_percent', '50', 'Percentage deduction for half day']
+      ['half_day_penalty_percent', '50', 'Percentage deduction for half day'],
+      ['late_penalty_rule_count', '3', 'Number of lates that trigger a deduction'],
+      ['late_penalty_rule_days', '0.15', 'Number of days deducted per penalty trigger']
     ];
 
     for (const [key, val, desc] of settings) {
