@@ -4,6 +4,7 @@ const router = express.Router();
 const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { calculatePayrollForEmployee } = require('../utils/payroll');
+const { logAudit } = require('../utils/auditLogger');
 
 // All closing endpoints require authentication and admin/accounts privileges
 router.use(authenticate);
@@ -484,32 +485,40 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
       // Auto-recalculate and sync payroll for this employee
       const payrollData = await calculatePayrollForEmployee(emp.id, month, year, settings, client);
       if (payrollData) {
-        // Check if a payroll record already exists to preserve manual bonus/incentives
+        // Check if a payroll record already exists to preserve manual bonus/incentives or manual override
         const { rows: existingPayroll } = await client.query(
-          'SELECT base_salary, bonus, incentives, status, payment_date FROM payroll WHERE user_id = $1 AND month = $2 AND year = $3',
+          'SELECT base_salary, bonus, incentives, deductions, net_paid, status, payment_date, is_manual_override FROM payroll WHERE user_id = $1 AND month = $2 AND year = $3',
           [emp.id, month, year]
         );
 
         let finalBaseSalary = parseFloat(payrollData.employee.base_salary || 0);
         let finalBonus = 0;
         let finalIncentives = 0;
+        let finalDeductions = parseFloat(payrollData.deductions || 0);
         let finalStatus = 'paid';
         let finalPaymentDate = new Date();
+        let isOverride = false;
 
         if (existingPayroll.length > 0) {
-          finalBaseSalary = parseFloat(existingPayroll[0].base_salary);
-          finalBonus = parseFloat(existingPayroll[0].bonus || 0);
-          finalIncentives = parseFloat(existingPayroll[0].incentives || 0);
-          finalStatus = existingPayroll[0].status || 'paid';
-          finalPaymentDate = existingPayroll[0].payment_date;
+          const existing = existingPayroll[0];
+          finalBaseSalary = parseFloat(existing.base_salary);
+          finalBonus = parseFloat(existing.bonus || 0);
+          finalIncentives = parseFloat(existing.incentives || 0);
+          finalStatus = existing.status || 'paid';
+          finalPaymentDate = existing.payment_date;
+          isOverride = existing.is_manual_override === true;
+
+          if (isOverride) {
+            // PRESERVE admin's manually approved deductions and net_paid
+            finalDeductions = parseFloat(existing.deductions || 0);
+          }
         }
 
-        const finalDeductions = parseFloat(payrollData.deductions || 0);
         const finalNetPaid = Math.max(0, finalBaseSalary + finalBonus + finalIncentives - finalDeductions);
 
         await client.query(
-          `INSERT INTO payroll (user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          `INSERT INTO payroll (user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status, is_manual_override)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
            ON CONFLICT (user_id, month, year) 
            DO UPDATE SET 
              base_salary = EXCLUDED.base_salary,
@@ -518,8 +527,9 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
              deductions = EXCLUDED.deductions,
              net_paid = EXCLUDED.net_paid,
              payment_date = EXCLUDED.payment_date,
-             status = EXCLUDED.status`,
-          [emp.id, finalBaseSalary, finalBonus, finalIncentives, finalDeductions, finalNetPaid, month, year, finalPaymentDate, finalStatus]
+             status = EXCLUDED.status,
+             is_manual_override = EXCLUDED.is_manual_override`,
+          [emp.id, finalBaseSalary, finalBonus, finalIncentives, finalDeductions, finalNetPaid, month, year, finalPaymentDate, finalStatus, isOverride]
         );
       }
     }
@@ -572,6 +582,14 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
        RETURNING *`,
       [month, year, closedByUserId, hadPendingPayroll, pendingCount, pendingAmount, closeReason, snapshot]
     );
+
+    await logAudit({
+      userId: closedByUserId,
+      action: 'MONTH_CLOSE_EXECUTE',
+      entityType: 'monthly_closing_log',
+      entityId: closeLogRows[0].id,
+      newValue: closeLogRows[0]
+    }, client);
 
     await client.query('COMMIT');
     return closeLogRows[0];

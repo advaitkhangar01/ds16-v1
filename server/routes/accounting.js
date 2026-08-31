@@ -4,6 +4,7 @@ const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const checkPeriodLock = require('../middleware/periodLock');
 const { calculatePayrollForEmployee } = require('../utils/payroll');
+const { logAudit } = require('../utils/auditLogger');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -285,11 +286,12 @@ router.get('/payroll/history', async (req, res) => {
 
 // Process payroll (add/update) — accounting staff can prepare payroll, admin finalizes via month-close
 router.post('/payroll', checkPeriodLock, async (req, res) => {
-  const { user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status } = req.body;
+  const { user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status, is_manual_override } = req.body;
+  const isOverride = is_manual_override !== undefined ? Boolean(is_manual_override) : true;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO payroll (user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO payroll (user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status, is_manual_override)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT (user_id, month, year) 
        DO UPDATE SET 
          base_salary = EXCLUDED.base_salary,
@@ -298,10 +300,21 @@ router.post('/payroll', checkPeriodLock, async (req, res) => {
          deductions = EXCLUDED.deductions,
          net_paid = EXCLUDED.net_paid,
          payment_date = EXCLUDED.payment_date,
-         status = EXCLUDED.status
+         status = EXCLUDED.status,
+         is_manual_override = EXCLUDED.is_manual_override
        RETURNING *`,
-      [user_id, base_salary, bonus || 0, incentives || 0, deductions || 0, net_paid, month, year, payment_date || new Date(), status || 'paid']
+      [user_id, base_salary, bonus || 0, incentives || 0, deductions || 0, net_paid, month, year, payment_date || new Date(), status || 'paid', isOverride]
     );
+
+    await logAudit({
+      userId: req.user?.id,
+      action: 'PAYROLL_UPSERT',
+      entityType: 'payroll',
+      entityId: rows[0].id,
+      newValue: rows[0],
+      ipAddress: req.ip
+    });
+
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });

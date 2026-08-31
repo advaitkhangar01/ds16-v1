@@ -57,13 +57,26 @@ async function checkAndAutoCloseMonth() {
     prevYear -= 1;
   }
 
-  // Only trigger close if it is exactly the 1st of the month at midnight (00:00)
-  const isExactMidnightOnFirst = localDay === 1 && localHour === 0 && localMinute === 0;
-  if (!isExactMidnightOnFirst) {
-    return; // Silent — runs every minute, no need to log every check
+  // Fetch grace period settings (default: 3 days, closing on 4th of month at 00:00 IST)
+  let graceDays = 3;
+  try {
+    const { rows: graceRows } = await pool.query("SELECT value FROM app_settings WHERE key = 'monthly_close_grace_days'");
+    if (graceRows.length > 0) {
+      graceDays = parseInt(graceRows[0].value) || 3;
+    }
+  } catch (err) {
+    // fallback to 3
   }
 
-  console.log(`[Scheduler] MIDNIGHT TRIGGER: Attempting auto-close for ${prevMonth}/${prevYear}. Local time (UTC+${tzOffsetHours}): Day=${localDay}, Hour=${localHour}, Min=${localMinute}`);
+  const targetCloseDay = graceDays + 1;
+
+  // Trigger auto-close at midnight on the target close day (e.g. 4th of month at 00:00 IST)
+  const isExactMidnightTarget = localDay === targetCloseDay && localHour === 0 && localMinute === 0;
+  if (!isExactMidnightTarget) {
+    return; // Silent — runs every minute
+  }
+
+  console.log(`[Scheduler] GRACE PERIOD TRIGGER: Target close day reached (${localDay}th). Attempting auto-close for ${prevMonth}/${prevYear}. Local time (UTC+${tzOffsetHours}): Day=${localDay}, Hour=${localHour}, Min=${localMinute}`);
 
   try {
     const closed = await isMonthClosed(prevMonth, prevYear);
@@ -83,7 +96,7 @@ async function checkAndAutoCloseMonth() {
     }
 
     console.log(`[Scheduler] Month ${prevMonth}/${prevYear} is NOT closed. Starting automated close...`);
-    const result = await executeMonthCloseInternal(prevMonth, prevYear, null, 'Automated monthly close');
+    const result = await executeMonthCloseInternal(prevMonth, prevYear, null, `Automated monthly close after ${graceDays}-day grace review period`);
     console.log(`[Scheduler] Automated close executed successfully for ${prevMonth}/${prevYear}!`, result);
   } catch (err) {
     console.error(`[Scheduler] Automated month close for ${prevMonth}/${prevYear} failed:`, err.message);
