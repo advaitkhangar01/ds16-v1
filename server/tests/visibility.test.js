@@ -318,4 +318,33 @@ describe('Visibility & Access Control Tests', () => {
       }
     });
   });
+
+  describe('GET /api/tasks?view=kanban - Kanban Tasks Loading', () => {
+    it('Employee should successfully load kanban tasks without ReferenceError', async () => {
+      const res = await request(app)
+        .get('/api/tasks?view=kanban')
+        .set('Authorization', `Bearer ${testUsers.employee.token}`);
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toHaveProperty('kanban');
+      expect(Array.isArray(res.body.kanban)).toBe(true);
+    });
+
+    it('Admin should successfully load kanban tasks', async () => {
+      const res = await request(app)
+        .get('/api/tasks?view=kanban')
+        .set('Authorization', `Bearer ${testUsers.admin.token}`);
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toHaveProperty('kanban');
+      expect(Array.isArray(res.body.kanban)).toBe(true);
+    });
+
+    it('Back Office / Accounts should successfully load kanban tasks', async () => {
+      const res = await request(app)
+        .get('/api/tasks?view=kanban')
+        .set('Authorization', `Bearer ${testUsers.back_office.token}`);
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toHaveProperty('kanban');
+      expect(Array.isArray(res.body.kanban)).toBe(true);
+    });
+  });
 });

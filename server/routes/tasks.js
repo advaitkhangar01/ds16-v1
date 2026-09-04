@@ -96,6 +96,8 @@ router.get('/', authenticate, async (req, res) => {
     const { view, project_id, status } = req.query;
 
     if (view === 'kanban' || view === 'history' || view === 'scheduled') {
+      const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'accounts' || req.user.department === 'accounts' || req.user.role === 'back_office' || req.user.role === 'project_head';
+
       // Group by assigned_to
       // We fetch all employees
       const { rows: employees } = await pool.query(`
