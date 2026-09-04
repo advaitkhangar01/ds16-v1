@@ -305,7 +305,7 @@ describe('Visibility & Access Control Tests', () => {
     });
   });
 
-  describe('GET /api/vendors - Visibility', () => {
+  describe('Vendors - Authorization & CRUD', () => {
     it('All roles should see all vendors', async () => {
       for (const role of ['admin', 'employee', 'back_office']) {
         const res = await request(app)
@@ -316,6 +316,52 @@ describe('Visibility & Access Control Tests', () => {
         expect(vendorIds).toContain(testVendors[0]);
         expect(vendorIds).toContain(testVendors[1]);
       }
+    });
+
+    it('Employee should be able to create a vendor (201)', async () => {
+      const res = await request(app)
+        .post('/api/vendors')
+        .set('Authorization', `Bearer ${testUsers.employee.token}`)
+        .send({
+          name: 'Employee Created Vendor',
+          category: 'Plumber',
+          phone: '9988776655',
+          email: 'emp_vendor@test.com',
+          remarks: 'Created by employee'
+        });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.name).toBe('Employee Created Vendor');
+      testVendors.push(res.body.id);
+    });
+
+    it('Employee should be able to edit a vendor (200)', async () => {
+      const vendorId = testVendors[0];
+      const res = await request(app)
+        .patch(`/api/vendors/${vendorId}`)
+        .set('Authorization', `Bearer ${testUsers.employee.token}`)
+        .send({
+          name: 'Updated Vendor Name By Employee',
+          phone: '9112233445'
+        });
+      expect(res.statusCode).toBe(200);
+      expect(res.body.name).toBe('Updated Vendor Name By Employee');
+    });
+
+    it('Employee CANNOT delete a vendor (403)', async () => {
+      const vendorId = testVendors[1];
+      const res = await request(app)
+        .delete(`/api/vendors/${vendorId}`)
+        .set('Authorization', `Bearer ${testUsers.employee.token}`);
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('Admin CAN delete a vendor (200)', async () => {
+      const vendorId = testVendors[testVendors.length - 1];
+      const res = await request(app)
+        .delete(`/api/vendors/${vendorId}`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`);
+      expect(res.statusCode).toBe(200);
+      expect(res.body.message).toBe('Vendor deleted successfully');
     });
   });
 

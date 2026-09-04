@@ -5,14 +5,6 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
-// Helper: check if user has accounting/admin role
-function hasVendorWriteAccess(user) {
-  return user.role === 'admin'
-    || user.role === 'accounts'
-    || user.role === 'back_office'
-    || user.department?.toLowerCase() === 'accounts';
-}
-
 // GET /api/vendors - Get all vendors grouped by category
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -46,14 +38,8 @@ router.get('/categories', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/vendors - Create a new vendor
-// M2: Restricted to admin and accounting roles
+// POST /api/vendors - Create a new vendor (accessible to all authenticated staff)
 router.post('/', authenticate, async (req, res) => {
-  // M2: Only admin/accounting may create vendors
-  if (!hasVendorWriteAccess(req.user)) {
-    return res.status(403).json({ error: 'Admin or Accounting access required to create vendors' });
-  }
-
   const { name, category, phone, email, remarks } = req.body;
   if (!name || !category) {
     return res.status(400).json({ error: 'Name and category are required' });
@@ -73,14 +59,8 @@ router.post('/', authenticate, async (req, res) => {
   }
 });
 
-// PATCH /api/vendors/:id - Update a vendor
-// M2: Restricted to admin and accounting roles
+// PATCH /api/vendors/:id - Update a vendor (accessible to all authenticated staff)
 router.patch('/:id', authenticate, async (req, res) => {
-  // M2: Only admin/accounting may edit vendors
-  if (!hasVendorWriteAccess(req.user)) {
-    return res.status(403).json({ error: 'Admin or Accounting access required to update vendors' });
-  }
-
   const { id } = req.params;
   const { name, category, phone, email, remarks } = req.body;
 
