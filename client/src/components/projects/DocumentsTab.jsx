@@ -64,6 +64,8 @@ export default function DocumentsTab({ projectId, currentUser }) {
   const [documents, setDocuments] = useState({});
   const [amounts, setAmounts] = useState({});
   const isAdmin = currentUser?.role === 'admin';
+  const isAccounts = currentUser?.role === 'back_office' || currentUser?.role === 'accounts' || currentUser?.department?.toLowerCase() === 'accounts';
+  const canViewFinancials = isAdmin || isAccounts;
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [files, setFiles] = useState([]);
@@ -77,18 +79,20 @@ export default function DocumentsTab({ projectId, currentUser }) {
       const { data } = await api.get(`/documents?project_id=${projectId}&category=document&grouped=true`);
       setDocuments(data.documents || {});
       setAmounts(data.amounts || {});
-      const { data: payData } = await api.get(`/documents/payment-stages?project_id=${projectId}`);
-      const initiated = (payData.paymentStages || []).reduce((acc, stage) => {
-        acc[stage.document_type] = true;
-        return acc;
-      }, {});
-      setSelectedRows(initiated);
+      if (canViewFinancials) {
+        const { data: payData } = await api.get(`/documents/payment-stages?project_id=${projectId}`);
+        const initiated = (payData.paymentStages || []).reduce((acc, stage) => {
+          acc[stage.document_type] = true;
+          return acc;
+        }, {});
+        setSelectedRows(initiated);
+      }
     } catch (err) {
       toast.error('Failed to load documents');
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, canViewFinancials]);
 
   useEffect(() => { fetchDocuments(); }, [fetchDocuments]);
 
@@ -250,10 +254,10 @@ export default function DocumentsTab({ projectId, currentUser }) {
               <tr className="bg-gray-50/80 border-b border-[#EBEBEB]">
                 <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-10">#</th>
                 <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-1/5">Type</th>
-                {isAdmin && <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-48">Amount</th>}
+                {canViewFinancials && <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-48">Amount</th>}
                 <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-2/5">Documents</th>
                 <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-48">Details</th>
-                {isAdmin && <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-10 text-center">✔</th>}
+                {canViewFinancials && <th className="py-3 px-4 text-[10px] font-bold text-muted uppercase w-10 text-center">✔</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-[#EBEBEB]">
@@ -263,7 +267,7 @@ export default function DocumentsTab({ projectId, currentUser }) {
                   <tr key={tag} className="hover:bg-gray-50/30 transition-colors">
                     <td className="py-3 px-4 align-top text-[10px] text-muted font-bold">{idx + 1}</td>
                     <td className="py-3 px-4 align-top text-xs font-medium text-slate-800">{tag}</td>
-                    {isAdmin && (
+                    {canViewFinancials && (
                       <td className="py-2 px-4 align-top">
                         <input type="number" className="input w-full text-xs h-8" value={amounts[tag] || ''} onChange={e => handleAmountChange(tag, e.target.value)} onBlur={e => handleAmountBlur(tag, e.target.value)} placeholder="₹ 0" />
                       </td>
@@ -298,7 +302,7 @@ export default function DocumentsTab({ projectId, currentUser }) {
                         )) : '-'}
                       </div>
                     </td>
-                    {isAdmin && (
+                    {canViewFinancials && (
                       <td className="py-3 px-4 text-center align-top">
                         <input type="checkbox" checked={!!selectedRows[tag]} onChange={() => toggleRowSelection(tag)} className="w-4 h-4 rounded border-gray-300 text-[#E05A1E] focus:ring-[#E05A1E] cursor-pointer" />
                       </td>
@@ -307,7 +311,7 @@ export default function DocumentsTab({ projectId, currentUser }) {
                 );
               })}
             </tbody>
-            {isAdmin && (
+            {canViewFinancials && (
               <tfoot className="bg-gray-50 font-bold border-t-2 border-[#EBEBEB]">
                 <tr>
                   <td className="py-3 px-4" colSpan={2}><div className="text-right text-[10px] uppercase text-muted">Total</div></td>

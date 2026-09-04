@@ -80,28 +80,14 @@ const checkProjectAccess = (options = {}) => async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid project_id format' });
     }
 
-    // Accounts users have access to all projects in 'Sanction' or 'Under Sanctioning' status ONLY
-    const isAccounts = user.role === 'back_office' || user.role === 'accounts';
-    if (isAccounts) {
-      const { rows: projRows } = await pool.query('SELECT status FROM projects WHERE id = $1', [pid]);
-      if (projRows[0] && (projRows[0].status === 'Sanction' || projRows[0].status === 'Under Sanctioning')) {
-        return next();
-      }
-      return res.status(403).json({ error: 'Access denied. Accounts users can only access sanction stage projects.' });
+    // Verify that the project exists
+    const { rows: projRows } = await pool.query('SELECT id FROM projects WHERE id = $1', [pid]);
+    if (!projRows[0]) {
+      return res.status(404).json({ error: 'Project not found' });
     }
 
-    // Verify if employee is assigned to the project
-    const { rows } = await pool.query(`
-      SELECT 1 FROM project_assignments 
-      WHERE project_id = $1 AND user_id = $2
-      LIMIT 1
-    `, [pid, user.id]);
-
-    if (rows.length > 0) {
-      return next();
-    }
-
-    return res.status(403).json({ error: 'Access denied. You are not assigned to this project.' });
+    // Every authenticated user has access to any existing project for non-financial resources
+    return next();
   } catch (err) {
     console.error('Access control error:', err);
     res.status(500).json({ error: 'Internal server error during access verification' });

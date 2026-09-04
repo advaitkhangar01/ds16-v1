@@ -100,7 +100,7 @@ describe('Visibility & Access Control Tests', () => {
     await pool.query(`DELETE FROM vendors WHERE id IN ($1, $2)`, [testVendors[0], testVendors[1]]);
   });
 
-  describe('GET /api/projects - Visibility', () => {
+  describe('GET /api/projects - Universal Project Visibility', () => {
     it('Admin should see all projects', async () => {
       const res = await request(app)
         .get('/api/projects')
@@ -134,30 +134,30 @@ describe('Visibility & Access Control Tests', () => {
       expect(projectIds).toContain(testProjects.under_sanctioning);
     });
 
-    it('Regular Employee should see only their assigned projects', async () => {
+    it('Regular Employee should see ALL projects regardless of assignment', async () => {
       const res = await request(app)
         .get('/api/projects')
         .set('Authorization', `Bearer ${testUsers.employee.token}`);
       expect(res.statusCode).toBe(200);
       const projectIds = res.body.projects.map(p => p.id);
       expect(projectIds).toContain(testProjects.proposal);
-      expect(projectIds).not.toContain(testProjects.sanction);
-      expect(projectIds).not.toContain(testProjects.under_sanctioning);
+      expect(projectIds).toContain(testProjects.sanction);
+      expect(projectIds).toContain(testProjects.under_sanctioning);
     });
 
-    it('Accounts / Back Office should see only sanction stage projects', async () => {
+    it('Accounts / Back Office should see ALL projects regardless of status', async () => {
       const res = await request(app)
         .get('/api/projects')
         .set('Authorization', `Bearer ${testUsers.back_office.token}`);
       expect(res.statusCode).toBe(200);
       const projectIds = res.body.projects.map(p => p.id);
-      expect(projectIds).not.toContain(testProjects.proposal);
+      expect(projectIds).toContain(testProjects.proposal);
       expect(projectIds).toContain(testProjects.sanction);
       expect(projectIds).toContain(testProjects.under_sanctioning);
     });
   });
 
-  describe('GET /api/projects/:id - Access Control', () => {
+  describe('GET /api/projects/:id - Universal Project Access', () => {
     it('Employee should access their assigned project', async () => {
       const res = await request(app)
         .get(`/api/projects/${testProjects.proposal}`)
@@ -165,11 +165,11 @@ describe('Visibility & Access Control Tests', () => {
       expect(res.statusCode).toBe(200);
     });
 
-    it('Employee should be denied access to unassigned projects', async () => {
+    it('Employee should access unassigned projects', async () => {
       const res = await request(app)
         .get(`/api/projects/${testProjects.sanction}`)
         .set('Authorization', `Bearer ${testUsers.employee.token}`);
-      expect(res.statusCode).toBe(403);
+      expect(res.statusCode).toBe(200);
     });
 
     it('Accounts should access sanction stage project', async () => {
@@ -179,10 +179,128 @@ describe('Visibility & Access Control Tests', () => {
       expect(res.statusCode).toBe(200);
     });
 
-    it('Accounts should be denied access to non-sanction stage projects', async () => {
+    it('Accounts should access non-sanction stage projects', async () => {
       const res = await request(app)
         .get(`/api/projects/${testProjects.proposal}`)
         .set('Authorization', `Bearer ${testUsers.back_office.token}`);
+      expect(res.statusCode).toBe(200);
+    });
+
+    it('Should return 404 for non-existent project', async () => {
+      const res = await request(app)
+        .get('/api/projects/999999')
+        .set('Authorization', `Bearer ${testUsers.employee.token}`);
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe('Financial Endpoints - Strict Role Gating (Admin & Accounts only)', () => {
+    it('Admin can view project financial summary', async () => {
+      const res = await request(app)
+        .get(`/api/projects/${testProjects.proposal}/financial-summary`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`);
+      expect(res.statusCode).toBe(200);
+    });
+
+    it('Accounts can view project financial summary', async () => {
+      const res = await request(app)
+        .get(`/api/projects/${testProjects.proposal}/financial-summary`)
+        .set('Authorization', `Bearer ${testUsers.back_office.token}`);
+      expect(res.statusCode).toBe(200);
+    });
+
+    it('Employee is denied project financial summary with 403', async () => {
+      const res = await request(app)
+        .get(`/api/projects/${testProjects.proposal}/financial-summary`)
+        .set('Authorization', `Bearer ${testUsers.employee.token}`);
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('Design Head is denied project financial summary with 403', async () => {
+      const res = await request(app)
+        .get(`/api/projects/${testProjects.proposal}/financial-summary`)
+        .set('Authorization', `Bearer ${testUsers.design_head.token}`);
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('Project Head is denied project financial summary with 403', async () => {
+      const res = await request(app)
+        .get(`/api/projects/${testProjects.proposal}/financial-summary`)
+        .set('Authorization', `Bearer ${testUsers.project_head.token}`);
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('Admin and Accounts can access invoices, while Employee is denied with 403', async () => {
+      const adminRes = await request(app)
+        .get('/api/invoices')
+        .set('Authorization', `Bearer ${testUsers.admin.token}`);
+      expect(adminRes.statusCode).toBe(200);
+
+      const accountsRes = await request(app)
+        .get('/api/invoices')
+        .set('Authorization', `Bearer ${testUsers.back_office.token}`);
+      expect(accountsRes.statusCode).toBe(200);
+
+      const empRes = await request(app)
+        .get('/api/invoices')
+        .set('Authorization', `Bearer ${testUsers.employee.token}`);
+      expect(empRes.statusCode).toBe(403);
+    });
+
+    it('Admin and Accounts can access finance summary, while Employee is denied with 403', async () => {
+      const adminRes = await request(app)
+        .get('/api/finances/summary')
+        .set('Authorization', `Bearer ${testUsers.admin.token}`);
+      expect(adminRes.statusCode).toBe(200);
+
+      const accountsRes = await request(app)
+        .get('/api/finances/summary')
+        .set('Authorization', `Bearer ${testUsers.back_office.token}`);
+      expect(accountsRes.statusCode).toBe(200);
+
+      const empRes = await request(app)
+        .get('/api/finances/summary')
+        .set('Authorization', `Bearer ${testUsers.employee.token}`);
+      expect(empRes.statusCode).toBe(403);
+    });
+
+    it('Admin and Accounts can access payment stages, while Employee is denied with 403', async () => {
+      const adminRes = await request(app)
+        .get(`/api/documents/payment-stages?project_id=${testProjects.proposal}`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`);
+      expect(adminRes.statusCode).toBe(200);
+
+      const accountsRes = await request(app)
+        .get(`/api/documents/payment-stages?project_id=${testProjects.proposal}`)
+        .set('Authorization', `Bearer ${testUsers.back_office.token}`);
+      expect(accountsRes.statusCode).toBe(200);
+
+      const empRes = await request(app)
+        .get(`/api/documents/payment-stages?project_id=${testProjects.proposal}`)
+        .set('Authorization', `Bearer ${testUsers.employee.token}`);
+      expect(empRes.statusCode).toBe(403);
+    });
+  });
+
+  describe('Admin-only Operations - Access Control', () => {
+    it('Employee cannot delete projects (403)', async () => {
+      const res = await request(app)
+        .delete(`/api/projects/${testProjects.proposal}`)
+        .set('Authorization', `Bearer ${testUsers.employee.token}`);
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('Accounts cannot delete projects (403)', async () => {
+      const res = await request(app)
+        .delete(`/api/projects/${testProjects.proposal}`)
+        .set('Authorization', `Bearer ${testUsers.back_office.token}`);
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('Design Head cannot delete projects (403)', async () => {
+      const res = await request(app)
+        .delete(`/api/projects/${testProjects.proposal}`)
+        .set('Authorization', `Bearer ${testUsers.design_head.token}`);
       expect(res.statusCode).toBe(403);
     });
   });

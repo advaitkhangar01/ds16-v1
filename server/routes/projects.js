@@ -65,73 +65,28 @@ router.post('/', authenticate, async (req, res) => {
 // GET /api/projects
 router.get('/', authenticate, async (req, res) => {
   try {
-    let query, params;
-
     const { page, limit } = req.query;
 
-    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
-    const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts';
-
-    if (isGlobal) {
-      query = `
-        SELECT p.*, 
-          u.name as created_by_name,
-          c.name as client_name,
-          c.company_name as client_company,
-          (SELECT name FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_name,
-          (SELECT phone FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_phone,
-          COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]'::json) as stages
-        FROM projects p
-        LEFT JOIN users u ON u.id = p.created_by
-        LEFT JOIN clients c ON c.id = p.client_id
-        ORDER BY p.created_at DESC`;
-      params = [];
-    } else if (isAccounts) {
-      // D1: Removed dead ($1::int IS NOT NULL OR true) condition that always evaluated to TRUE
-      query = `
-        SELECT p.*, 
-          u.name as created_by_name,
-          c.name as client_name,
-          c.company_name as client_company,
-          (SELECT name FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_name,
-          (SELECT phone FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_phone,
-          COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]'::json) as stages
-        FROM projects p
-        LEFT JOIN users u ON u.id = p.created_by
-        LEFT JOIN clients c ON c.id = p.client_id
-        WHERE p.status IN ('Sanction', 'Under Sanctioning')
-        ORDER BY p.created_at DESC`;
-      params = [];
-    } else {
-      query = `
-        SELECT p.*, 
-          u.name as created_by_name,
-          c.name as client_name,
-          c.company_name as client_company,
-          (SELECT name FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_name,
-          (SELECT phone FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_phone,
-          COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]'::json) as stages
-        FROM projects p
-        JOIN project_assignments pa ON pa.project_id = p.id
-        LEFT JOIN users u ON u.id = p.created_by
-        LEFT JOIN clients c ON c.id = p.client_id
-        WHERE pa.user_id = $1
-        ORDER BY p.created_at DESC`;
-      params = [req.user.id];
-    }
+    let query = `
+      SELECT p.*, 
+        u.name as created_by_name,
+        c.name as client_name,
+        c.company_name as client_company,
+        (SELECT name FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_name,
+        (SELECT phone FROM project_stakeholders WHERE project_id = p.id AND is_primary = TRUE LIMIT 1) as primary_contact_phone,
+        COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]'::json) as stages
+      FROM projects p
+      LEFT JOIN users u ON u.id = p.created_by
+      LEFT JOIN clients c ON c.id = p.client_id
+      ORDER BY p.created_at DESC`;
+    const params = [];
 
     if (limit) {
       const pageInt = parseInt(page) || 1;
       const limitInt = parseInt(limit);
       const offset = (pageInt - 1) * limitInt;
-      if (isGlobal || isAccounts) {
-        // D1: accounts now starts with empty params like isGlobal, use $1/$2
-        query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-        params.push(limitInt, offset);
-      } else {
-        query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-        params.push(limitInt, offset);
-      }
+      query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      params.push(limitInt, offset);
     }
 
     const { rows } = await pool.query(query, params);
@@ -323,7 +278,7 @@ router.get('/suggestions/:client_id', authenticate, requireAccounting, async (re
 });
 
 // GET /api/projects/:id/financial-summary
-router.get('/:id/financial-summary', authenticate, checkProjectAccess(), async (req, res) => {
+router.get('/:id/financial-summary', authenticate, requireAccounting, checkProjectAccess(), async (req, res) => {
   try {
     const { id } = req.params;
 

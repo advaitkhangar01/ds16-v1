@@ -128,13 +128,6 @@ router.get('/', authenticate, async (req, res) => {
         tasksQuery += ` WHERE t.status != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE) `;
       }
 
-      const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'accounts' || req.user.role === 'back_office' || req.user.role === 'project_head';
-
-      if (!isPrivileged) {
-        tasksQuery += ` AND (t.assigned_to = $1 OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $1)) `;
-        tasksParams.push(req.user.id);
-      }
-
       tasksQuery += ` GROUP BY t.id, p.name, u.name ORDER BY t.created_at DESC`;
       
       const { rows: tasks } = await pool.query(tasksQuery, tasksParams);
@@ -230,11 +223,6 @@ router.get('/', authenticate, async (req, res) => {
       query += ` WHERE t.status != 'passed' AND t.start_date > CURRENT_DATE `;
     } else {
       query += ` WHERE t.status != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE) `;
-    }
-
-    if (req.user.role !== 'admin' && req.user.role !== 'design_head' && req.user.role !== 'accounts' && req.user.role !== 'back_office' && req.user.role !== 'project_head') {
-      query += ` AND (t.assigned_to = $1 OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $1)) `;
-      params.push(req.user.id);
     }
 
     query += ` GROUP BY t.id, u.name ORDER BY t.created_at DESC`;

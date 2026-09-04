@@ -3,7 +3,7 @@
 
 const router = require('express').Router();
 const pool = require('../db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireAccounting, canViewFinancials } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
 const multer = require('multer');
 const path = require('path');
@@ -311,30 +311,34 @@ router.get('/', authenticate, checkProjectAccess(), async (req, res) => {
         return acc;
       }, {});
 
-      // Fetch amounts from project_document_amounts
-      const amountsQuery = await pool.query(
-        'SELECT document_type, amount FROM project_document_amounts WHERE project_id = $1',
-        [pid]
-      );
-      const amountsMap = amountsQuery.rows.reduce((acc, row) => {
-        acc[row.document_type] = row.amount;
-        return acc;
-      }, {});
+      if (canViewFinancials(req.user)) {
+        // Fetch amounts from project_document_amounts
+        const amountsQuery = await pool.query(
+          'SELECT document_type, amount FROM project_document_amounts WHERE project_id = $1',
+          [pid]
+        );
+        const amountsMap = amountsQuery.rows.reduce((acc, row) => {
+          acc[row.document_type] = row.amount;
+          return acc;
+        }, {});
 
-      // Override with payment stage amounts (canonical billed amounts)
-      const stagesQuery = await pool.query(
-        'SELECT document_type, amount FROM project_payment_stages WHERE project_id = $1',
-        [pid]
-      );
-      if (stagesQuery.rows.length > 0) {
-        stagesQuery.rows.forEach(row => {
-          if (row.document_type && row.amount !== null && row.amount !== undefined) {
-            amountsMap[row.document_type] = row.amount;
-          }
-        });
+        // Override with payment stage amounts (canonical billed amounts)
+        const stagesQuery = await pool.query(
+          'SELECT document_type, amount FROM project_payment_stages WHERE project_id = $1',
+          [pid]
+        );
+        if (stagesQuery.rows.length > 0) {
+          stagesQuery.rows.forEach(row => {
+            if (row.document_type && row.amount !== null && row.amount !== undefined) {
+              amountsMap[row.document_type] = row.amount;
+            }
+          });
+        }
+
+        return res.json({ documents: groupedDocs, amounts: amountsMap });
       }
 
-      return res.json({ documents: groupedDocs, amounts: amountsMap });
+      return res.json({ documents: groupedDocs, amounts: {} });
     }
 
     res.json({ documents: rows });
@@ -347,7 +351,7 @@ router.get('/', authenticate, checkProjectAccess(), async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/documents/payment-stages?project_id=X
 // ---------------------------------------------------------------------------
-router.get('/payment-stages', authenticate, checkProjectAccess(), async (req, res) => {
+router.get('/payment-stages', authenticate, requireAccounting, checkProjectAccess(), async (req, res) => {
   try {
     const { project_id } = req.query;
     if (!project_id) return res.status(400).json({ error: 'project_id is required' });
@@ -375,7 +379,7 @@ router.get('/payment-stages', authenticate, checkProjectAccess(), async (req, re
 // ---------------------------------------------------------------------------
 // POST /api/documents/payment-stages
 // ---------------------------------------------------------------------------
-router.post('/payment-stages', authenticate, checkProjectAccess(), async (req, res) => {
+router.post('/payment-stages', authenticate, requireAccounting, checkProjectAccess(), async (req, res) => {
   try {
     const { project_id, document_type, amount } = req.body;
     if (!project_id || !document_type) {
@@ -413,7 +417,7 @@ router.post('/payment-stages', authenticate, checkProjectAccess(), async (req, r
 // ---------------------------------------------------------------------------
 // PATCH /api/documents/payment-stages/:id
 // ---------------------------------------------------------------------------
-router.patch('/payment-stages/:id', authenticate, checkProjectAccess({ idIsResource: 'payment-stage' }), async (req, res) => {
+router.patch('/payment-stages/:id', authenticate, requireAccounting, checkProjectAccess({ idIsResource: 'payment-stage' }), async (req, res) => {
   try {
     const { status, amount } = req.body;
     const updates = [];
@@ -443,7 +447,7 @@ router.patch('/payment-stages/:id', authenticate, checkProjectAccess({ idIsResou
 // ---------------------------------------------------------------------------
 // DELETE /api/documents/payment-stages/:id
 // ---------------------------------------------------------------------------
-router.delete('/payment-stages/:id', authenticate, checkProjectAccess({ idIsResource: 'payment-stage' }), async (req, res) => {
+router.delete('/payment-stages/:id', authenticate, requireAccounting, checkProjectAccess({ idIsResource: 'payment-stage' }), async (req, res) => {
   try {
     await pool.query('DELETE FROM project_payment_stages WHERE id = $1', [req.params.id]);
     res.json({ message: 'Payment stage removed' });
@@ -456,7 +460,7 @@ router.delete('/payment-stages/:id', authenticate, checkProjectAccess({ idIsReso
 // ---------------------------------------------------------------------------
 // DELETE /api/documents/payment-stages/remove/tag
 // ---------------------------------------------------------------------------
-router.delete('/payment-stages/remove/tag', authenticate, checkProjectAccess(), async (req, res) => {
+router.delete('/payment-stages/remove/tag', authenticate, requireAccounting, checkProjectAccess(), async (req, res) => {
   try {
     const { project_id, document_type } = req.body;
     const pid = parseInt(project_id);
@@ -475,7 +479,7 @@ router.delete('/payment-stages/remove/tag', authenticate, checkProjectAccess(), 
 // ---------------------------------------------------------------------------
 // POST /api/documents/amounts
 // ---------------------------------------------------------------------------
-router.post('/amounts', authenticate, checkProjectAccess(), async (req, res) => {
+router.post('/amounts', authenticate, requireAccounting, checkProjectAccess(), async (req, res) => {
   const client = await pool.connect();
   try {
     const { project_id, document_type, amount } = req.body;

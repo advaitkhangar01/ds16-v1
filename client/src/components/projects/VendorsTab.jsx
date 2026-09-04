@@ -84,11 +84,11 @@ export default function VendorsTab({ projectId, isAdmin, isAccounts, isDesignHea
 
   useEffect(() => {
     fetchVendors();
-    if (!isDesignHead) {
+    if (isAdmin || isAccounts) {
       fetchPayments();
       fetchClosedMonths();
     }
-  }, [fetchVendors, fetchPayments, fetchClosedMonths, isDesignHead]);
+  }, [fetchVendors, fetchPayments, fetchClosedMonths, isAdmin, isAccounts]);
 
   const handleAddVendor = async (e) => {
     e.preventDefault();
@@ -188,18 +188,19 @@ export default function VendorsTab({ projectId, isAdmin, isAccounts, isDesignHea
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {projectVendors.map(v => (
             <div key={v.id} className="card relative group hover:shadow-md transition-all">
-              {(isAdmin || isDesignHead || isAccounts) && (
                 <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                  <button 
-                    onClick={() => { setSelectedVendorForPayment(v); setShowPaymentModal(true); }}
-                    className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                    title="Pay Vendor"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <rect x="2" y="4" width="20" height="16" rx="2" />
-                      <line x1="2" y1="10" x2="22" y2="10" />
-                    </svg>
-                  </button>
+                  {(isAdmin || isAccounts) && (
+                    <button 
+                      onClick={() => { setSelectedVendorForPayment(v); setShowPaymentModal(true); }}
+                      className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                      title="Pay Vendor"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <rect x="2" y="4" width="20" height="16" rx="2" />
+                        <line x1="2" y1="10" x2="22" y2="10" />
+                      </svg>
+                    </button>
+                  )}
                   {isAdmin && (
                     <button 
                       onClick={() => handleRemoveVendor(v.id)}
@@ -210,7 +211,6 @@ export default function VendorsTab({ projectId, isAdmin, isAccounts, isDesignHea
                     </button>
                   )}
                 </div>
-              )}
               
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center font-bold text-slate-400 border border-slate-100">
@@ -368,7 +368,7 @@ export default function VendorsTab({ projectId, isAdmin, isAccounts, isDesignHea
       )}
 
       {/* Payment History Section */}
-      {!isDesignHead && (
+      {(isAdmin || isAccounts) && (
         <div className="card overflow-hidden mt-8 border-[#EBEBEB]">
           <div className="p-4 border-b border-[#EBEBEB] bg-gray-50/50 flex items-center justify-between">
             <h3 className="text-sm font-bold text-[#1A1A1A] flex items-center gap-2">

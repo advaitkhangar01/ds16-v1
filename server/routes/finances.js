@@ -22,10 +22,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // GET /api/finances/transactions
-router.get('/transactions', authenticate, async (req, res) => {
-  if (req.user?.role === 'design_head' || req.user?.role === 'design') {
-    return res.status(403).json({ error: 'Design department is not permitted to view financial details' });
-  }
+router.get('/transactions', authenticate, requireAccounting, async (req, res) => {
   try {
     const { type, project_id, start_date, end_date, category } = req.query;
     
@@ -174,27 +171,7 @@ router.get('/transactions', authenticate, async (req, res) => {
     const params = [];
     let idx = 1;
 
-    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head' || req.user.role === 'back_office' || req.user.role === 'accounts';
-    const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts';
-
-    if (!isGlobal) {
-      if (isAccounts) {
-        query += ` LEFT JOIN projects p_check ON p_check.id = t.project_id `;
-      } else {
-        query += ` JOIN project_assignments pa ON pa.project_id = t.project_id `;
-      }
-    }
-
     query += ` WHERE 1=1 `;
-
-    if (!isGlobal) {
-      if (isAccounts) {
-        query += ` AND (t.project_id IS NULL OR p_check.status IN ('Sanction', 'Under Sanctioning')) `;
-      } else {
-        query += ` AND pa.user_id = $${idx++} `;
-        params.push(req.user.id);
-      }
-    }
 
     if (category) {
       query += ` AND t.category = $${idx++}`;
@@ -302,19 +279,13 @@ router.get('/transactions', authenticate, async (req, res) => {
 });
 
 // POST /api/finances/transactions
-router.post('/transactions', authenticate, upload.single('receipt'), checkProjectAccess(), checkPeriodLock, async (req, res) => {
+router.post('/transactions', authenticate, upload.single('receipt'), checkProjectAccess(), checkPeriodLock, requireAccounting, async (req, res) => {
   try {
     console.log('New Transaction:', req.body);
     if (req.file) console.log('Attached Receipt:', req.file.filename);
     
     const { type, category, amount, date, description, project_id, vendor_id, employee_id, reference_id } = req.body;
     const receipt_url = req.file ? `/uploads/expenses/${req.file.filename}` : null;
-    
-    if (req.user?.role === 'design_head' || req.user?.role === 'design') {
-      if (type !== 'expense' || category !== 'vendor_payment') {
-        return res.status(403).json({ error: 'Design department is only permitted to record vendor payments' });
-      }
-    }
     
     if (!type || !category || !amount) {
       return res.status(400).json({ error: 'Type, category and amount are required' });
@@ -345,10 +316,7 @@ router.post('/transactions', authenticate, upload.single('receipt'), checkProjec
 });
 
 // GET /api/finances/summary
-router.get('/summary', authenticate, async (req, res) => {
-  if (req.user?.role === 'design_head' || req.user?.role === 'design') {
-    return res.status(403).json({ error: 'Design department is not permitted to view financial summaries' });
-  }
+router.get('/summary', authenticate, requireAccounting, async (req, res) => {
   const executeSummary = async (projectId) => {
     try {
       const { start_date, end_date } = req.query;
@@ -375,7 +343,6 @@ router.get('/summary', authenticate, async (req, res) => {
       // 1. Income from document amounts (Total Potential) - Only for active stages: Design Proposal, Sanction, Execution (when global)
       let incomeQuery;
       const incomeParams = [];
-      const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head' || req.user.role === 'back_office' || req.user.role === 'accounts';
 
       if (projectId) {
         incomeQuery = `SELECT COALESCE(SUM(amount), 0) as total_value FROM project_document_amounts WHERE project_id = $1`;
@@ -406,9 +373,7 @@ router.get('/summary', authenticate, async (req, res) => {
           JOIN project_categories pc ON pda.project_id = pc.project_id
           JOIN projects p ON p.id = pda.project_id
           WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
-            AND ($1::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
         `;
-        incomeParams.push(isGlobal);
       }
       const incomeRes = await pool.query(incomeQuery, incomeParams);
       const totalValue = parseFloat(incomeRes.rows[0].total_value);
@@ -435,8 +400,6 @@ router.get('/summary', authenticate, async (req, res) => {
         activeBilledQuery += ` AND i.date <= $${abIdx++}`;
         activeBilledParams.push(end_date);
       }
-      activeBilledQuery += ` AND ($${abIdx++}::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))`;
-      activeBilledParams.push(isGlobal);
 
       const activeBilledRes = await pool.query(activeBilledQuery, activeBilledParams);
       const billed = parseFloat(activeBilledRes.rows[0].billed);
@@ -477,8 +440,6 @@ router.get('/summary', authenticate, async (req, res) => {
         activeReceivedQuery += ` AND c.date <= $${arIdx++}`;
         activeReceivedParams.push(end_date);
       }
-      activeReceivedQuery += ` AND ($${arIdx++}::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))`;
-      activeReceivedParams.push(isGlobal);
 
       const activeReceivedRes = await pool.query(activeReceivedQuery, activeReceivedParams);
       const received = parseFloat(activeReceivedRes.rows[0].received);
@@ -502,8 +463,6 @@ router.get('/summary', authenticate, async (req, res) => {
         cumulativeInvoiceQuery += ` AND i.date <= $${ciIdx++}`;
         cumulativeInvoiceParams.push(end_date);
       }
-      cumulativeInvoiceQuery += ` AND ($${ciIdx++}::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))`;
-      cumulativeInvoiceParams.push(isGlobal);
 
       const cumulativeInvoiceRes = await pool.query(cumulativeInvoiceQuery, cumulativeInvoiceParams);
       const cumulativeBilled = parseFloat(cumulativeInvoiceRes.rows[0].cumulative_billed);
@@ -541,8 +500,6 @@ router.get('/summary', authenticate, async (req, res) => {
         cumulativeReceivedQuery += ` AND c.date <= $${crIdx++}`;
         cumulativeReceivedParams.push(end_date);
       }
-      cumulativeReceivedQuery += ` AND ($${crIdx++}::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))`;
-      cumulativeReceivedParams.push(isGlobal);
 
       const cumulativeReceivedRes = await pool.query(cumulativeReceivedQuery, cumulativeReceivedParams);
       const cumulativeReceived = parseFloat(cumulativeReceivedRes.rows[0].cumulative_received);
@@ -572,8 +529,6 @@ router.get('/summary', authenticate, async (req, res) => {
         expenseQuery += ` AND t.date <= $${eIdx++}`;
         expParams.push(end_date);
       }
-      expenseQuery += ` AND ($${eIdx++}::boolean OR p.id IS NULL OR p.status IN ('Sanction', 'Under Sanctioning'))`;
-      expParams.push(isGlobal);
       const expRes = await pool.query(expenseQuery, expParams);
       const transactionExpense = parseFloat(expRes.rows[0].total_expense);
 
@@ -646,27 +601,14 @@ router.get('/summary', authenticate, async (req, res) => {
     return checkProjectAccess()(req, res, () => executeSummary(project_id));
   }
   
-  const isAccounting = req.user.role === 'admin' || req.user.role === 'accounts' || req.user.role === 'back_office' || req.user.department?.toLowerCase() === 'accounts';
-  if (!isAccounting) {
-    return res.status(403).json({ error: 'Admin or Accounting access required for global summary' });
-  }
-
   executeSummary();
 });
 
 // GET /api/finances/charts
-router.get('/charts', authenticate, async (req, res) => {
-  if (req.user?.role === 'design_head' || req.user?.role === 'design') {
-    return res.status(403).json({ error: 'Design department is not permitted to view financial charts' });
-  }
+router.get('/charts', authenticate, requireAccounting, async (req, res) => {
   const { project_id } = req.query;
   if (project_id) {
     return checkProjectAccess()(req, res, () => executeCharts(project_id));
-  }
-
-  const isAccounting = req.user.role === 'admin' || req.user.role === 'accounts' || req.user.role === 'back_office' || req.user.department?.toLowerCase() === 'accounts';
-  if (!isAccounting) {
-    return res.status(403).json({ error: 'Admin or Accounting access required for global charts' });
   }
 
   executeCharts();

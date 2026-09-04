@@ -114,22 +114,15 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
       tasksByProject[t.project_id].tasks.push(t);
     });
 
-    // 3. Kanban - projects grouped by status and stages (filtered for accounts)
-    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
-    const isAccounts = req.user.role === 'back_office' || req.user.role === 'accounts';
-
+    // 3. Kanban - projects grouped by status and stages
     let dashboardProjectsQuery = `
       SELECT p.id, p.name, p.client_name, p.type, p.status,
          COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]'::json) as stages
        FROM projects p
+       ORDER BY p.created_at DESC LIMIT 100
     `;
-    const dashboardParams = [];
-    if (!isGlobal && isAccounts) {
-      dashboardProjectsQuery += ` WHERE p.status IN ('Sanction', 'Under Sanctioning') `;
-    }
-    dashboardProjectsQuery += ` ORDER BY p.created_at DESC LIMIT 100`;
 
-    const { rows: projectRows } = await pool.query(dashboardProjectsQuery, dashboardParams);
+    const { rows: projectRows } = await pool.query(dashboardProjectsQuery);
     console.log(`[DEBUG] Dashboard API: Found ${projectRows.length} projects`);
 
     const kanban = { pending: [], design_proposal: [], sanction: [], execution: [], completed: [] };
@@ -186,165 +179,77 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
     const currentPeriodEnd   = today; // IST today (yyyy-mm-dd)
 
     // 5a. Total Project Value (Potential) - Only for active stages: Design Proposal, Sanction, Execution
-    let incomeQuery = '';
-    let incomeParams = [];
-    if (isGlobal || isAccounts) {
-      incomeQuery = `
-        WITH active_stages AS (
-          SELECT DISTINCT ON (project_id) project_id, stage_name, status
-          FROM project_stages
-          WHERE status != 'completed'
-          ORDER BY project_id, id ASC
-        ),
-        project_categories AS (
-          SELECT p.id as project_id,
-            CASE 
-              WHEN a.project_id IS NULL THEN 'completed'
-              WHEN a.status = 'pending' THEN 'pending'
-              WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
-              WHEN a.stage_name = 'Submission' THEN 'sanction'
-              WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
-              ELSE 'pending'
-            END as stage_category
-          FROM projects p
-          LEFT JOIN active_stages a ON p.id = a.project_id
-        )
-        SELECT COALESCE(SUM(pda.amount), 0) as total_value 
-        FROM project_document_amounts pda
-        JOIN project_categories pc ON pda.project_id = pc.project_id
-        WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
-      `;
-    } else {
-      incomeQuery = `
-        WITH active_stages AS (
-          SELECT DISTINCT ON (project_id) project_id, stage_name, status
-          FROM project_stages
-          WHERE status != 'completed'
-          ORDER BY project_id, id ASC
-        ),
-        project_categories AS (
-          SELECT p.id as project_id,
-            CASE 
-              WHEN a.project_id IS NULL THEN 'completed'
-              WHEN a.status = 'pending' THEN 'pending'
-              WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
-              WHEN a.stage_name = 'Submission' THEN 'sanction'
-              WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
-              ELSE 'pending'
-            END as stage_category
-          FROM projects p
-          LEFT JOIN project_assignments pa ON pa.project_id = p.id
-          LEFT JOIN active_stages a ON p.id = a.project_id
-          WHERE ($2::boolean AND p.status IN ('Sanction', 'Under Sanctioning')) OR (NOT $2::boolean AND pa.user_id = $1)
-        )
-        SELECT COALESCE(SUM(pda.amount), 0) as total_value 
-        FROM project_document_amounts pda
-        JOIN project_categories pc ON pda.project_id = pc.project_id
-        WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
-      `;
-      incomeParams.push(req.user.id, isAccounts);
-    }
-    const { rows: incomeRows } = await pool.query(incomeQuery, incomeParams);
+    const incomeQuery = `
+      WITH active_stages AS (
+        SELECT DISTINCT ON (project_id) project_id, stage_name, status
+        FROM project_stages
+        WHERE status != 'completed'
+        ORDER BY project_id, id ASC
+      ),
+      project_categories AS (
+        SELECT p.id as project_id,
+          CASE 
+            WHEN a.project_id IS NULL THEN 'completed'
+            WHEN a.status = 'pending' THEN 'pending'
+            WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
+            WHEN a.stage_name = 'Submission' THEN 'sanction'
+            WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
+            ELSE 'pending'
+          END as stage_category
+        FROM projects p
+        LEFT JOIN active_stages a ON p.id = a.project_id
+      )
+      SELECT COALESCE(SUM(pda.amount), 0) as total_value 
+      FROM project_document_amounts pda
+      JOIN project_categories pc ON pda.project_id = pc.project_id
+      WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
+    `;
+    const { rows: incomeRows } = await pool.query(incomeQuery);
     const totalValue = parseFloat(incomeRows[0].total_value);
 
     // 5b. Billed/Received — scoped to the current month's invoices
-    let invoiceQuery = '';
-    let invoiceParams = [currentPeriodStart, currentPeriodEnd];
-    if (isGlobal || isAccounts) {
-      invoiceQuery = `
-        SELECT
-          COALESCE(SUM(CASE WHEN date >= $1 AND date <= $2 THEN amount ELSE 0 END), 0)          AS billed,
-          (
-            SELECT COALESCE(SUM(amount), 0) 
-            FROM transactions 
-            WHERE type = 'income' AND category = 'project_receipt' 
-              AND date >= $1 AND date <= $2
-          ) + (
-            SELECT COALESCE(SUM(received_amount), 0)
-            FROM invoices i
-            WHERE i.date >= $1 AND i.date <= $2
-              AND LOWER(i.status) != 'cancelled'
-              AND NOT EXISTS (
-                SELECT 1 FROM transactions t
-                WHERE t.type = 'income' AND t.category = 'project_receipt'
-                  AND t.reference_id = i.invoice_no
-              )
-          )                                                                                    AS received,
-          COALESCE(SUM(received_amount), 0)                                                       AS all_time_received,
-          COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
-        FROM invoices
-        WHERE LOWER(status) != 'cancelled'
-      `;
-    } else {
-      invoiceQuery = `
-        SELECT
-          COALESCE(SUM(CASE WHEN date >= $1 AND date <= $2 THEN amount ELSE 0 END), 0)          AS billed,
-          (
-            SELECT COALESCE(SUM(t.amount), 0) 
-            FROM transactions t
-            WHERE t.type = 'income' AND t.category = 'project_receipt' 
-              AND t.date >= $1 AND t.date <= $2
-              AND EXISTS (
-                SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.status IN ('Sanction', 'Under Sanctioning')
-              )
-          ) + (
-            SELECT COALESCE(SUM(i.received_amount), 0)
-            FROM invoices i
-            WHERE i.date >= $1 AND i.date <= $2
-              AND LOWER(i.status) != 'cancelled'
-              AND EXISTS (
-                SELECT 1 FROM projects p WHERE p.id = i.project_id AND p.status IN ('Sanction', 'Under Sanctioning')
-              )
-              AND NOT EXISTS (
-                SELECT 1 FROM transactions t
-                WHERE t.type = 'income' AND t.category = 'project_receipt'
-                  AND t.reference_id = i.invoice_no
-              )
-          )                                                                                    AS received,
-          COALESCE(SUM(received_amount), 0)                                                       AS all_time_received,
-          COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
-        FROM invoices i
-        WHERE LOWER(i.status) != 'cancelled' AND EXISTS (
-          SELECT 1 FROM projects p WHERE p.id = i.project_id AND p.status IN ('Sanction', 'Under Sanctioning')
-        )
-      `;
-      invoiceParams.push(req.user.id);
-    }
-    const { rows: invoiceRows } = await pool.query(invoiceQuery, invoiceParams);
+    const invoiceQuery = `
+      SELECT
+        COALESCE(SUM(CASE WHEN date >= $1 AND date <= $2 THEN amount ELSE 0 END), 0)          AS billed,
+        (
+          SELECT COALESCE(SUM(amount), 0) 
+          FROM transactions 
+          WHERE type = 'income' AND category = 'project_receipt' 
+            AND date >= $1 AND date <= $2
+        ) + (
+          SELECT COALESCE(SUM(received_amount), 0)
+          FROM invoices i
+          WHERE i.date >= $1 AND i.date <= $2
+            AND LOWER(i.status) != 'cancelled'
+            AND NOT EXISTS (
+              SELECT 1 FROM transactions t
+              WHERE t.type = 'income' AND t.category = 'project_receipt'
+                AND t.reference_id = i.invoice_no
+            )
+        )                                                                                    AS received,
+        COALESCE(SUM(received_amount), 0)                                                       AS all_time_received,
+        COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
+      FROM invoices
+      WHERE LOWER(status) != 'cancelled'
+    `;
+    const { rows: invoiceRows } = await pool.query(invoiceQuery, [currentPeriodStart, currentPeriodEnd]);
     const billed          = parseFloat(invoiceRows[0].billed);
     const received        = parseFloat(invoiceRows[0].received);
     const allTimeReceived = parseFloat(invoiceRows[0].all_time_received);
     const pending         = parseFloat(invoiceRows[0].pending);
 
     // 5c. Expenses — scoped to current period (current month only)
-    let expenseQuery = '';
-    let expenseParams = [currentPeriodStart, currentPeriodEnd];
-    if (isGlobal || isAccounts) {
-      expenseQuery = `
-        SELECT COALESCE(SUM(t.amount), 0) as total_expense 
-        FROM transactions t
-        LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
-          AND ea.month = EXTRACT(MONTH FROM t.date) 
-          AND ea.year = EXTRACT(YEAR FROM t.date)
-        WHERE t.type = 'expense' AND t.date >= $1 AND t.date <= $2
-          AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND t.vendor_id IS NULL
-          AND ea.is_verified = TRUE
-      `;
-    } else {
-      expenseQuery = `
-        SELECT COALESCE(SUM(t.amount), 0) as total_expense 
-        FROM transactions t
-        LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
-          AND ea.month = EXTRACT(MONTH FROM t.date) 
-          AND ea.year = EXTRACT(YEAR FROM t.date)
-        WHERE t.type = 'expense' AND t.date >= $1 AND t.date <= $2
-          AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND t.vendor_id IS NULL
-          AND ea.is_verified = TRUE
-          AND EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.status IN ('Sanction', 'Under Sanctioning'))
-      `;
-      expenseParams.push(req.user.id);
-    }
-    const { rows: expRows } = await pool.query(expenseQuery, expenseParams);
+    const expenseQuery = `
+      SELECT COALESCE(SUM(t.amount), 0) as total_expense 
+      FROM transactions t
+      LEFT JOIN expense_audits ea ON LOWER(ea.category) = LOWER(t.category) 
+        AND ea.month = EXTRACT(MONTH FROM t.date) 
+        AND ea.year = EXTRACT(YEAR FROM t.date)
+      WHERE t.type = 'expense' AND t.date >= $1 AND t.date <= $2
+        AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND t.vendor_id IS NULL
+        AND ea.is_verified = TRUE
+    `;
+    const { rows: expRows } = await pool.query(expenseQuery, [currentPeriodStart, currentPeriodEnd]);
     const transactionExpense = parseFloat(expRows[0].total_expense);
 
     const { rows: payrollRows } = await pool.query(
@@ -373,17 +278,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
     const salaryStats = await calculateSalaryStats(userId, month, year, today, settings);
 
     // 7. All projects count
-    let countQuery = 'SELECT COUNT(*) as count FROM projects';
-    let countParams = [];
-    if (!isGlobal) {
-      countQuery = `
-        SELECT COUNT(DISTINCT p.id) as count 
-        FROM projects p
-        WHERE p.status IN ('Sanction', 'Under Sanctioning')
-      `;
-      countParams = [];
-    }
-    const { rows: countRows } = await pool.query(countQuery, countParams);
+    const { rows: countRows } = await pool.query('SELECT COUNT(*) as count FROM projects');
 
     // 8. Active team leaves today & Upcoming team leaves
     const { rows: activeTeamLeavesRows } = await pool.query(
@@ -754,7 +649,6 @@ router.get('/employee', authenticate, async (req, res) => {
     // Extract month/year directly from IST date string to avoid UTC midnight parse issue
     const [year, month] = todayStr.split('-').map(Number);
     const userId = req.user.id;
-    const isGlobal = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
 
     // 1. Today's attendance (self)
     const { rows: attRows } = await pool.query(
@@ -840,50 +734,23 @@ router.get('/employee', authenticate, async (req, res) => {
       [userId]
     );
 
-    // 3. My projects (assigned or commented)
-    let projQuery = `
+    // 3. All projects
+    const { rows: projRows } = await pool.query(`
       SELECT p.id, p.name, p.client_name, p.type, p.location,
          COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]') as stages
        FROM projects p
-    `;
-    let projParams = [];
-    if (!isGlobal) {
-      projQuery += `
-        WHERE 
-          EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = p.id AND pa.user_id = $1)
-          OR EXISTS (SELECT 1 FROM comments c WHERE c.project_id = p.id AND c.assigned_to = $1)
-      `;
-      projParams.push(userId);
-    }
-    projQuery += ` ORDER BY p.id DESC`;
-    const { rows: projRows } = await pool.query(projQuery, projParams);
+       ORDER BY p.id DESC
+    `);
 
-    // 4. Project Kanban (Filtered for employee)
-    let kanbanQuery = '';
-    let kanbanParams = [];
-    if (isGlobal) {
-      kanbanQuery = `
-        SELECT p.id, p.name, p.client_name, p.type, p.status,
-           COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]') as stages
-         FROM projects p
-         ORDER BY p.created_at DESC 
-         LIMIT 100
-      `;
-    } else {
-      kanbanQuery = `
-        SELECT p.id, p.name, p.client_name, p.type, p.status,
-           COALESCE(json_agg(ps.* ORDER BY ps.id) FILTER (WHERE ps.id IS NOT NULL), '[]') as stages
-         FROM projects p
-         JOIN project_assignments pa ON pa.project_id = p.id
-         LEFT JOIN project_stages ps ON ps.project_id = p.id
-         WHERE pa.user_id = $1
-         GROUP BY p.id
-         ORDER BY p.created_at DESC 
-         LIMIT 100
-      `;
-      kanbanParams.push(userId);
-    }
-    const { rows: projectRows } = await pool.query(kanbanQuery, kanbanParams);
+    // 4. Project Kanban
+    const kanbanQuery = `
+      SELECT p.id, p.name, p.client_name, p.type, p.status,
+         COALESCE((SELECT json_agg(ps.* ORDER BY ps.id) FROM project_stages ps WHERE ps.project_id = p.id), '[]') as stages
+       FROM projects p
+       ORDER BY p.created_at DESC 
+       LIMIT 100
+    `;
+    const { rows: projectRows } = await pool.query(kanbanQuery);
     const kanban = { pending: [], design_proposal: [], sanction: [], execution: [], completed: [] };
     projectRows.forEach((p) => {
       const stages = p.stages || [];

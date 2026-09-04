@@ -56,6 +56,12 @@ export default function ProjectDetail() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+
+  useEffect(() => {
+    if (!isAdmin && !isAccounts && ['payments', 'finances', 'invoices'].includes(activeTab)) {
+      setActiveTab('overview');
+    }
+  }, [isAdmin, isAccounts, activeTab]);
   const [showChangeClientModal, setShowChangeClientModal] = useState(false);
   const [showStakeholderModal, setShowStakeholderModal] = useState(false);
   const [editingStakeholder, setEditingStakeholder] = useState(null);
@@ -611,9 +617,9 @@ export default function ProjectDetail() {
         )}
 
         {activeTab === 'documents' && <DocumentsTab projectId={id} currentUser={user} />}
-        {activeTab === 'payments' && <PaymentStagesTab projectId={id} project={project} />}
-        {activeTab === 'finances' && <ProjectFinancesTab projectId={id} />}
-        {activeTab === 'invoices' && <InvoiceHistoryTab projectId={id} project={project} />}
+        {(isAdmin || isAccounts) && activeTab === 'payments' && <PaymentStagesTab projectId={id} project={project} />}
+        {(isAdmin || isAccounts) && activeTab === 'finances' && <ProjectFinancesTab projectId={id} />}
+        {(isAdmin || isAccounts) && activeTab === 'invoices' && <InvoiceHistoryTab projectId={id} project={project} />}
         {activeTab === 'site-photos' && <SitePhotographsTab projectId={id} currentUser={user} />}
         {activeTab === 'vendors' && <VendorsTab projectId={id} isAdmin={isAdmin} isAccounts={isAccounts} isDesignHead={isDesignHead} />}
       </div>

@@ -41,7 +41,7 @@ const ACCOUNTS_LINKS = [
 const EMP_LINKS = [
   { to: '/employee/dashboard', label: 'Dashboard', icon: 'grid' },
   { to: '/employee/profile', label: 'My Profile', icon: 'user' },
-  { to: '/projects', label: 'My Projects', icon: 'folder' },
+  { to: '/projects', label: 'Projects', icon: 'folder' },
   { to: '/tasks', label: 'Tasks', icon: 'check_square' },
   { to: '/attendance', label: 'Attendance', icon: 'clock' },
   { to: '/daily-reports', label: 'Daily Reports', icon: 'file_spreadsheet' },

@@ -50,13 +50,26 @@ const requireAdmin = (req, res, next) => {
 };
 
 /**
- * Require admin or accounts department
+ * Check if a user has financial view/edit privileges (Admin or Accounts)
+ */
+const canViewFinancials = (user) => {
+  if (!user) return false;
+  return (
+    user.role === 'admin' ||
+    user.role === 'back_office' ||
+    user.role === 'accounts' ||
+    user.department?.toLowerCase() === 'accounts'
+  );
+};
+
+/**
+ * Require admin or accounts department for financial information
  */
 const requireAccounting = (req, res, next) => {
-  if (req.user?.role === 'admin' || req.user?.role === 'back_office' || req.user?.role === 'accounts' || req.user?.department?.toLowerCase() === 'accounts') {
+  if (canViewFinancials(req.user)) {
     return next();
   }
-  return res.status(403).json({ error: 'Accounting or Admin access required' });
+  return res.status(403).json({ error: 'Financial information is restricted to Admin and Accounts users.' });
 };
 
 /**
@@ -66,4 +79,4 @@ const signToken = (userId) => {
   return jwt.sign({ userId }, ACTUAL_SECRET, { expiresIn: '7d' });
 };
 
-module.exports = { authenticate, requireAdmin, requireAccounting, signToken };
+module.exports = { authenticate, requireAdmin, requireAccounting, canViewFinancials, signToken };
