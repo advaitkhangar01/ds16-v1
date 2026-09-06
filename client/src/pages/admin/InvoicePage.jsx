@@ -1123,7 +1123,7 @@ export default function InvoicePage() {
           >
             {/* Centered Top Invoice Banner */}
             <div className="w-full text-center bg-gray-500 text-white py-1 text-xs font-black uppercase tracking-widest border border-black border-b-0">
-              INVOICE
+              PRO FORMA INVOICE
             </div>
 
             {/* Corporate Grid Table Header */}
@@ -1147,8 +1147,8 @@ export default function InvoicePage() {
                   </td>
                   {/* Top-Right sub-grids */}
                   <td className="w-[27.5%] border-r border-b border-black p-2 align-top">
-                    <div className="text-gray-400 font-bold uppercase text-[7px] tracking-wider mb-0.5">Invoice No.</div>
-                    <div className="font-mono font-black text-xs text-[#E05A1E]">{formData.invoiceNo}</div>
+                    <div className="text-gray-400 font-bold uppercase text-[7px] tracking-wider mb-0.5">Document Type</div>
+                    <div className="font-mono font-black text-xs text-[#E05A1E]">PRO FORMA INVOICE</div>
                   </td>
                   <td className="w-[27.5%] border-b border-black p-2 align-top">
                     <div className="text-gray-400 font-bold uppercase text-[7px] tracking-wider mb-0.5">DATE</div>
@@ -1334,7 +1334,7 @@ export default function InvoicePage() {
                         <span className="font-mono text-xs tracking-wide bg-gray-100 px-2 py-0.5 rounded border border-gray-200">AJKPG8543M</span>
                       </div>
                       <p className="text-[7.5px] text-gray-500 leading-normal italic font-medium">
-                        We declare that this invoice shows the actual price of the services described and that all particulars are true and correct.
+                        This is a Pro Forma Invoice issued for quotation / milestone estimation purposes only and is not a Tax Invoice.
                       </p>
                       {isTdsEnabled && (
                         <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded text-[7.5px] text-amber-800 leading-normal font-bold">
