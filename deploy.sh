@@ -34,6 +34,7 @@ node --check routes/leaves.js
 node --check routes/monthlyClose.js
 node --check routes/vendors.js
 node --check routes/accounting.js
+node --check routes/reports.js
 node --check routes/settings.js
 echo "✓ All files syntax-OK"
 

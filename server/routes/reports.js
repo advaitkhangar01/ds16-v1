@@ -57,6 +57,7 @@ router.get('/attendance', authenticate, requireAccounting, async (req, res) => {
                   CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
                 ELSE LOWER(COALESCE(a.status, 'working'))
               END
+            WHEN ud.date > $4::date THEN 'future'
             WHEN lr.id IS NOT NULL THEN 'leave'
             WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
             WHEN h.date IS NOT NULL THEN 'holiday'
@@ -70,7 +71,7 @@ router.get('/attendance', authenticate, requireAccounting, async (req, res) => {
          AND ud.date BETWEEN lr.start_date AND lr.end_date
        LEFT JOIN holidays h ON h.date = ud.date
        ORDER BY ud.date DESC, ud.employee_name ASC`,
-      [startDate, endDate, userFilterId]
+      [startDate, endDate, userFilterId, today]
     );
 
     res.json({ success: true, data: rows });
@@ -121,6 +122,8 @@ router.get('/finances', authenticate, requireAccounting, async (req, res) => {
     if (category) {
       params.push(category);
       query += ` AND t.category = $${params.length}`;
+    } else {
+      query += ` AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salaries', 'salary', 'incentives', 'incentive')`;
     }
 
     query += ' ORDER BY t.date DESC, t.id DESC';
@@ -132,78 +135,69 @@ router.get('/finances', authenticate, requireAccounting, async (req, res) => {
       // General ledger salaries match unless we are filtered strictly for a project that isn't payroll
       if (!project_id || project_id === '') {
         let payrollQuery = `
-          SELECT 
-            p.id, 
-            'expense' as type, 
-            'Salaries' as category, 
-            (p.net_paid - p.incentives) as amount, 
-            p.payment_date as date, 
-            'Monthly salary payment' as description, 
-            NULL as reference_id,
-            p.created_at,
-            NULL as project_name,
-            NULL as vendor_name,
-            u.name as employee_name,
-            'System' as creator_name
-          FROM payroll p
-          JOIN users u ON u.id = p.user_id
-          WHERE p.status = 'paid'
+          SELECT * FROM (
+            SELECT 
+              p.id, 
+              'expense' as type, 
+              'Salaries' as category, 
+              (p.net_paid - p.incentives) as amount, 
+              CASE 
+                WHEN EXTRACT(MONTH FROM p.payment_date) = p.month AND EXTRACT(YEAR FROM p.payment_date) = p.year THEN p.payment_date
+                ELSE (MAKE_DATE(p.year, p.month, 1) + INTERVAL '1 month - 1 day')::date
+              END as date, 
+              'Monthly salary payment' as description, 
+              NULL as reference_id,
+              p.created_at,
+              NULL as project_name,
+              NULL as vendor_name,
+              u.name as employee_name,
+              'System' as creator_name
+            FROM payroll p
+            JOIN users u ON u.id = p.user_id
+            WHERE p.status = 'paid'
+            
+            UNION ALL
+            
+            SELECT 
+              p.id, 
+              'expense' as type, 
+              'Incentives' as category, 
+              p.incentives as amount, 
+              CASE 
+                WHEN EXTRACT(MONTH FROM p.payment_date) = p.month AND EXTRACT(YEAR FROM p.payment_date) = p.year THEN p.payment_date
+                ELSE (MAKE_DATE(p.year, p.month, 1) + INTERVAL '1 month - 1 day')::date
+              END as date, 
+              'Performance incentive' as description, 
+              NULL as reference_id,
+              p.created_at,
+              NULL as project_name,
+              NULL as vendor_name,
+              u.name as employee_name,
+              'System' as creator_name
+            FROM payroll p
+            JOIN users u ON u.id = p.user_id
+            WHERE p.status = 'paid' AND p.incentives > 0
+          ) p_virtual
+          WHERE 1=1
         `;
         const payrollParams = [];
         let pyIdx = 1;
 
         if (start_date) {
-          payrollQuery += ` AND p.payment_date >= $${pyIdx++}::date`;
+          payrollQuery += ` AND date >= $${pyIdx++}::date`;
           payrollParams.push(start_date);
         }
         if (end_date) {
-          payrollQuery += ` AND p.payment_date <= $${pyIdx++}::date`;
+          payrollQuery += ` AND date <= $${pyIdx++}::date`;
           payrollParams.push(end_date);
         }
-        if (category && category !== 'Salaries') {
-          // If filtering by category and it's not Salaries, we exclude these
-          payrollQuery += ` AND 1=0`;
+        if (category) {
+          payrollQuery += ` AND category = $${pyIdx++}`;
+          payrollParams.push(category);
         }
 
         const { rows } = await pool.query(payrollQuery, payrollParams);
         payrollRows = rows;
-
-        // Merge incentives if applicable
-        let incentivesQuery = `
-          SELECT 
-            p.id, 
-            'expense' as type, 
-            'Incentives' as category, 
-            p.incentives as amount, 
-            p.payment_date as date, 
-            'Performance incentive' as description, 
-            NULL as reference_id,
-            p.created_at,
-            NULL as project_name,
-            NULL as vendor_name,
-            u.name as employee_name,
-            'System' as creator_name
-          FROM payroll p
-          JOIN users u ON u.id = p.user_id
-          WHERE p.status = 'paid' AND p.incentives > 0
-        `;
-        const incParams = [];
-        let incIdx = 1;
-
-        if (start_date) {
-          incentivesQuery += ` AND p.payment_date >= $${incIdx++}::date`;
-          incParams.push(start_date);
-        }
-        if (end_date) {
-          incentivesQuery += ` AND p.payment_date <= $${incIdx++}::date`;
-          incParams.push(end_date);
-        }
-        if (category && category !== 'Incentives') {
-          incentivesQuery += ` AND 1=0`;
-        }
-
-        const { rows: incRows } = await pool.query(incentivesQuery, incParams);
-        payrollRows = [...payrollRows, ...incRows];
       }
     }
 

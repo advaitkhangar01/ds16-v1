@@ -183,14 +183,21 @@ export default function ReportsPage() {
   // Summary Metrics Computations
   const attendanceMetrics = useMemo(() => {
     if (activeTab !== 'attendance' || !reportData.length) return null;
-    const presentRecords = reportData.filter(r => r.status !== 'absent');
-    const lateRecords = reportData.filter(r => r.is_late === true);
+    const presentRecords = reportData.filter(r => r.status === 'working' || r.status === 'completed' || r.status === 'present' || r.status === 'half_day');
+    const absentRecords = reportData.filter(r => r.status === 'absent');
+    const leaveRecords = reportData.filter(r => r.status === 'leave');
+    const sundayRecords = reportData.filter(r => r.status === 'sunday');
+    const holidayRecords = reportData.filter(r => r.status === 'holiday');
+    const lateRecords = reportData.filter(r => r.is_late === true && r.status !== 'absent');
     const totalMins = lateRecords.reduce((sum, r) => sum + (r.late_minutes || 0), 0);
     const totalHours = reportData.reduce((sum, r) => sum + parseFloat(r.hours_worked || 0), 0);
 
     return {
       presentDays: presentRecords.length,
-      absentDays: reportData.length - presentRecords.length,
+      absentDays: absentRecords.length,
+      leaveDays: leaveRecords.length,
+      sundayCount: sundayRecords.length,
+      holidayCount: holidayRecords.length,
       lateCount: lateRecords.length,
       avgLateMins: lateRecords.length ? Math.round(totalMins / lateRecords.length) : 0,
       totalHours: totalHours.toFixed(1)
@@ -226,8 +233,12 @@ export default function ReportsPage() {
   const invoiceMetrics = useMemo(() => {
     if (activeTab !== 'invoices' || !reportData.length) return null;
     const totalInvoiced = reportData.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
-    const paidInvoices = reportData.filter(r => r.status === 'paid').reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
-    const unpaidInvoices = reportData.filter(r => r.status !== 'paid').reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+    const paidInvoices = reportData.reduce((sum, r) => {
+      if (r.status === 'paid') return sum + parseFloat(r.amount || 0);
+      const rec = parseFloat(r.received_amount || 0);
+      return sum + (rec > 0 ? rec : 0);
+    }, 0);
+    const unpaidInvoices = Math.max(0, totalInvoiced - paidInvoices);
 
     return {
       totalInvoiced,
@@ -267,7 +278,8 @@ export default function ReportsPage() {
                   r.status === 'half_day' ? 'Half Day' :
                   r.status === 'leave' ? 'On Leave' :
                   r.status === 'sunday' ? 'Sunday' :
-                  r.status === 'holiday' ? 'Holiday' : 'Absent',
+                  r.status === 'holiday' ? 'Holiday' :
+                  r.status === 'future' ? 'Upcoming' : 'Absent',
         'Late Arrival': r.is_late ? 'Yes' : 'No',
         'Late Minutes': r.late_minutes || 0,
         'Hours Worked': r.hours_worked || 0,
@@ -923,9 +935,17 @@ export default function ReportsPage() {
                               (row.status === 'working' || row.status === 'completed' || row.status === 'present') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
                               row.status === 'half_day' ? 'bg-amber-50 text-amber-600 border-amber-100' :
                               row.status === 'leave' ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                              row.status === 'sunday' ? 'bg-slate-100 text-slate-600 border-slate-200' :
+                              row.status === 'holiday' ? 'bg-cyan-50 text-cyan-600 border-cyan-100' :
+                              row.status === 'future' ? 'bg-slate-50 text-slate-400 border-slate-100' :
                               'bg-red-50 text-red-500 border-red-100'
                             }`}>
-                              {(row.status === 'working' || row.status === 'completed' || row.status === 'present') ? 'Present' : row.status === 'half_day' ? 'Half Day' : row.status === 'leave' ? 'On Leave' : 'Absent'}
+                              {(row.status === 'working' || row.status === 'completed' || row.status === 'present') ? 'Present' : 
+                               row.status === 'half_day' ? 'Half Day' : 
+                               row.status === 'leave' ? 'On Leave' : 
+                               row.status === 'sunday' ? 'Sunday' :
+                               row.status === 'holiday' ? 'Holiday' :
+                               row.status === 'future' ? 'Upcoming' : 'Absent'}
                             </span>
                           </td>
                         </>
