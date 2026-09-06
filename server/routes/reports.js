@@ -295,7 +295,7 @@ router.get('/invoices', authenticate, requireAccounting, async (req, res) => {
     const { client_id, project_id, status, start_date, end_date } = req.query;
     let query = `
       SELECT 
-        i.id, i.invoice_no, i.client_name, i.amount, i.date, i.status, i.due_date, i.created_at,
+        i.id, i.invoice_no, i.client_name, i.amount, COALESCE(i.received_amount, 0) as received_amount, i.date, i.status, i.due_date, i.created_at,
         i.tax_details,
         p.name as project_name,
         u.name as creator_name
