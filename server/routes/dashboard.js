@@ -280,9 +280,12 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
     // 7. All projects count
     const { rows: countRows } = await pool.query('SELECT COUNT(*) as count FROM projects');
 
-    // 8. Active team leaves today & Upcoming team leaves
+    // 8. Active team leaves today & Upcoming team leaves (strictly approved)
     const { rows: activeTeamLeavesRows } = await pool.query(
-      `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, lr.start_date, lr.end_date, lr.reason, lr.status
+      `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, 
+              to_char(lr.start_date, 'YYYY-MM-DD') as start_date, 
+              to_char(lr.end_date, 'YYYY-MM-DD') as end_date, 
+              lr.reason, lr.status
        FROM leave_requests lr
        JOIN users u ON u.id = lr.user_id
        WHERE LOWER(lr.status) = 'approved'
@@ -293,12 +296,16 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
     );
 
     const { rows: upcomingTeamLeavesRows } = await pool.query(
-      `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, lr.start_date, lr.end_date, lr.reason, lr.status, r.name as reviewer_name
+      `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, 
+              to_char(lr.start_date, 'YYYY-MM-DD') as start_date, 
+              to_char(lr.end_date, 'YYYY-MM-DD') as end_date, 
+              lr.reason, lr.status, r.name as reviewer_name
        FROM leave_requests lr
        JOIN users u ON u.id = lr.user_id
        LEFT JOIN users r ON r.id = lr.reviewed_by
-       WHERE lr.type NOT IN ('advance', 'resignation')
-         AND (lr.start_date > $1::date OR LOWER(lr.status) = 'pending')
+       WHERE LOWER(lr.status) = 'approved'
+         AND lr.type NOT IN ('advance', 'resignation')
+         AND lr.start_date > $1::date
        ORDER BY lr.start_date ASC
        LIMIT 30`,
       [today]
@@ -774,7 +781,10 @@ router.get('/employee', authenticate, async (req, res) => {
 
     // 6. Active approved team leaves today & upcoming approved team leaves (STRICTLY APPROVED ONLY)
     const { rows: activeTeamLeavesRows } = await pool.query(
-      `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, lr.start_date, lr.end_date, lr.reason
+      `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, 
+              to_char(lr.start_date, 'YYYY-MM-DD') as start_date, 
+              to_char(lr.end_date, 'YYYY-MM-DD') as end_date, 
+              lr.reason, lr.status
        FROM leave_requests lr
        JOIN users u ON u.id = lr.user_id
        WHERE LOWER(lr.status) = 'approved'
@@ -785,7 +795,10 @@ router.get('/employee', authenticate, async (req, res) => {
     );
 
     const { rows: upcomingTeamLeavesRows } = await pool.query(
-      `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, lr.start_date, lr.end_date, lr.reason
+      `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, 
+              to_char(lr.start_date, 'YYYY-MM-DD') as start_date, 
+              to_char(lr.end_date, 'YYYY-MM-DD') as end_date, 
+              lr.reason, lr.status
        FROM leave_requests lr
        JOIN users u ON u.id = lr.user_id
        WHERE LOWER(lr.status) = 'approved'

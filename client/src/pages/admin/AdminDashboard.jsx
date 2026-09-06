@@ -15,6 +15,7 @@ import KanbanBoard from '../../components/dashboard/KanbanBoard';
 import FinancialBreakdownModal from '../../components/dashboard/FinancialBreakdownModal';
 import SalaryBreakdownModal from '../../components/dashboard/SalaryBreakdownModal';
 import TeamApprovedLeavesWidget from '../../components/dashboard/TeamApprovedLeavesWidget';
+import RequestKanbanBoard from '../../components/dashboard/RequestKanbanBoard';
 import { createPortal } from 'react-dom';
 
 // ── Skeleton loader
@@ -1067,6 +1068,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [financialModal, setFinancialModal] = useState({ isOpen: false, type: '', label: '' });
   const [breakdown, setBreakdown] = useState({ open: false, tab: 'earnings' });
+  const [requestViewMode, setRequestViewMode] = useState('kanban'); // 'kanban' | 'schedule'
 
   const openBreakdown = useCallback((tab) => {
     console.log('[AdminDashboard] openBreakdown called with tab:', tab);
@@ -1205,14 +1207,23 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Team Leave Schedule — Positioned at the bottom of the dashboard */}
+        {/* Team Requests & Leave Schedule — Positioned at the bottom of the dashboard */}
         <div className="w-full pt-2">
-          <TeamApprovedLeavesWidget 
-            activeLeaves={data?.active_team_leaves || []} 
-            upcomingLeaves={data?.upcoming_team_leaves || []} 
-            title="Team Leave Schedule"
-            isAdmin={true}
-          />
+          {requestViewMode === 'kanban' ? (
+            <RequestKanbanBoard 
+              isAdmin={isAdmin}
+              onSwitchToSchedule={() => setRequestViewMode('schedule')}
+            />
+          ) : (
+            <TeamApprovedLeavesWidget 
+              activeLeaves={data?.active_team_leaves || []} 
+              upcomingLeaves={data?.upcoming_team_leaves || []} 
+              title="Team Leave Schedule"
+              isAdmin={true}
+              loading={loading}
+              onSwitchToKanban={() => setRequestViewMode('kanban')}
+            />
+          )}
         </div>
 
         {/* Quick links — accounts sees financial shortcuts, admin sees project overview */}

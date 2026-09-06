@@ -3,13 +3,133 @@ const pool = require('../db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { LEAVE_STATUS, USER_ROLES } = require('../utils/constants');
 const { createNotification, getAdminAndAccountsUserIds } = require('../utils/notifier');
+const { getISTDate } = require('../utils/date');
 
 // GET /api/leaves - Get leaves
-// Admins see all, employees see their own
+// Supports standard list view or ?view=kanban for operational Kanban board
 router.get('/', authenticate, async (req, res) => {
   try {
+    const { view } = req.query;
+
+    if (view === 'kanban') {
+      const today = getISTDate();
+      let kanbanQuery = `
+        SELECT 
+          l.id,
+          l.user_id,
+          u.name as user_name,
+          u.department,
+          l.type,
+          to_char(l.start_date, 'YYYY-MM-DD') as start_date,
+          to_char(l.end_date, 'YYYY-MM-DD') as end_date,
+          l.amount,
+          l.reason,
+          l.status,
+          l.remarks,
+          l.reviewed_by,
+          r.name as reviewer_name,
+          l.created_at,
+          l.updated_at
+        FROM leave_requests l
+        JOIN users u ON l.user_id = u.id
+        LEFT JOIN users r ON l.reviewed_by = r.id
+      `;
+      const kanbanParams = [];
+
+      // Non-admins see only their own requests in kanban
+      if (req.user.role !== USER_ROLES.ADMIN && req.user.role !== 'back_office' && req.user.role !== 'accounts') {
+        kanbanQuery += ` WHERE l.user_id = $1`;
+        kanbanParams.push(req.user.id);
+      }
+
+      kanbanQuery += ` ORDER BY l.start_date DESC, l.created_at DESC`;
+
+      const { rows } = await pool.query(kanbanQuery, kanbanParams);
+
+      const pending = [];
+      const active_today = [];
+      const upcoming = [];
+      const resolved = [];
+
+      for (const row of rows) {
+        const status = (row.status || '').toLowerCase();
+        const type = (row.type || '').toLowerCase();
+        const startDate = row.start_date;
+        const endDate = row.end_date || startDate;
+
+        if (status === 'pending') {
+          pending.push(row);
+        } else if (status === 'approved') {
+          if (type !== 'advance' && type !== 'resignation' && today >= startDate && today <= endDate) {
+            active_today.push(row);
+          } else if (startDate > today || (type === 'resignation' && startDate >= today) || (type === 'advance' && today <= endDate)) {
+            upcoming.push(row);
+          } else {
+            // Completed past leave / advance / resignation
+            if (resolved.length < 30) {
+              resolved.push(row);
+            }
+          }
+        } else {
+          // Rejected or other resolved status
+          if (resolved.length < 30) {
+            resolved.push(row);
+          }
+        }
+      }
+
+      // Sort pending by created_at ASC (oldest pending requests first for priority review)
+      pending.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      // Sort upcoming by start_date ASC (soonest upcoming first)
+      upcoming.sort((a, b) => (a.start_date > b.start_date ? 1 : -1));
+
+      // Calculate category counts
+      const counts = {
+        all: pending.length + active_today.length + upcoming.length + resolved.length,
+        leaves: 0,
+        half_day: 0,
+        advance: 0,
+        resignation: 0,
+      };
+
+      const allItems = [...pending, ...active_today, ...upcoming, ...resolved];
+      for (const item of allItems) {
+        const t = (item.type || '').toLowerCase();
+        if (t === 'half_day') counts.half_day++;
+        else if (t === 'advance') counts.advance++;
+        else if (t === 'resignation') counts.resignation++;
+        else counts.leaves++;
+      }
+
+      return res.json({
+        kanban: {
+          pending,
+          active_today,
+          upcoming,
+          resolved
+        },
+        counts
+      });
+    }
+
+    // Standard list query
     let query = `
-      SELECT l.*, u.name as user_name, u.department, r.name as reviewer_name
+      SELECT 
+        l.id,
+        l.user_id,
+        to_char(l.start_date, 'YYYY-MM-DD') as start_date,
+        to_char(l.end_date, 'YYYY-MM-DD') as end_date,
+        l.type,
+        l.amount,
+        l.reason,
+        l.status,
+        l.remarks,
+        l.reviewed_by,
+        l.created_at,
+        l.updated_at,
+        u.name as user_name, 
+        u.department, 
+        r.name as reviewer_name
       FROM leave_requests l
       JOIN users u ON l.user_id = u.id
       LEFT JOIN users r ON l.reviewed_by = r.id
