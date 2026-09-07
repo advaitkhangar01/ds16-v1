@@ -621,8 +621,8 @@ router.post('/:id/vendors', authenticate, async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id/vendors/:vendorId
-router.delete('/:id/vendors/:vendorId', authenticate, async (req, res) => {
+// DELETE /api/projects/:id/vendors/:vendorId - Admin only
+router.delete('/:id/vendors/:vendorId', authenticate, requireAdmin, async (req, res) => {
   try {
     const pid = parseInt(req.params.id);
     const vid = parseInt(req.params.vendorId);

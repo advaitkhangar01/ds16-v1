@@ -363,6 +363,31 @@ describe('Visibility & Access Control Tests', () => {
       expect(res.statusCode).toBe(200);
       expect(res.body.message).toBe('Vendor deleted successfully');
     });
+
+    it('Employee should be able to assign a vendor to a project (201)', async () => {
+      const res = await request(app)
+        .post(`/api/projects/${testProjects.proposal}/vendors`)
+        .set('Authorization', `Bearer ${testUsers.employee.token}`)
+        .send({ vendor_id: testVendors[0] });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.message).toBe('Vendor added to project');
+    });
+
+    it('Employee CANNOT remove a vendor from a project (403)', async () => {
+      const res = await request(app)
+        .delete(`/api/projects/${testProjects.proposal}/vendors/${testVendors[0]}`)
+        .set('Authorization', `Bearer ${testUsers.employee.token}`);
+      expect(res.statusCode).toBe(403);
+      expect(res.body.error).toBe('Admin access required');
+    });
+
+    it('Admin CAN remove a vendor from a project (200)', async () => {
+      const res = await request(app)
+        .delete(`/api/projects/${testProjects.proposal}/vendors/${testVendors[0]}`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`);
+      expect(res.statusCode).toBe(200);
+      expect(res.body.message).toBe('Vendor removed from project');
+    });
   });
 
   describe('GET /api/tasks?view=kanban - Kanban Tasks Loading', () => {

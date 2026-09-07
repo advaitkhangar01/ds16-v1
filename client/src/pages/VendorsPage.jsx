@@ -356,7 +356,6 @@ export default function VendorsPage() {
             {/* Individual Category Cards */}
             {VENDOR_CATEGORIES.map((category) => {
               const count = vendors.filter(v => v.category === category).length;
-              if (count === 0 && !isAdmin) return null;
 
               return (
                 <div 
@@ -427,7 +426,6 @@ export default function VendorsPage() {
                 </button>
                 {VENDOR_CATEGORIES.map(cat => {
                   const count = vendors.filter(v => v.category === cat).length;
-                  if (count === 0 && !isAdmin) return null;
                   return (
                     <button
                       key={cat}
