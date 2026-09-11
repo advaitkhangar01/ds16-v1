@@ -104,38 +104,44 @@ function calculateDayAttendanceStats(att, options = {}) {
   let dayDeduction = 0;
   const overtimeEarnings = overtimeHours * effectiveHourlyRate;
 
-  if (dayStatus === 'present' || dayStatus === 'working' || dayStatus === 'completed') {
-    if (regularHours >= batchMinHours) {
+  if (baseSalary > 0) {
+    if (dayStatus === 'working' || dayStatus === 'present' || dayStatus === 'completed') {
+      // Salaried full-day present: zero deduction, full day value earned
       dayEarnings = fullDayValue;
       dayDeduction = 0;
-    } else {
-      // Short hours: paid for actual regular hours worked; unworked hours deducted from base
-      dayEarnings = regularHours * effectiveHourlyRate;
-      dayDeduction = Math.max(0, fullDayValue - dayEarnings);
-    }
-  } else if (dayStatus === 'half_day') {
-    // Half-day: paid for actual regular hours worked; unworked hours deducted from base
-    dayEarnings = regularHours * effectiveHourlyRate;
-    dayDeduction = Math.max(0, fullDayValue - dayEarnings);
-  } else if (dayStatus === 'sunday' || dayStatus === 'holiday') {
-    dayEarnings = fullDayValue;
-    dayDeduction = 0;
-  } else if (dayStatus === 'leave') {
-    if (isUnpaidLeave) {
+    } else if (dayStatus === 'half_day') {
+      // Half-day: deduct unworked regular hours or 50%
+      if (regularHours > 0) {
+        dayEarnings = regularHours * effectiveHourlyRate;
+        dayDeduction = Math.max(0, fullDayValue - dayEarnings);
+      } else {
+        dayEarnings = fullDayValue * 0.5;
+        dayDeduction = fullDayValue * 0.5;
+      }
+    } else if (dayStatus === 'sunday' || dayStatus === 'holiday') {
+      dayEarnings = fullDayValue;
+      dayDeduction = 0;
+    } else if (dayStatus === 'leave') {
+      if (isUnpaidLeave) {
+        dayEarnings = 0;
+        dayDeduction = fullDayValue;
+      } else {
+        dayEarnings = fullDayValue;
+        dayDeduction = 0;
+      }
+    } else if (dayStatus === 'absent') {
       dayEarnings = 0;
       dayDeduction = fullDayValue;
+    } else if (dayStatus === 'future' || dayStatus === 'today_pending') {
+      dayEarnings = 0;
+      dayDeduction = 0;
     } else {
       dayEarnings = fullDayValue;
       dayDeduction = 0;
     }
-  } else if (dayStatus === 'absent') {
-    dayEarnings = 0;
-    dayDeduction = fullDayValue;
-  } else if (dayStatus === 'future') {
-    dayEarnings = 0;
-    dayDeduction = 0;
   } else {
-    dayEarnings = fullDayValue;
+    // Hourly employee
+    dayEarnings = (regularHours + overtimeHours) * hourlyRate;
     dayDeduction = 0;
   }
 
@@ -340,6 +346,8 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       }
     } else if (isFuture) {
       dayStatus = 'future';
+    } else if (dateStr === todayStr) {
+      dayStatus = 'today_pending';
     } else if (isSunday) {
       dayStatus = 'sunday';
     } else if (holidayDates.has(dateStr)) {
@@ -420,9 +428,16 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   const lateDeductionAmount = latePenaltyAmount;
 
   let totalAttendanceDeductions = 0;
+  let halfDayDeductionAmount = 0;
   for (const d of dailyRecords) {
     totalAttendanceDeductions += (d.deduction || 0);
+    if (d.status === 'half_day') {
+      halfDayDeductionAmount += (d.deduction || 0);
+    }
   }
+
+  const absenceDeductionAmount = unmarkedAbsentCount * perDaySalary;
+  const unpaidLeaveDeductionAmount = unpaidLeaves * perDaySalary;
 
   // Monthly base-salary formula:
   // suggestedSalary = max(0, Base Salary - totalAttendanceDeductions - latePenaltyAmount + totalOvertimeEarnings)
@@ -433,6 +448,45 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   const halfDayFactor = 0.5;
   const effectiveDays = (fullDaysWorked + (halfDaysWorked * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
   const finalPayableDays = Math.max(0, effectiveDays - latePenaltyDays);
+
+  if (baseSalary <= 0 && hourlyRate > 0) {
+    const hourlySuggested = (totalRegularHours + totalOvertimeHours) * hourlyRate;
+    return {
+      employee,
+      full_days: fullDaysWorked,
+      full_days_worked: fullDaysWorked,
+      half_days: halfDaysWorked,
+      half_days_worked: halfDaysWorked,
+      late_count: lateCount,
+      unpaid_leaves: unpaidLeaves,
+      paid_holidays: paidHolidayCount,
+      sundays_count: sundaysCount,
+      holidays_count: holidaysCount,
+      leaves_count: leavesCount,
+      unmarked_absent_count: unmarkedAbsentCount,
+      effective_days: effectiveDays,
+      late_penalty_days: 0,
+      payable_days: finalPayableDays,
+      total_days: daysInMonth,
+      total_hours: Math.round((totalRegularHours + totalOvertimeHours) * 100) / 100,
+      total_regular_hours: Math.round(totalRegularHours * 100) / 100,
+      total_overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
+      overtime_earnings: Math.round(totalOvertimeHours * hourlyRate * 100) / 100,
+      calculation_method: 'hourly',
+      suggested_salary: Math.round(hourlySuggested * 100) / 100,
+      earnings: Math.round(hourlySuggested * 100) / 100,
+      deductions: 0,
+      total_attendance_deductions: 0,
+      late_deduction_days: 0,
+      late_deduction_amount: 0,
+      half_day_deduction_amount: 0,
+      absence_deduction_amount: 0,
+      unpaid_leave_deduction_amount: 0,
+      total_present: fullDaysWorked + halfDaysWorked + sundaysCount + holidaysCount,
+      total_absent: leavesCount + unmarkedAbsentCount,
+      processedAttendance: dailyRecords
+    };
+  }
 
   return {
     employee,
@@ -462,6 +516,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     total_attendance_deductions: Math.round(totalAttendanceDeductions * 100) / 100,
     late_deduction_days: latePenaltyDays,
     late_deduction_amount: Math.round(lateDeductionAmount * 100) / 100,
+    half_day_deduction_amount: Math.round(halfDayDeductionAmount * 100) / 100,
+    absence_deduction_amount: Math.round(absenceDeductionAmount * 100) / 100,
+    unpaid_leave_deduction_amount: Math.round(unpaidLeaveDeductionAmount * 100) / 100,
     total_present: fullDaysWorked + halfDaysWorked + sundaysCount + holidaysCount,
     total_absent: leavesCount + unmarkedAbsentCount,
     processedAttendance: dailyRecords

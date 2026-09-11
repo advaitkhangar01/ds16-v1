@@ -129,56 +129,87 @@ router.get('/:id', async (req, res) => {
       [id, thisMonthStart, thisMonthEnd]
     );
 
-    const todayStrVal = getISTDate();
-    const [yearVal, monthVal] = todayStrVal.split('-').map(Number);
-    const defaultStart = `${yearVal}-${String(monthVal).padStart(2, '0')}-01`;
-    const defaultEnd   = todayStrVal;
+    let attendance = [];
+    if (startDate || endDate) {
+      const todayStrVal = getISTDate();
+      const [yearVal, monthVal] = todayStrVal.split('-').map(Number);
+      const defaultStart = `${yearVal}-${String(monthVal).padStart(2, '0')}-01`;
+      const defaultEnd   = todayStrVal;
 
-    const startDateVal = startDate || defaultStart;
-    const endDateVal   = endDate || defaultEnd;
+      const startDateVal = startDate || defaultStart;
+      const endDateVal   = endDate || defaultEnd;
 
-    const { rows: attendance } = await pool.query(
-      `WITH date_series AS (
-         SELECT generate_series($2::date, $3::date, '1 day'::interval)::date AS date
-       ),
-       user_dates AS (
-         SELECT $1::integer AS user_id, d.date
-         FROM date_series d
-       )
-       SELECT 
-         a.id,
-         ud.user_id,
-         ud.date,
-         a.check_in,
-         a.check_out,
-         a.is_late,
-         a.late_minutes,
-         a.hours_worked,
-         a.checkin_distance,
-         a.checkin_zone,
-         a.batch_id,
-          CASE
-            WHEN a.id IS NOT NULL THEN
-              CASE 
-                WHEN LOWER(COALESCE(a.status, '')) = 'present' THEN 
-                  CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
-                ELSE LOWER(COALESCE(a.status, 'working'))
-              END
-            WHEN lr.id IS NOT NULL THEN 'leave'
-            WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
-            WHEN h.date IS NOT NULL THEN 'holiday'
-            ELSE 'absent'
-          END AS status
-       FROM user_dates ud
-       LEFT JOIN attendance a ON a.user_id = ud.user_id AND a.date = ud.date
-       LEFT JOIN leave_requests lr ON lr.user_id = ud.user_id
-         AND LOWER(lr.status) = 'approved'
-         AND lr.type NOT IN ('advance', 'resignation')
-         AND ud.date BETWEEN lr.start_date AND lr.end_date
-       LEFT JOIN holidays h ON h.date = ud.date
-       ORDER BY ud.date DESC`,
-      [id, startDateVal, endDateVal]
-    );
+      const { rows } = await pool.query(
+        `WITH date_series AS (
+           SELECT generate_series($2::date, $3::date, '1 day'::interval)::date AS date
+         ),
+         user_dates AS (
+           SELECT $1::integer AS user_id, d.date
+           FROM date_series d
+         )
+         SELECT 
+           a.id,
+           ud.user_id,
+           ud.date,
+           a.check_in,
+           a.check_out,
+           a.is_late,
+           a.late_minutes,
+           a.hours_worked,
+           a.checkin_distance,
+           a.checkin_zone,
+           a.batch_id,
+           CASE
+             WHEN a.id IS NOT NULL THEN
+               CASE 
+                 WHEN LOWER(COALESCE(a.status, '')) = 'present' THEN 
+                   CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
+                 ELSE LOWER(COALESCE(a.status, 'working'))
+               END
+             WHEN lr.id IS NOT NULL THEN 'leave'
+             WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
+             WHEN h.date IS NOT NULL THEN 'holiday'
+             ELSE 'absent'
+           END AS status
+         FROM user_dates ud
+         LEFT JOIN attendance a ON a.user_id = ud.user_id AND a.date = ud.date
+         LEFT JOIN leave_requests lr ON lr.user_id = ud.user_id
+           AND LOWER(lr.status) = 'approved'
+           AND lr.type NOT IN ('advance', 'resignation')
+           AND ud.date BETWEEN lr.start_date AND lr.end_date
+         LEFT JOIN holidays h ON h.date = ud.date
+         ORDER BY ud.date DESC`,
+        [id, startDateVal, endDateVal]
+      );
+      attendance = rows;
+    } else {
+      // Historical Attendance Logs: Return the last 50 actual check-ins across all history
+      const { rows } = await pool.query(
+        `SELECT 
+           a.id,
+           a.user_id,
+           a.date,
+           a.check_in,
+           a.check_out,
+           a.is_late,
+           a.late_minutes,
+           a.hours_worked,
+           a.checkin_distance,
+           a.checkin_zone,
+           a.batch_id,
+           CASE 
+             WHEN LOWER(COALESCE(a.status, '')) = 'present' THEN 
+               CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
+             ELSE LOWER(COALESCE(a.status, 'working'))
+           END AS status
+         FROM attendance a
+         WHERE a.user_id = $1
+         ORDER BY a.date DESC
+         LIMIT 50`,
+        [id]
+      );
+      attendance = rows;
+    }
 
     // Fetch app settings and batches
     const settingsRes = await pool.query('SELECT key, value FROM app_settings');

@@ -184,56 +184,51 @@ export default function StaffDetailPage() {
 
   const { employee, projects, tasks, attendanceStats, attendance, leaveStats, leaves, leaveBalances = [], payroll, currentMonthPayroll } = data;
 
-  // Calculate earnings and deduction stats from attendance records
+  // Calculate earnings and deduction stats from attendance records & payroll history
   const calculateAttendanceMetrics = () => {
-    let totalEarnings = 0;
-    let totalDeduction = 0;
-    let earningsThisMonth = 0;
-    let deductionsThisMonth = 0;
+    const isFiltered = Boolean(startDate || endDate);
 
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Kolkata',
-      year: 'numeric',
-      month: 'numeric'
-    });
+    if (isFiltered) {
+      let periodEarnings = 0;
+      let periodDeduction = 0;
+      if (attendance && attendance.length > 0) {
+        attendance.forEach(att => {
+          periodEarnings += Number(att.earnings || 0);
+          periodDeduction += Number(att.deduction || 0);
+        });
+      }
+      return {
+        totalEarnings: Math.round(periodEarnings),
+        totalDeduction: Math.round(periodDeduction),
+        earningsThisMonth: 0,
+        deductionsThisMonth: 0
+      };
+    }
 
-    const [currentMonth, currentYear] = formatter.format(new Date()).split('/').map(Number);
+    // Default view: calculate all-time earnings & deductions alongside current month
+    const earningsThisMonth = currentMonthPayroll ? Number(currentMonthPayroll.suggested_salary || 0) : 0;
+    const deductionsThisMonth = currentMonthPayroll ? Number(currentMonthPayroll.deductions || 0) : 0;
 
-    if (attendance && attendance.length > 0) {
-      attendance.forEach(att => {
-        const earn = Number(att.earnings || 0);
-        const deduct = Number(att.deduction || 0);
-        
-        totalEarnings += earn;
-        totalDeduction += deduct;
-
-        if (att.date) {
-          const [attMonth, attYear] = formatter.format(new Date(att.date)).split('/').map(Number);
-          if (attMonth === currentMonth && attYear === currentYear) {
-            earningsThisMonth += earn;
-            deductionsThisMonth += deduct;
-          }
-        }
+    let allTimePayrollEarnings = 0;
+    let allTimePayrollDeductions = 0;
+    if (payroll && payroll.length > 0) {
+      payroll.forEach(p => {
+        allTimePayrollEarnings += Number(p.net_paid || p.base_salary || 0);
+        allTimePayrollDeductions += Number(p.deductions || 0);
       });
     }
 
-    // Override current month metrics with exact payroll calculations if available (prevents discrepancy with dashboard)
-    if (currentMonthPayroll) {
-      earningsThisMonth = Number(currentMonthPayroll.suggested_salary || 0);
-      deductionsThisMonth = Number(currentMonthPayroll.deductions || 0);
-      if (!totalDeduction || totalDeduction === 0) {
-        totalDeduction = deductionsThisMonth;
-      }
-      if (!totalEarnings || totalEarnings === 0) {
-        totalEarnings = Number(currentMonthPayroll.earnings || currentMonthPayroll.employee?.base_salary || 0);
-      }
-    }
+    const totalEarnings = allTimePayrollEarnings > 0 
+      ? allTimePayrollEarnings + earningsThisMonth 
+      : (earningsThisMonth || Number(employee?.base_salary || 0));
+
+    const totalDeduction = allTimePayrollDeductions + deductionsThisMonth;
 
     return {
-      totalEarnings,
-      totalDeduction,
-      earningsThisMonth,
-      deductionsThisMonth
+      totalEarnings: Math.round(totalEarnings),
+      totalDeduction: Math.round(totalDeduction),
+      earningsThisMonth: Math.round(earningsThisMonth),
+      deductionsThisMonth: Math.round(deductionsThisMonth)
     };
   };
 

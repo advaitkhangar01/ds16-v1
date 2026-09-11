@@ -397,6 +397,36 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(run1[0].is_late).toBe(true);
     expect(run1[0].status).toBe('completed');
   });
+
+  // Rule 17: Active work day (status = 'working') has zero deduction and earns fullDayValue
+  test('Rule 17: Currently working check-in earns fullDayValue and has zero deduction', () => {
+    const stats = calculateDayAttendanceStats(
+      { date: '2026-09-21', status: 'working', check_in: '2026-09-21T10:00:00+05:30', check_out: null, hours_worked: 0, batch_id: testBatchId },
+      { baseSalary: 25000, batchMinHours: 8.5 }
+    );
+    expect(stats.earnings).toBeCloseTo(25000 / 30, 2);
+    expect(stats.deduction).toBe(0);
+  });
+
+  // Rule 18: Completed salaried day has zero deduction
+  test('Rule 18: Completed salaried day has zero deduction', () => {
+    const stats = calculateDayAttendanceStats(
+      { date: '2026-09-22', status: 'completed', check_in: '2026-09-22T10:00:00+05:30', check_out: '2026-09-22T18:00:00+05:30', hours_worked: 8.0, batch_id: testBatchId },
+      { baseSalary: 25000, batchMinHours: 8.5 }
+    );
+    expect(stats.earnings).toBeCloseTo(25000 / 30, 2);
+    expect(stats.deduction).toBe(0);
+  });
+
+  // Rule 19: Today pending (not checked in yet today) incurs zero deduction
+  test('Rule 19: Today pending record incurs zero deduction', () => {
+    const stats = calculateDayAttendanceStats(
+      { date: '2026-09-23', status: 'today_pending', hours_worked: 0 },
+      { baseSalary: 25000, batchMinHours: 8.5 }
+    );
+    expect(stats.earnings).toBe(0);
+    expect(stats.deduction).toBe(0);
+  });
 });
 
 function formatterIST(d) {
