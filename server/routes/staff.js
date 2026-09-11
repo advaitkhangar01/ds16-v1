@@ -296,6 +296,29 @@ router.get('/:id', async (req, res) => {
     const [currentYear, currentMonth] = todayStr.split('-').map(Number);
     const currentMonthPayroll = await calculatePayrollForEmployee(id, currentMonth, currentYear, settings, pool);
 
+    // All-time financial stats from payroll table & current month
+    const { rows: payrollStats } = await pool.query(
+      `SELECT 
+         COALESCE(SUM(COALESCE(net_paid, base_salary, 0)), 0) as total_net_paid,
+         COALESCE(SUM(COALESCE(deductions, 0)), 0) as total_deductions
+       FROM payroll
+       WHERE user_id = $1`,
+      [id]
+    );
+
+    const paidPayrollEarnings = parseFloat(payrollStats[0]?.total_net_paid || 0);
+    const paidPayrollDeductions = parseFloat(payrollStats[0]?.total_deductions || 0);
+    const currentMonthSuggested = currentMonthPayroll ? parseFloat(currentMonthPayroll.suggested_salary || 0) : 0;
+    const currentMonthDeductions = currentMonthPayroll ? parseFloat(currentMonthPayroll.deductions || 0) : 0;
+
+    const currentMonthInPayroll = payroll.some(p => p.month === currentMonth && p.year === currentYear);
+    const allTimeEarnings = currentMonthInPayroll
+      ? paidPayrollEarnings
+      : (paidPayrollEarnings + currentMonthSuggested);
+    const allTimeDeductions = currentMonthInPayroll
+      ? paidPayrollDeductions
+      : (paidPayrollDeductions + currentMonthDeductions);
+
     res.json({
       employee,
       projects,
@@ -309,6 +332,12 @@ router.get('/:id', async (req, res) => {
         all_time_checkins: parseInt(allTimeStats[0]?.all_time_checkins || 0),
         this_month_checkins: parseInt(thisMonthStats[0]?.this_month_checkins || 0),
         this_month_late: parseInt(thisMonthLateStats[0]?.this_month_late || 0)
+      },
+      financialStats: {
+        total_earnings: Math.round(allTimeEarnings),
+        total_deductions: Math.round(allTimeDeductions),
+        this_month_earnings: Math.round(currentMonthSuggested),
+        this_month_deductions: Math.round(currentMonthDeductions)
       },
       attendance: processedAttendance,
       leaveStats: {
