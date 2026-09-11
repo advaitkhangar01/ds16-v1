@@ -39,7 +39,6 @@ describe('Attendance Batch Recalculation Utility & API', () => {
     if (testBatchId) {
       await pool.query('DELETE FROM attendance_batches WHERE id = $1', [testBatchId]);
     }
-    await pool.end();
   });
 
   it('should correctly convert time string to minutes', () => {
@@ -57,10 +56,10 @@ describe('Attendance Batch Recalculation Utility & API', () => {
     const checkOutTime = new Date('2026-08-01T19:20:00+05:30').toISOString();
 
     await pool.query(
-      `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (user_id, date) DO UPDATE SET check_in = EXCLUDED.check_in`,
-      [testUserId, testDate, checkInTime, checkOutTime, 'completed', true, 20, 9.0]
+      `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked, batch_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (user_id, date) DO UPDATE SET check_in = EXCLUDED.check_in, batch_id = EXCLUDED.batch_id`,
+      [testUserId, testDate, checkInTime, checkOutTime, 'completed', true, 20, 9.0, testBatchId]
     );
 
     // Verify initial row state
@@ -93,7 +92,7 @@ describe('Attendance Batch Recalculation Utility & API', () => {
     expect(updated[0].status).toBe('completed');
   });
 
-  it('should recalculate attendance when user is reassigned to a different batch', async () => {
+  it('should recalculate attendance based on the record batch and protect historical records', async () => {
     // Create a 2nd batch: 09:00 start, 09:15 late threshold
     const { rows: batch2Rows } = await pool.query(
       `INSERT INTO attendance_batches (name, office_start_time, late_threshold_time, half_day_cutoff_time, min_working_hours)
@@ -104,12 +103,17 @@ describe('Attendance Batch Recalculation Utility & API', () => {
     const batch2Id = batch2Rows[0].id;
 
     try {
-      const testDate = '2026-08-01';
-      // User checked in at 10:20 AM
-      // Currently under Batch 1 (10:30 start) -> is_late = false, late_minutes = 0
+      const testDate2 = '2026-08-05';
+      const checkInTime2 = new Date('2026-08-05T10:20:00+05:30').toISOString();
+      const checkOutTime2 = new Date('2026-08-05T19:20:00+05:30').toISOString();
 
-      // Reassign user to Batch 2 (09:00 start)
-      await pool.query('UPDATE users SET batch_id = $1 WHERE id = $2', [batch2Id, testUserId]);
+      // Attendance recorded under Batch 2
+      await pool.query(
+        `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked, batch_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (user_id, date) DO UPDATE SET check_in = EXCLUDED.check_in, batch_id = EXCLUDED.batch_id`,
+        [testUserId, testDate2, checkInTime2, checkOutTime2, 'working', false, 0, 9.0, batch2Id]
+      );
 
       // Recalculate for user
       await recalculateAttendanceForUser(testUserId);
@@ -117,7 +121,7 @@ describe('Attendance Batch Recalculation Utility & API', () => {
       // Under Batch 2 (09:00 start): 10:20 check-in is 80 mins late! (is_late = true, late_minutes = 80)
       const { rows: updated } = await pool.query(
         'SELECT is_late, late_minutes FROM attendance WHERE user_id = $1 AND date = $2',
-        [testUserId, testDate]
+        [testUserId, testDate2]
       );
       expect(updated[0].is_late).toBe(true);
       expect(updated[0].late_minutes).toBe(80);

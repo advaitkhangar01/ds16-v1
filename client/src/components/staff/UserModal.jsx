@@ -66,12 +66,16 @@ export default function UserModal({ user: initialUser, onClose, onSave }) {
     }
 
     setLoading(true);
+    const b = batches.find(batch => String(batch.id) === String(form.batch_id));
+    const hrs = b?.min_working_hours ? parseFloat(b.min_working_hours) : 9.0;
+    const base = parseFloat(form.base_salary) || 0;
+    const computedHourly = base > 0 ? parseFloat((base / (30 * hrs)).toFixed(2)) : 0;
     const payload = {
       ...form,
       name: form.name.trim(),
       username: form.username.trim().toLowerCase(),
-      base_salary: parseFloat(form.base_salary) || 0,
-      hourly_rate: parseFloat(form.hourly_rate) || 0,
+      base_salary: base,
+      hourly_rate: computedHourly,
       batch_id: form.batch_id ? parseInt(form.batch_id) : null
     };
 
@@ -246,19 +250,32 @@ export default function UserModal({ user: initialUser, onClose, onSave }) {
                   type="number"
                   placeholder="e.g. 35000" 
                   value={form.base_salary} 
-                  onChange={(e) => setForm({ ...form, base_salary: e.target.value })}
+                  onChange={(e) => {
+                    const sal = e.target.value;
+                    const b = batches.find(batch => String(batch.id) === String(form.batch_id));
+                    const hrs = b?.min_working_hours ? parseFloat(b.min_working_hours) : 9.0;
+                    const autoRate = parseFloat(sal) > 0 ? (parseFloat(sal) / (30 * hrs)).toFixed(2) : form.hourly_rate;
+                    setForm({ ...form, base_salary: sal, hourly_rate: autoRate });
+                  }}
                   className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-primary font-mono font-bold text-slate-800"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider block mb-1.5">Hourly Billing Rate (₹/hr)</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Hourly Rate (₹/hr)</label>
+                  <span className="text-[9px] font-bold text-primary bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100">
+                    Auto: Base / (30 × {batches.find(b => String(b.id) === String(form.batch_id))?.min_working_hours || 9}h)
+                  </span>
+                </div>
                 <input 
-                  type="number"
-                  placeholder="e.g. 250" 
-                  value={form.hourly_rate} 
-                  onChange={(e) => setForm({ ...form, hourly_rate: e.target.value })}
-                  className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-primary font-mono font-bold text-slate-800"
+                  type="text"
+                  value={parseFloat(form.base_salary) > 0 
+                    ? `₹${(parseFloat(form.base_salary) / (30 * (parseFloat(batches.find(b => String(b.id) === String(form.batch_id))?.min_working_hours || 9.0)))).toFixed(2)}/hr`
+                    : '₹0.00/hr'} 
+                  readOnly
+                  disabled
+                  className="w-full border rounded-xl px-4 py-2.5 text-sm font-mono font-bold bg-gray-100/70 text-gray-500 border-gray-200 cursor-not-allowed select-none"
                 />
               </div>
             </div>

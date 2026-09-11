@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS attendance (
   checkout_zone VARCHAR(20),
   checkout_outside_zone BOOLEAN DEFAULT FALSE,
   hours_worked DECIMAL(10, 2) DEFAULT 0,
+  batch_id INTEGER REFERENCES attendance_batches(id) ON DELETE SET NULL,
   UNIQUE(user_id, date)
 );
 

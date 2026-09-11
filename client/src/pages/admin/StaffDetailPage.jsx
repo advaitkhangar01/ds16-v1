@@ -377,35 +377,15 @@ export default function StaffDetailPage() {
 
     // Calculate Salary Justification Metrics
     const baseSalary = Number(employee.base_salary || currentMonthPayroll?.employee?.base_salary || 0);
-    const today = new Date();
-    const currentMonthNum = today.getMonth() + 1;
-    const currentYearNum = today.getFullYear();
-    const daysInMonth = new Date(currentYearNum, currentMonthNum, 0).getDate();
-    const perDaySalary = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
-
-    let lateCount = 0;
-    let halfDayCount = 0;
-    let absenceCount = 0;
-
-    attendance.forEach((att) => {
-      if (att.is_late === true) lateCount++;
-      if (att.status === 'half_day') halfDayCount++;
-      if (att.status === 'absent') absenceCount++;
-    });
-
+    const cmp = data?.currentMonthPayroll || {};
+    const perDaySalary = baseSalary > 0 ? baseSalary / 30 : 0;
+    const lateCount = cmp.late_count !== undefined ? cmp.late_count : 0;
     const lateGroups = Math.floor(lateCount / 3);
-    const lateDeductionDays = lateGroups * 0.15;
-    const lateDeductionAmount = lateDeductionDays * perDaySalary;
-
-    const halfDayDeductionDays = halfDayCount * 0.50;
-    const halfDayDeductionAmount = halfDayDeductionDays * perDaySalary;
-
-    const absenceDeductionDays = absenceCount * 1.00;
-    const absenceDeductionAmount = absenceDeductionDays * perDaySalary;
-
-    const totalDeductionDays = lateDeductionDays + halfDayDeductionDays + absenceDeductionDays;
-    const totalDeductionAmount = lateDeductionAmount + halfDayDeductionAmount + absenceDeductionAmount;
-    const netSalaryPayable = Math.max(0, baseSalary - totalDeductionAmount);
+    const lateDeductionDays = cmp.late_penalty_days !== undefined ? cmp.late_penalty_days : (lateGroups * 0.15);
+    const lateDeductionAmount = cmp.late_deduction_amount !== undefined ? cmp.late_deduction_amount : (lateDeductionDays * perDaySalary);
+    const totalDeductions = cmp.deductions !== undefined ? cmp.deductions : 0;
+    const overtimeEarnings = cmp.overtime_earnings !== undefined ? cmp.overtime_earnings : 0;
+    const netSalaryPayable = cmp.suggested_salary !== undefined ? cmp.suggested_salary : Math.max(0, baseSalary - totalDeductions + overtimeEarnings);
 
     // Append Salary Justification Section below existing attendance table
     rows.push([]);
@@ -420,24 +400,21 @@ export default function StaffDetailPage() {
 
     // Table Rows
     rows.push(['Monthly Salary', 'Fixed monthly salary', '1 month', baseSalary > 0 ? `₹${baseSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—']);
-    rows.push(['Daily Salary', `₹${baseSalary.toLocaleString('en-IN')} ÷ ${daysInMonth} days`, `₹${perDaySalary.toFixed(2)}/day`, `₹${perDaySalary.toFixed(2)}`]);
+    rows.push(['Daily Salary Basis', `₹${baseSalary.toLocaleString('en-IN')} ÷ 30 days`, `₹${perDaySalary.toFixed(2)}/day`, `₹${perDaySalary.toFixed(2)}`]);
     rows.push(['Late Arrivals', 'Attendance records counted as late', `${lateCount} lates`, '—']);
     rows.push(['Late Deduction Groups', `FLOOR(${lateCount} ÷ 3)`, `${lateGroups} groups`, '—']);
     rows.push(['Late Deduction', `${lateGroups} groups × 0.15 day × ₹${perDaySalary.toFixed(2)}`, `${lateDeductionDays.toFixed(2)} day`, `₹${lateDeductionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
-    rows.push(['Half Days', `${halfDayCount} half-day attendance records × 0.50 day`, `${halfDayCount} half days`, '—']);
-    rows.push(['Half-Day Deduction', `${halfDayDeductionDays.toFixed(2)} days × ₹${perDaySalary.toFixed(2)}`, `${halfDayDeductionDays.toFixed(2)} days`, `₹${halfDayDeductionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
-    rows.push(['Absences', `${absenceCount} absent attendance records × 1 day`, `${absenceCount} absences`, '—']);
-    rows.push(['Absence Deduction', `${absenceDeductionDays.toFixed(2)} days × ₹${perDaySalary.toFixed(2)}`, `${absenceDeductionDays.toFixed(2)} days`, `₹${absenceDeductionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
-    rows.push(['Total Salary Deduction', 'Late + Half-Day + Absence deductions', `${totalDeductionDays.toFixed(2)} days equivalent`, `₹${totalDeductionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
-    rows.push(['Net Salary Payable', `₹${baseSalary.toLocaleString('en-IN')} – ₹${totalDeductionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Final payable', `₹${netSalaryPayable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    if (overtimeEarnings > 0) {
+      rows.push(['Overtime Earnings', 'Check-out after 7:00 PM IST at hourly rate', `${cmp.total_overtime_hours || 0} hrs`, `₹${overtimeEarnings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    }
+    rows.push(['Total Deductions', 'Attendance short hours + late penalty deductions', '—', `₹${Number(totalDeductions).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    rows.push(['Net Salary Payable', `Base Salary – Deductions + Overtime`, 'Final payable', `₹${Number(netSalaryPayable).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
 
     // Additional Notes / Rules Section
     rows.push([]);
     rows.push(['Payroll Rule', 'Every 3 late arrivals = 0.15 day salary deduction.']);
     rows.push(['Late Count', `${lateCount} late arrivals → ${lateGroups} complete groups + ${lateCount % 3} remaining late → ${lateDeductionDays.toFixed(2)} day deduction.`]);
-    rows.push(['Half-Day Count', `${halfDayCount} half days recorded.`]);
-    rows.push(['Absence Count', `${absenceCount} absences recorded.`]);
-    rows.push(['Salary Basis', `${daysInMonth}-day monthly salary basis used for this calculation.`]);
+    rows.push(['Salary Basis', 'Fixed 30-day divisor used for daily salary basis (Base Salary ÷ 30). Full month pays 100% Base Salary regardless of calendar month length.']);
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
 

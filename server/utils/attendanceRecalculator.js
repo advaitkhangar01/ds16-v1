@@ -115,9 +115,19 @@ async function recalculateAttendanceForUser(userId, options = {}) {
   const lateMinsThreshold = timeToMinutes(lateThresholdTime);
   const halfDayMinsCutoff = timeToMinutes(halfDayCutoff);
 
-  // 4. Fetch attendance records for this user that have check_in
+  // 4. Fetch closed months to protect finalized periods from retroactive recalculation
+  const { rows: closedMonths } = await db.query(
+    'SELECT month, year FROM monthly_closing_log'
+  );
+  const closedSet = new Set(closedMonths.map(m => `${m.year}-${m.month}`));
+
+  // 5. Fetch all batches to resolve record-specific or user batch thresholds
+  const { rows: allBatches } = await db.query('SELECT * FROM attendance_batches');
+  const batchMap = new Map(allBatches.map(b => [b.id, b]));
+
+  // 6. Fetch attendance records for this user that have check_in
   let query = `
-    SELECT id, date, check_in, check_out, status, is_late, late_minutes, hours_worked
+    SELECT id, date, check_in, check_out, status, is_late, late_minutes, hours_worked, batch_id
     FROM attendance
     WHERE user_id = $1
       AND check_in IS NOT NULL
@@ -143,6 +153,43 @@ async function recalculateAttendanceForUser(userId, options = {}) {
   for (const r of records) {
     if (!r.check_in) continue;
 
+    const recDate = new Date(r.date);
+    const recMonth = recDate.getMonth() + 1;
+    const recYear = recDate.getFullYear();
+    if (closedSet.has(`${recYear}-${recMonth}`)) {
+      // Skip records in closed months
+      continue;
+    }
+
+    // Safety Rule: If an attendance record has NO batch_id, it is a historical record.
+    // Do not fabricate a historical batch, do not use employee's current batch,
+    // and do not recalculate with an invented batch. Preserve historical data integrity.
+    if (!r.batch_id) {
+      continue;
+    }
+
+    const recBatch = batchMap.get(r.batch_id);
+    if (!recBatch) {
+      continue;
+    }
+
+    let recStartTime = recBatch.office_start_time
+      ? formatTimeString(recBatch.office_start_time, '10:00')
+      : officeStartTime;
+    let recLateThreshold = recBatch.late_threshold_time
+      ? formatTimeString(recBatch.late_threshold_time, '10:15')
+      : lateThresholdTime;
+    let recHalfDayCutoff = recBatch.half_day_cutoff_time
+      ? formatTimeString(recBatch.half_day_cutoff_time, '13:00')
+      : halfDayCutoff;
+    let recMinHours = recBatch.min_working_hours !== null && recBatch.min_working_hours !== undefined
+      ? parseFloat(recBatch.min_working_hours)
+      : minWorkingHours;
+
+    const rStartMins = timeToMinutes(recStartTime);
+    const rLateMinsThreshold = timeToMinutes(recLateThreshold);
+    const rHalfDayMinsCutoff = timeToMinutes(recHalfDayCutoff);
+
     const checkInTimeStr = getISTTime(r.check_in);
     const checkInMins = timeToMinutes(checkInTimeStr);
 
@@ -150,15 +197,15 @@ async function recalculateAttendanceForUser(userId, options = {}) {
     let isLate = false;
     let lateMins = 0;
 
-    if (checkInMins > halfDayMinsCutoff) {
+    if (checkInMins > rHalfDayMinsCutoff) {
       status = ATTENDANCE_STATUS.HALF_DAY;
-      isLate = true;
-    } else if (checkInMins > lateMinsThreshold) {
+      isLate = false; // Check-in after cutoff is half-day and does NOT count as late
+    } else if (checkInMins > rLateMinsThreshold) {
       isLate = true;
     }
 
-    if (checkInMins > startMins) {
-      lateMins = checkInMins - startMins;
+    if (checkInMins > rStartMins) {
+      lateMins = checkInMins - rStartMins;
     }
 
     let hoursWorked = 0;
@@ -169,6 +216,10 @@ async function recalculateAttendanceForUser(userId, options = {}) {
 
       if (status === ATTENDANCE_STATUS.HALF_DAY) {
         // Keep half_day if check-in was after halfDayCutoff
+        isLate = false;
+      } else if (hoursWorked < recMinHours) {
+        status = ATTENDANCE_STATUS.HALF_DAY;
+        isLate = false;
       } else {
         status = ATTENDANCE_STATUS.COMPLETED;
       }

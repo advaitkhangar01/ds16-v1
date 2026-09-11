@@ -11,6 +11,10 @@ describe('Leaves & All Requests Kanban Subsystem Tests', () => {
   const testIds = [];
 
   beforeAll(async () => {
+    // 0. Pre-cleanup in case of prior abrupt termination
+    await pool.query("DELETE FROM leave_requests WHERE reason LIKE 'TEST_JEST:%'");
+    await pool.query("DELETE FROM users WHERE username IN ('test_kadmin', 'test_kemp')");
+
     // 1. Create test admin and employee users
     const adminRes = await pool.query(
       `INSERT INTO users (name, role, department, username, password_hash) 

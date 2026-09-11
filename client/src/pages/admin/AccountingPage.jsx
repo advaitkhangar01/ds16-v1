@@ -683,7 +683,7 @@ export default function AccountingPage() {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
 
-        const workSummary = parseFloat(emp.hourly_rate) > 0 ? `${emp.total_hours || 0} hrs` : `${emp.payable_days || emp.full_days_worked || 0} days`;
+        const workSummary = `${emp.payable_days || emp.full_days_worked || 0} days`;
 
         const rowData = [
           { text: `${index + 1}`, align: 'center' },
@@ -1534,14 +1534,7 @@ export default function AccountingPage() {
     let finalAmount = suggested + parseFloat(incentiveAmount || 0);
 
     if (!isManual) {
-      const isHourly = parseFloat(emp.hourly_rate) > 0;
-      const breakdown = isHourly 
-        ? `
-        Hourly Rate: ₹${emp.hourly_rate}
-        Total Hours: ${emp.total_hours}h
-        Calculation: ₹${emp.hourly_rate} * ${emp.total_hours}
-      `
-        : `
+      const breakdown = `
         Full Days: ${emp.full_days}
         Half Days: ${emp.half_days} (${emp.half_days * 0.5}d)
         Late Penalty: -${emp.late_penalty_days}d
@@ -1560,9 +1553,8 @@ export default function AccountingPage() {
 
 
     try {
-      // 1. Save to payroll table (legacy/detail)
-      const isHourly = parseFloat(emp.hourly_rate) > 0;
-      const deductionsVal = isHourly ? 0 : Math.max(0, parseFloat(emp.base_salary || 0) - parseFloat(emp.suggested_salary || 0));
+      // 1. Save to payroll table
+      const deductionsVal = Math.max(0, parseFloat(emp.base_salary || 0) - parseFloat(emp.suggested_salary || 0));
 
       await api.post('/accounting/payroll', {
         user_id: emp.id,
@@ -2522,12 +2514,12 @@ export default function AccountingPage() {
                           <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
                             <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Base Sal.</p>
                             <p className="text-[10px] font-black text-slate-700">
-                              ₹{parseFloat(emp.hourly_rate) > 0 ? `${emp.hourly_rate}/hr` : parseFloat(emp.base_salary).toLocaleString('en-IN')}
+                              ₹{parseFloat(emp.base_salary || 0).toLocaleString('en-IN')}
                             </p>
                           </div>
                           <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
                             <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Work</p>
-                            <p className="text-xs font-black text-slate-700">{parseFloat(emp.hourly_rate) > 0 ? `${emp.total_hours}h` : `${emp.payable_days}d`}</p>
+                            <p className="text-xs font-black text-slate-700">{emp.payable_days || 0}d</p>
                           </div>
                         </div>
                         <button 
@@ -2659,31 +2651,9 @@ export default function AccountingPage() {
                                     </span>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-1 font-mono text-[10px] font-bold text-primary italic">
+                                <div className="flex items-center gap-1 font-mono text-[10px] font-bold text-primary italic" title="Auto-computed: Base / (30 × batch hours)">
                                   <span>₹{parseFloat(emp.hourly_rate || 0).toLocaleString('en-IN')}/hr</span>
-                                  {isAdmin && !isPeriodLocked && (
-                                    <button 
-                                      onClick={async () => {
-                                        const newRate = prompt('Enter new hourly rate:', emp.hourly_rate);
-                                        if (newRate !== null) {
-                                          try {
-                                            await api.put(`/accounting/payroll/employees/${emp.id}`, { 
-                                              hourly_rate: parseFloat(newRate),
-                                              month: selectedMonth,
-                                              year: selectedYear
-                                            });
-                                            toast.success('Hourly rate updated');
-                                            fetchPayrollData();
-                                          } catch (err) {
-                                            toast.error('Update failed');
-                                          }
-                                        }
-                                      }}
-                                      className="text-gray-300 hover:text-primary opacity-0 group-hover/row:opacity-100 transition-opacity no-print"
-                                    >
-                                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                                    </button>
-                                  )}
+                                  <span className="text-[8px] text-gray-400 font-sans not-italic">(auto)</span>
                                 </div>
                               </div>
                             </td>
@@ -2741,40 +2711,25 @@ export default function AccountingPage() {
                               <div className="absolute bottom-full right-0 mb-2 w-48 bg-gray-900 text-white rounded-xl p-3 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all z-50 transform translate-y-2 group-hover:translate-y-0">
                                 <div className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 border-b border-gray-700 pb-1">Salary Breakdown</div>
                                 <div className="space-y-1.5">
-                                  {parseFloat(emp.hourly_rate) > 0 ? (
-                                    <>
-                                      <div className="flex justify-between text-[11px]">
-                                        <span className="text-gray-400">Hourly Rate:</span>
-                                        <span className="font-bold">₹{emp.hourly_rate}</span>
-                                      </div>
-                                      <div className="flex justify-between text-[11px]">
-                                        <span className="text-gray-400">Total Hours:</span>
-                                        <span className="font-bold text-primary">{emp.total_hours}h</span>
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <div className="flex justify-between text-[11px]">
-                                        <span className="text-gray-400">Full Days:</span>
-                                        <span className="font-bold">{emp.full_days}</span>
-                                      </div>
-                                      <div className="flex justify-between text-[11px]">
-                                        <span className="text-gray-400">Half Days:</span>
-                                        <span className="font-bold text-orange-400">{emp.half_days * 0.5}d</span>
-                                      </div>
-                                      <div className="flex justify-between text-[11px]">
-                                        <span className="text-gray-400">Late Penalty:</span>
-                                        <span className="font-bold text-red-400">-{emp.late_penalty_days}d</span>
-                                      </div>
-                                      <div className="flex justify-between text-[11px] pt-1 border-t border-gray-700 mt-1 font-black">
-                                        <span>Payable Days:</span>
-                                        <span className="text-primary">{emp.payable_days}d</span>
-                                      </div>
-                                    </>
-                                  )}
+                                  <div className="flex justify-between text-[11px]">
+                                    <span className="text-gray-400">Full Days:</span>
+                                    <span className="font-bold">{emp.full_days}</span>
+                                  </div>
+                                  <div className="flex justify-between text-[11px]">
+                                    <span className="text-gray-400">Half Days:</span>
+                                    <span className="font-bold text-orange-400">{emp.half_days * 0.5}d</span>
+                                  </div>
+                                  <div className="flex justify-between text-[11px]">
+                                    <span className="text-gray-400">Late Penalty:</span>
+                                    <span className="font-bold text-red-400">-{emp.late_penalty_days}d</span>
+                                  </div>
+                                  <div className="flex justify-between text-[11px] pt-1 border-t border-gray-700 mt-1 font-black">
+                                    <span>Payable Days:</span>
+                                    <span className="text-primary">{emp.payable_days}d</span>
+                                  </div>
                                   <div className="flex justify-between text-[11px] pt-1 border-t border-gray-700 mt-1">
                                     <span className="text-gray-400 italic text-[9px]">
-                                      {parseFloat(emp.hourly_rate) > 0 ? `Formula: ₹${emp.hourly_rate} * ${emp.total_hours}h` : `Base: ₹${emp.base_salary}`}
+                                      Base: ₹{parseFloat(emp.base_salary || 0).toLocaleString('en-IN')}
                                     </span>
                                   </div>
                                 </div>
@@ -4255,7 +4210,7 @@ export default function AccountingPage() {
                       const base = parseFloat(emp.base_salary || 0);
                       const inc = processed ? parseFloat(processed.incentives || 0) : parseFloat(rowIncentives[emp.id] || 0);
                       const net = processed ? parseFloat(processed.net_paid || 0) : ((emp.suggested_salary || base) + inc);
-                      const workSummary = parseFloat(emp.hourly_rate) > 0 ? `${emp.total_hours || 0} hrs` : `${emp.payable_days || emp.full_days_worked || 0} days`;
+                      const workSummary = `${emp.payable_days || emp.full_days_worked || 0} days`;
 
                       return (
                         <tr key={emp.id || idx} className={idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'}>

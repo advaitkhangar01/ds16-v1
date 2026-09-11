@@ -71,7 +71,6 @@ describe('Monthly Close & Period Lock Subsystem Integration Tests', () => {
     await pool.query('DELETE FROM projects WHERE id = $1', [dummyProject.id]);
     await pool.query('DELETE FROM users WHERE id IN ($1, $2)', [adminUser.id, employeeUser.id]);
     await pool.query('DELETE FROM clients WHERE name = \'MC Visibility Client\'');
-    await pool.end();
   });
 
   describe('1. Current and Future Month Close Protection', () => {

@@ -4,10 +4,153 @@ const { getISTDate, getISTTime } = require('./date');
 
 function timeToMinutes(timeStr) {
   if (!timeStr) return 0;
-  const parts = timeStr.split(':');
+  const parts = String(timeStr).split(':');
   const hours = parseInt(parts[0], 10) || 0;
   const minutes = parseInt(parts[1], 10) || 0;
   return hours * 60 + minutes;
+}
+
+/**
+ * Calculates hourly rate strictly based on the business rule:
+ * Hourly Rate = Base Salary / (30 * Batch Minimum Hours)
+ */
+function calculateHourlyRate(baseSalary, minWorkingHours) {
+  const base = parseFloat(baseSalary) || 0;
+  const hours = parseFloat(minWorkingHours) || 9.0;
+  if (base <= 0 || hours <= 0) return 0;
+  return Math.round((base / (30 * hours)) * 100) / 100;
+}
+
+/**
+ * Single source of truth to calculate daily attendance stats, regular & overtime hours,
+ * overtime pay, normal pay, and deductions.
+ */
+function calculateDayAttendanceStats(att, options = {}) {
+  const baseSalary = parseFloat(options.baseSalary || 0);
+  const hourlyRate = parseFloat(options.hourlyRate || 0);
+  const batchMinHours = parseFloat(options.batchMinHours || 9.0);
+  const officeStartTimeStr = options.officeStartTimeStr || '10:00';
+  const lateThresholdTimeStr = options.lateThresholdTimeStr || '10:15';
+  const halfDayCutoffTimeStr = options.halfDayCutoffTimeStr || '13:00';
+  const lateThresholdMins = parseInt(options.lateThresholdMins || 15, 10);
+  const isSunday = !!options.isSunday;
+  const isPaidHoliday = !!options.isPaidHoliday;
+  const isUnpaidLeave = !!options.isUnpaidLeave;
+  const isFuture = !!options.isFuture;
+
+  // Base day value is strictly Base Salary / 30 for salaried
+  const fullDayValue = baseSalary > 0 ? (baseSalary / 30) : (hourlyRate * batchMinHours);
+  const effectiveHourlyRate = baseSalary > 0 && batchMinHours > 0 ? (fullDayValue / batchMinHours) : hourlyRate;
+
+  let dayStatus = att.status ? att.status.toLowerCase() : (isFuture ? 'future' : (isSunday ? 'sunday' : (isPaidHoliday ? 'holiday' : 'absent')));
+  let isLate = false;
+  let lateMins = 0;
+  let regularHours = parseFloat(att.hours_worked || 0);
+  let overtimeHours = 0;
+
+  // Overtime logic: check-out > 7:00 PM IST (19:00) on the date of check-out
+  if (att.check_in && att.check_out) {
+    const ci = new Date(att.check_in);
+    const co = new Date(att.check_out);
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+    const checkOutDateStr = formatter.format(co);
+    const cutoff = new Date(`${checkOutDateStr}T19:00:00+05:30`);
+    if (co > cutoff) {
+      const startForOt = ci > cutoff ? ci : cutoff;
+      const otMs = co.getTime() - startForOt.getTime();
+      if (otMs > 0) {
+        overtimeHours = otMs / (1000 * 60 * 60);
+        regularHours = Math.max(0, regularHours - overtimeHours);
+      }
+    }
+  }
+
+  // Lateness evaluation:
+  if (att.batch_id === null || att.batch_id === undefined) {
+    // Historical record with NULL batch_id:
+    // Strictly preserve stored is_late and late_minutes from database.
+    // Do NOT evaluate against current or invented batches.
+    isLate = !!att.is_late;
+    lateMins = parseInt(att.late_minutes || 0, 10);
+  } else if (att.check_in) {
+    const checkInTimeStr = getISTTime(att.check_in);
+    const checkInMins = timeToMinutes(checkInTimeStr);
+    const startMins = timeToMinutes(officeStartTimeStr);
+    const diffMins = checkInMins - startMins;
+
+    let isLateThresholdMet = false;
+    if (lateThresholdTimeStr) {
+      isLateThresholdMet = checkInMins > timeToMinutes(lateThresholdTimeStr);
+    } else {
+      isLateThresholdMet = diffMins > lateThresholdMins;
+    }
+
+    if (diffMins > 0) {
+      lateMins = diffMins;
+    }
+
+    if (isLateThresholdMet) {
+      isLate = true;
+    }
+  }
+
+  // Business rule: Half-Day and Absent must NOT count as a late arrival
+  if (dayStatus === 'half_day' || dayStatus === 'absent') {
+    isLate = false;
+  }
+
+  // Earnings & Deductions (Salaried monthly model)
+  let dayEarnings = 0;
+  let dayDeduction = 0;
+  const overtimeEarnings = overtimeHours * effectiveHourlyRate;
+
+  if (dayStatus === 'present' || dayStatus === 'working' || dayStatus === 'completed') {
+    if (regularHours >= batchMinHours) {
+      dayEarnings = fullDayValue;
+      dayDeduction = 0;
+    } else {
+      // Short hours: paid for actual regular hours worked; unworked hours deducted from base
+      dayEarnings = regularHours * effectiveHourlyRate;
+      dayDeduction = Math.max(0, fullDayValue - dayEarnings);
+    }
+  } else if (dayStatus === 'half_day') {
+    // Half-day: paid for actual regular hours worked; unworked hours deducted from base
+    dayEarnings = regularHours * effectiveHourlyRate;
+    dayDeduction = Math.max(0, fullDayValue - dayEarnings);
+  } else if (dayStatus === 'sunday' || dayStatus === 'holiday') {
+    dayEarnings = fullDayValue;
+    dayDeduction = 0;
+  } else if (dayStatus === 'leave') {
+    if (isUnpaidLeave) {
+      dayEarnings = 0;
+      dayDeduction = fullDayValue;
+    } else {
+      dayEarnings = fullDayValue;
+      dayDeduction = 0;
+    }
+  } else if (dayStatus === 'absent') {
+    dayEarnings = 0;
+    dayDeduction = fullDayValue;
+  } else if (dayStatus === 'future') {
+    dayEarnings = 0;
+    dayDeduction = 0;
+  } else {
+    dayEarnings = fullDayValue;
+    dayDeduction = 0;
+  }
+
+  return {
+    ...att,
+    status: dayStatus,
+    is_late: isLate,
+    late_minutes: lateMins,
+    regular_hours: Math.round(regularHours * 100) / 100,
+    overtime_hours: Math.round(overtimeHours * 100) / 100,
+    overtime_earnings: Math.round(overtimeEarnings * 100) / 100,
+    earnings: Math.round((dayEarnings + overtimeEarnings) * 100) / 100,
+    normal_earnings: Math.round(dayEarnings * 100) / 100,
+    deduction: Math.round(dayDeduction * 100) / 100
+  };
 }
 
 /**
@@ -22,23 +165,29 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   const employee = userRows[0];
   if (!employee) return null;
 
-  let employeeBatch = {};
-  if (employee.batch_id) {
-    const { rows: batchRows } = await dbPool.query(
-      'SELECT office_start_time, late_threshold_time, half_day_cutoff_time, min_working_hours FROM attendance_batches WHERE id = $1',
-      [employee.batch_id]
-    );
-    if (batchRows.length > 0) {
-      employeeBatch = batchRows[0];
-    }
-  }
+  // Fetch all batches to resolve assigned batch or attendance-record-specific batch
+  const { rows: allBatches } = await dbPool.query('SELECT * FROM attendance_batches');
+  const batchMap = new Map(allBatches.map(b => [b.id, b]));
+
+  const employeeBatch = employee.batch_id ? (batchMap.get(employee.batch_id) || {}) : {};
 
   const baseSalary = parseFloat(employee.base_salary || 0);
-  const hourlyRate = parseFloat(employee.hourly_rate || 0);
+  const userHourlyRate = parseFloat(employee.hourly_rate || 0);
+  const defaultBatchMinHours = parseFloat(employeeBatch.min_working_hours || settings.min_working_hours || 9.0);
+
+  // Hourly rate calculation strictly based on Base Salary / (30 * Batch Minimum Hours)
+  const hourlyRate = baseSalary > 0
+    ? calculateHourlyRate(baseSalary, defaultBatchMinHours)
+    : userHourlyRate;
+
+  // Full day value strictly based on 30-day divisor
+  const perDaySalary = baseSalary > 0
+    ? (baseSalary / 30)
+    : (hourlyRate * defaultBatchMinHours);
 
   // 2. Fetch Attendance for the month
   const { rows: attendance } = await dbPool.query(
-    `SELECT id, date, check_in, check_out, LOWER(status) AS status, is_late, late_minutes, hours_worked, checkin_distance, checkin_zone
+    `SELECT id, date, check_in, check_out, LOWER(status) AS status, is_late, late_minutes, hours_worked, checkin_distance, checkin_zone, batch_id
      FROM attendance
      WHERE user_id = $1 AND EXTRACT(MONTH FROM date) = $2 AND EXTRACT(YEAR FROM date) = $3`,
     [userId, month, year]
@@ -52,7 +201,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   );
   const paidHolidayCount = holidays.filter(h => h.is_paid).length;
 
-  // 4. Fetch Leave Requests for the month (moved up to support on-the-fly unpaid leaves calculation)
+  // 4. Fetch Leave Requests for the month
   const daysInMonth = new Date(year, month, 0).getDate();
   const startStr = `${year}-${String(month).padStart(2, '0')}-01`;
   const endStr = `${year}-${String(month).padStart(2, '0')}-${daysInMonth}`;
@@ -98,20 +247,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     unpaidLeaves = Math.max(0, leavesTaken - (prevClosingBalance + 1.50));
   }
 
-  // Parse settings
-  let officeStartTimeStr = settings.office_start_time || '10:00';
-  let lateThresholdTimeStr = settings.late_threshold_time;
-  let halfDayThresholdHours = parseFloat(settings.min_working_hours || settings.half_day_threshold_hours || 4);
-
-  if (employeeBatch.office_start_time) {
-    officeStartTimeStr = employeeBatch.office_start_time.substring(0, 5);
-    lateThresholdTimeStr = employeeBatch.late_threshold_time.substring(0, 5);
-  }
-
-  const lateThresholdMins = parseInt(settings.late_threshold_mins || 15);
-  const latePenaltyAmount = parseFloat(settings.late_penalty_amount || 0);
-  const halfDayPenaltyPercent = parseFloat(settings.half_day_penalty_percent || 50);
-  const latePenaltyRuleCount = parseInt(settings.late_penalty_rule_count || 3);
+  // Settings & rules
+  const lateThresholdMins = parseInt(settings.late_threshold_mins || 15, 10);
+  const latePenaltyRuleCount = parseInt(settings.late_penalty_rule_count || 3, 10);
   const latePenaltyRuleDays = parseFloat(settings.late_penalty_rule_days || 0.15);
 
   const formatDate = (dateInput) => {
@@ -133,11 +271,13 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   let leavesCount = 0;
   let unmarkedAbsentCount = 0;
   let lateCount = 0;
-  let totalHours = 0;
+  let totalRegularHours = 0;
+  let totalOvertimeHours = 0;
+  let totalNormalEarnings = 0;
+  let totalOvertimeEarnings = 0;
 
-  // Build a daily mapping to reconstruct detailed logs
+  let unpaidLeavesRemaining = unpaidLeaves;
   const dailyRecords = [];
-
   const todayStr = getISTDate();
 
   for (let d = 1; d <= daysInMonth; d++) {
@@ -157,214 +297,142 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       return dateStr >= start && dateStr <= end;
     });
 
+    // Resolve record-specific batch thresholds
+    let effectiveBatch = null;
+    if (record && record.batch_id) {
+      effectiveBatch = batchMap.get(record.batch_id) || null;
+    } else if (!record) {
+      effectiveBatch = employeeBatch;
+    } else {
+      // Historical record where record.batch_id is null: do NOT assign employeeBatch or fabricate batch
+      effectiveBatch = null;
+    }
+
+    let officeStartTimeStr = effectiveBatch?.office_start_time
+      ? effectiveBatch.office_start_time.substring(0, 5)
+      : (settings.office_start_time || '10:00');
+    let lateThresholdTimeStr = effectiveBatch?.late_threshold_time
+      ? effectiveBatch.late_threshold_time.substring(0, 5)
+      : (settings.late_threshold_time || null);
+    let halfDayCutoffTimeStr = effectiveBatch?.half_day_cutoff_time
+      ? effectiveBatch.half_day_cutoff_time.substring(0, 5)
+      : (settings.half_day_cutoff_time || '13:00');
+    let dayBatchMinHours = parseFloat(effectiveBatch?.min_working_hours || defaultBatchMinHours);
+
     let dayStatus = 'absent';
-    let isLate = false;
-    let lateMins = 0;
-    let dayHours = 0;
-    let checkIn = null;
-    let checkOut = null;
-    let recordId = null;
-    let checkinZone = null;
-    let checkinDistance = null;
+    let isUnpaidLeaveForDay = false;
 
     if (record) {
-      recordId = record.id;
-      checkIn = record.check_in;
-      checkOut = record.check_out;
-      dayHours = parseFloat(record.hours_worked || 0);
-      totalHours += dayHours;
-      checkinZone = record.checkin_zone;
-      checkinDistance = record.checkin_distance;
-
-      // Lateness: calculate on the fly for backward compatibility with manual/historical records
-      if (record.check_in) {
-        const checkInTimeStr = getISTTime(record.check_in);
-        const checkInMins = timeToMinutes(checkInTimeStr);
-        const startMins = timeToMinutes(officeStartTimeStr);
-        const diffMins = checkInMins - startMins;
-        
-        let isLateThresholdMet = false;
-        if (lateThresholdTimeStr) {
-          isLateThresholdMet = checkInMins > timeToMinutes(lateThresholdTimeStr);
-        } else if (settings.late_threshold_time) {
-          isLateThresholdMet = checkInMins > timeToMinutes(settings.late_threshold_time);
-        } else {
-          isLateThresholdMet = diffMins > lateThresholdMins;
-        }
-
-        if (isLateThresholdMet) {
-          isLate = true;
-        }
-        if (diffMins > 0) {
-          lateMins = diffMins;
-        }
-      }
-
       if (status === 'present' || status === 'working' || status === 'completed') {
-        fullDaysWorked++;
         dayStatus = record.status || 'present';
       } else if (status === 'half_day') {
-        halfDaysWorked++;
         dayStatus = 'half_day';
       } else if (status === 'absent') {
-        unmarkedAbsentCount++;
         dayStatus = 'absent';
       } else if (status === 'leave') {
-        leavesCount++;
         dayStatus = 'leave';
       } else if (status === 'sunday') {
-        sundaysCount++;
         dayStatus = 'sunday';
       } else if (status === 'holiday') {
-        holidaysCount++;
         dayStatus = 'holiday';
       } else {
-        fullDaysWorked++;
         dayStatus = 'present';
-      }
-
-      if (isLate && status !== 'absent') {
-        lateCount++;
       }
     } else if (isFuture) {
       dayStatus = 'future';
     } else if (isSunday) {
-      sundaysCount++;
       dayStatus = 'sunday';
     } else if (holidayDates.has(dateStr)) {
-      holidaysCount++;
       dayStatus = 'holiday';
     } else if (isOnApprovedLeave || status === 'leave') {
-      leavesCount++;
       dayStatus = 'leave';
     } else {
-      unmarkedAbsentCount++;
       dayStatus = 'absent';
     }
 
-    dailyRecords.push({
-      id: recordId || `temp-${dateStr}`,
-      date: dateStr,
-      check_in: checkIn,
-      check_out: checkOut,
-      status: dayStatus,
-      is_late: isLate,
-      late_minutes: lateMins,
-      hours_worked: dayHours,
-      checkin_zone: checkinZone,
-      checkin_distance: checkinDistance
-    });
-  }
-
-  // Calculate earnings and deductions for daily-wage (salaried) employees
-  const perDaySalary = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
-  let suggestedSalary = 0;
-  let totalEarnings = 0;
-  let totalDeductions = 0;
-  let calcMethod = 'daily';
-  let effectiveDays = 0;
-  let finalPayableDays = 0;
-  let latePenaltyDays = 0;
-
-  let lateDeductionAmount = 0;
-  let halfDayDeductionAmount = 0;
-  let absenceDeductionAmount = 0;
-  let unpaidLeaveDeductionAmount = 0;
-
-  if (hourlyRate > 0 && !(baseSalary > 0)) {
-    calcMethod = 'hourly';
-    totalEarnings = totalHours * hourlyRate;
-    totalDeductions = 0;
-    suggestedSalary = Math.round(totalEarnings);
-    effectiveDays = totalHours;
-    finalPayableDays = totalHours;
-  } else {
-    // Salaried calculation
-    const halfDayFactor = 1 - (halfDayPenaltyPercent / 100);
-    effectiveDays = (fullDaysWorked + (halfDaysWorked * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
-    
-    // Check late penalty rule (e.g. floor(16 / 3) * 0.15 = 5 * 0.15 = 0.75 days)
-    const completedLateGroups = Math.floor(lateCount / latePenaltyRuleCount);
-    latePenaltyDays = Math.round(completedLateGroups * latePenaltyRuleDays * 100) / 100;
-
-    finalPayableDays = Math.max(0, effectiveDays - latePenaltyDays);
-
-    suggestedSalary = Math.round(perDaySalary * finalPayableDays);
-    totalEarnings = baseSalary; // Gross expected earnings is baseSalary
-
-    // Itemized deductions
-    lateDeductionAmount = latePenaltyDays * perDaySalary;
-    halfDayDeductionAmount = halfDaysWorked * (halfDayPenaltyPercent / 100) * perDaySalary;
-    absenceDeductionAmount = unmarkedAbsentCount * perDaySalary;
-    unpaidLeaveDeductionAmount = unpaidLeaves * perDaySalary;
-
-    totalDeductions = Math.max(0, baseSalary - suggestedSalary);
-  }
-
-  // Pre-calculate earnings and deduction for each daily record
-  let unpaidLeavesRemaining = unpaidLeaves;
-  const halfDayPenaltyFactor = halfDayPenaltyPercent / 100;
-
-  const processedAttendance = dailyRecords.map(att => {
-    let dayDeduction = 0;
-    let dayEarnings = 0;
-    let overtimeHours = 0;
-    let regularHours = parseFloat(att.hours_worked || 0);
-
-    // Overtime logic: check-out > 7:00 PM IST
-    if (att.check_in && att.check_out) {
-      const ci = new Date(att.check_in);
-      const co = new Date(att.check_out);
-      const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
-      const dateStr = formatter.format(co);
-      const cutoff = new Date(`${dateStr}T19:00:00+05:30`);
-      if (co > cutoff) {
-        const startForOt = ci > cutoff ? ci : cutoff;
-        const otMs = co - startForOt;
-        overtimeHours = otMs / (1000 * 60 * 60);
-        regularHours = Math.max(0, regularHours - overtimeHours);
+    if (dayStatus === 'leave') {
+      if (unpaidLeavesRemaining > 0) {
+        isUnpaidLeaveForDay = true;
+        unpaidLeavesRemaining = Math.max(0, unpaidLeavesRemaining - 1);
       }
     }
 
-    if (hourlyRate > 0 && !(baseSalary > 0)) {
-      dayEarnings = regularHours * hourlyRate;
-      dayDeduction = 0;
-    } else {
-      dayEarnings = perDaySalary;
-      const statusLower = att.status.toLowerCase();
-      if (statusLower === 'absent') {
-        dayDeduction = perDaySalary;
-      } else if (statusLower === 'half_day') {
-        dayDeduction = perDaySalary * halfDayPenaltyFactor;
-      } else if (statusLower === 'leave') {
-        if (unpaidLeavesRemaining > 0) {
-          if (unpaidLeavesRemaining >= 1) {
-            dayDeduction = perDaySalary;
-            unpaidLeavesRemaining -= 1;
-          } else {
-            dayDeduction = perDaySalary * unpaidLeavesRemaining;
-            unpaidLeavesRemaining = 0;
-          }
-        } else {
-          dayDeduction = 0;
-        }
-      } else if (statusLower === 'future') {
-        dayEarnings = 0;
-        dayDeduction = 0;
-      } else {
-        // present, working, completed, sunday, holiday
-        dayDeduction = 0;
+    const dayStats = calculateDayAttendanceStats(
+      {
+        ...(record || {}),
+        id: record?.id || `temp-${dateStr}`,
+        date: dateStr,
+        status: dayStatus,
+        check_in: record?.check_in || null,
+        check_out: record?.check_out || null,
+        hours_worked: record?.hours_worked || 0,
+        checkin_zone: record?.checkin_zone || null,
+        checkin_distance: record?.checkin_distance || null,
+        batch_id: record?.batch_id || null
+      },
+      {
+        baseSalary,
+        hourlyRate,
+        batchMinHours: dayBatchMinHours,
+        officeStartTimeStr,
+        lateThresholdTimeStr,
+        halfDayCutoffTimeStr,
+        lateThresholdMins,
+        isSunday,
+        isPaidHoliday: holidayDates.has(dateStr),
+        isUnpaidLeave: isUnpaidLeaveForDay,
+        isFuture
       }
+    );
+
+    // Tally counts
+    if (dayStats.status === 'present' || dayStats.status === 'working' || dayStats.status === 'completed') {
+      fullDaysWorked++;
+    } else if (dayStats.status === 'half_day') {
+      halfDaysWorked++;
+    } else if (dayStats.status === 'absent') {
+      unmarkedAbsentCount++;
+    } else if (dayStats.status === 'leave') {
+      leavesCount++;
+    } else if (dayStats.status === 'sunday') {
+      sundaysCount++;
+    } else if (dayStats.status === 'holiday') {
+      holidaysCount++;
     }
 
-    return {
-      ...att,
-      regular_hours: Math.round(regularHours * 100) / 100,
-      overtime_hours: Math.round(overtimeHours * 100) / 100,
-      earnings: Math.round(dayEarnings * 100) / 100,
-      deduction: Math.round(dayDeduction * 100) / 100
-    };
-  });
+    // Business rule: exclude half_day and absent from lateCount
+    if (dayStats.is_late && dayStats.status !== 'half_day' && dayStats.status !== 'absent') {
+      lateCount++;
+    }
+
+    totalRegularHours += dayStats.regular_hours;
+    totalOvertimeHours += dayStats.overtime_hours;
+    totalNormalEarnings += dayStats.normal_earnings;
+    totalOvertimeEarnings += dayStats.overtime_earnings;
+
+    dailyRecords.push(dayStats);
+  }
+
+  // 3-Late Penalty: floor(lateCount / 3) * 0.15 * perDaySalary
+  const completedLateGroups = Math.floor(lateCount / latePenaltyRuleCount);
+  const latePenaltyDays = Math.round(completedLateGroups * latePenaltyRuleDays * 100) / 100;
+  const latePenaltyAmount = latePenaltyDays * perDaySalary;
+  const lateDeductionAmount = latePenaltyAmount;
+
+  let totalAttendanceDeductions = 0;
+  for (const d of dailyRecords) {
+    totalAttendanceDeductions += (d.deduction || 0);
+  }
+
+  // Monthly base-salary formula:
+  // suggestedSalary = max(0, Base Salary - totalAttendanceDeductions - latePenaltyAmount + totalOvertimeEarnings)
+  const suggestedSalary = Math.max(0, baseSalary - totalAttendanceDeductions - latePenaltyAmount + totalOvertimeEarnings);
+  const totalEarnings = baseSalary + totalOvertimeEarnings;
+  const totalDeductions = totalAttendanceDeductions + latePenaltyAmount;
+
+  const halfDayFactor = 0.5;
+  const effectiveDays = (fullDaysWorked + (halfDaysWorked * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
+  const finalPayableDays = Math.max(0, effectiveDays - latePenaltyDays);
 
   return {
     employee,
@@ -383,22 +451,27 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     late_penalty_days: latePenaltyDays,
     payable_days: finalPayableDays,
     total_days: daysInMonth,
-    total_hours: totalHours,
-    calculation_method: calcMethod,
-    suggested_salary: suggestedSalary < 0 ? 0 : suggestedSalary,
-    earnings: Math.round(totalEarnings),
-    deductions: Math.round(totalDeductions),
+    total_hours: Math.round((totalRegularHours + totalOvertimeHours) * 100) / 100,
+    total_regular_hours: Math.round(totalRegularHours * 100) / 100,
+    total_overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
+    overtime_earnings: Math.round(totalOvertimeEarnings * 100) / 100,
+    calculation_method: 'monthly',
+    suggested_salary: Math.round(suggestedSalary * 100) / 100,
+    earnings: Math.round(totalEarnings * 100) / 100,
+    deductions: Math.round(totalDeductions * 100) / 100,
+    total_attendance_deductions: Math.round(totalAttendanceDeductions * 100) / 100,
     late_deduction_days: latePenaltyDays,
     late_deduction_amount: Math.round(lateDeductionAmount * 100) / 100,
-    half_day_deduction_amount: Math.round(halfDayDeductionAmount * 100) / 100,
-    absence_deduction_amount: Math.round(absenceDeductionAmount * 100) / 100,
-    unpaid_leave_deduction_amount: Math.round(unpaidLeaveDeductionAmount * 100) / 100,
     total_present: fullDaysWorked + halfDaysWorked + sundaysCount + holidaysCount,
     total_absent: leavesCount + unmarkedAbsentCount,
-    processedAttendance
+    processedAttendance: dailyRecords
   };
 }
 
 module.exports = {
-  calculatePayrollForEmployee
+  calculatePayrollForEmployee,
+  calculateHourlyRate,
+  calculateDayAttendanceStats,
+  timeToMinutes
 };
+

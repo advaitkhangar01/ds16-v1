@@ -3,7 +3,7 @@ const router = express.Router();
 const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const checkPeriodLock = require('../middleware/periodLock');
-const { calculatePayrollForEmployee } = require('../utils/payroll');
+const { calculatePayrollForEmployee, calculateHourlyRate } = require('../utils/payroll');
 const { logAudit } = require('../utils/auditLogger');
 const multer = require('multer');
 const path = require('path');
@@ -213,9 +213,33 @@ router.put('/payroll/employees/:id', checkPeriodLock, async (req, res) => {
   try {
     // 1. Update user details in DB
     if (base_salary !== undefined || hourly_rate !== undefined) {
+      const { rows: currUserRows } = await pool.query(
+        'SELECT base_salary, hourly_rate, batch_id FROM users WHERE id = $1',
+        [req.params.id]
+      );
+      const currUser = currUserRows[0] || {};
+      const newBaseSalary = base_salary !== undefined ? parseFloat(base_salary) : parseFloat(currUser.base_salary || 0);
+      let newHourlyRate = 0;
+
+      if (newBaseSalary > 0) {
+        let batchMinHours = 9.0;
+        if (currUser.batch_id) {
+          const { rows: bRows } = await pool.query('SELECT min_working_hours FROM attendance_batches WHERE id = $1', [currUser.batch_id]);
+          if (bRows.length > 0 && bRows[0].min_working_hours) {
+            batchMinHours = parseFloat(bRows[0].min_working_hours);
+          }
+        } else {
+          const { rows: sRows } = await pool.query("SELECT value FROM app_settings WHERE key = 'min_working_hours'");
+          if (sRows.length > 0 && sRows[0].value) {
+            batchMinHours = parseFloat(sRows[0].value);
+          }
+        }
+        newHourlyRate = calculateHourlyRate(newBaseSalary, batchMinHours);
+      }
+
       await pool.query(
-        "UPDATE users SET base_salary = COALESCE($1, base_salary), hourly_rate = COALESCE($2, hourly_rate) WHERE id = $3 AND role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head')",
-        [base_salary, hourly_rate, req.params.id]
+        "UPDATE users SET base_salary = $1, hourly_rate = $2 WHERE id = $3 AND role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head')",
+        [newBaseSalary, newHourlyRate, req.params.id]
       );
     }
 

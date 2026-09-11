@@ -230,6 +230,8 @@ if (process.env.NODE_ENV !== 'test') {
         // 10. Hourly Salary & Attendance Hours
         await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_rate DECIMAL(15, 2) DEFAULT 0");
         await pool.query("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS hours_worked DECIMAL(10, 2) DEFAULT 0");
+        await pool.query("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS batch_id INTEGER REFERENCES attendance_batches(id) ON DELETE SET NULL");
+        await pool.query("CREATE INDEX IF NOT EXISTS idx_attendance_batch_id ON attendance(batch_id)");
 
         // 11. Update users check constraint and migrate accounts role to back_office
         // Only run if the check constraint doesn't exist or doesn't have 'back_office'

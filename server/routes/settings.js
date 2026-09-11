@@ -11,6 +11,7 @@ const {
   recalculateAttendanceForBatch,
   recalculateAttendanceForAll
 } = require('../utils/attendanceRecalculator');
+const { calculateHourlyRate } = require('../utils/payroll');
 
 const confirmCodes = new Map(); // userId -> { code, expires }
 
@@ -66,11 +67,30 @@ router.post('/users', requireAdmin, async (req, res) => {
     try {
       await client.query('BEGIN');
 
+      let finalHourlyRate = parseFloat(hourly_rate) || 0;
+      const parsedBaseSalary = parseFloat(base_salary) || 0;
+      const effectiveBatchId = batch_id ? parseInt(batch_id) : null;
+      if (parsedBaseSalary > 0) {
+        let batchMinHours = 9.0;
+        if (effectiveBatchId) {
+          const { rows: bRows } = await client.query('SELECT min_working_hours FROM attendance_batches WHERE id = $1', [effectiveBatchId]);
+          if (bRows.length > 0 && bRows[0].min_working_hours) {
+            batchMinHours = parseFloat(bRows[0].min_working_hours);
+          }
+        } else {
+          const { rows: sRows } = await client.query("SELECT value FROM app_settings WHERE key = 'min_working_hours'");
+          if (sRows.length > 0 && sRows[0].value) {
+            batchMinHours = parseFloat(sRows[0].value);
+          }
+        }
+        finalHourlyRate = calculateHourlyRate(parsedBaseSalary, batchMinHours);
+      }
+
       const { rows } = await client.query(
         `INSERT INTO users (name, username, password_hash, role, department, phone, base_salary, hourly_rate, batch_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING id, name, username, role, department, phone, base_salary, hourly_rate, batch_id, created_at`,
-        [name.trim(), username.toLowerCase().trim(), passwordHash, role, department?.trim() || null, phone?.trim() || null, parseFloat(base_salary) || 0, parseFloat(hourly_rate) || 0, batch_id ? parseInt(batch_id) : null]
+        [name.trim(), username.toLowerCase().trim(), passwordHash, role, department?.trim() || null, phone?.trim() || null, parsedBaseSalary, finalHourlyRate, effectiveBatchId]
       );
 
       if (rows[0]) {
@@ -168,6 +188,25 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
     try {
       await client.query('BEGIN');
 
+      let finalHourlyRate = parseFloat(hourly_rate) || 0;
+      const parsedBaseSalary = parseFloat(base_salary) || 0;
+      const effectiveBatchId = batch_id ? parseInt(batch_id) : null;
+      if (parsedBaseSalary > 0) {
+        let batchMinHours = 9.0;
+        if (effectiveBatchId) {
+          const { rows: bRows } = await client.query('SELECT min_working_hours FROM attendance_batches WHERE id = $1', [effectiveBatchId]);
+          if (bRows.length > 0 && bRows[0].min_working_hours) {
+            batchMinHours = parseFloat(bRows[0].min_working_hours);
+          }
+        } else {
+          const { rows: sRows } = await client.query("SELECT value FROM app_settings WHERE key = 'min_working_hours'");
+          if (sRows.length > 0 && sRows[0].value) {
+            batchMinHours = parseFloat(sRows[0].value);
+          }
+        }
+        finalHourlyRate = calculateHourlyRate(parsedBaseSalary, batchMinHours);
+      }
+
       const { rows } = await client.query(
         `UPDATE users 
          SET name = $1, username = $2, role = $3, department = $4, phone = $5, base_salary = $6, hourly_rate = $7, batch_id = $8
@@ -179,9 +218,9 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
           role, 
           department?.trim() || null, 
           phone?.trim() || null, 
-          parseFloat(base_salary) || 0, 
-          parseFloat(hourly_rate) || 0,
-          batch_id ? parseInt(batch_id) : null,
+          parsedBaseSalary, 
+          finalHourlyRate,
+          effectiveBatchId,
           userId
         ]
       );

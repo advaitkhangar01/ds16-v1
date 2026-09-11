@@ -13,8 +13,3 @@ describe('GET /api/health', () => {
     expect(res.body).toHaveProperty('time');
   });
 });
-
-const pool = require('../db');
-afterAll(async () => {
-  await pool.end();
-});

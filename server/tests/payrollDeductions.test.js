@@ -21,7 +21,6 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       await pool.query('DELETE FROM attendance WHERE user_id = $1', [testUserId]);
       await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
     }
-    await pool.end();
   });
 
   afterEach(async () => {
@@ -53,8 +52,8 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
     const res = await calculatePayrollForEmployee(testUserId, 8, 2026, defaultSettings, pool);
     expect(res.late_count).toBe(3);
     expect(res.late_penalty_days).toBe(0.15);
-    // Daily rate = 25000 / 31 = 806.45
-    expect(res.late_deduction_amount).toBeCloseTo(0.15 * (25000 / 31), 1);
+    // Daily rate = 25000 / 30 = 833.33
+    expect(res.late_deduction_amount).toBeCloseTo(0.15 * (25000 / 30), 1);
   });
 
   test('6 lates should trigger 0.30 day deduction', async () => {

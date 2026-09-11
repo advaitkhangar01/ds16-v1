@@ -1415,19 +1415,29 @@ export default function SettingsPage() {
                     <input 
                       type="number"
                       value={newUser.base_salary}
-                      onChange={(e) => setNewUser({...newUser, base_salary: e.target.value})}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const b = batches.find(item => String(item.id) === String(newUser.batch_id));
+                        const hrs = b?.min_working_hours ? parseFloat(b.min_working_hours) : 9.0;
+                        const autoRate = parseFloat(val) > 0 ? (parseFloat(val) / (30 * hrs)).toFixed(2) : newUser.hourly_rate;
+                        setNewUser({...newUser, base_salary: val, hourly_rate: autoRate});
+                      }}
                       placeholder="e.g. 25000"
                       className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Hourly Rate (₹)</label>
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">
+                      Hourly Rate (₹) {parseFloat(newUser.base_salary) > 0 && <span className="text-primary font-bold">(Auto)</span>}
+                    </label>
                     <input 
-                      type="number"
-                      value={newUser.hourly_rate}
-                      onChange={(e) => setNewUser({...newUser, hourly_rate: e.target.value})}
-                      placeholder="e.g. 150"
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                      type="text"
+                      value={parseFloat(newUser.base_salary) > 0 
+                        ? `₹${(parseFloat(newUser.base_salary) / (30 * (parseFloat(batches.find(b => String(b.id) === String(newUser.batch_id))?.min_working_hours || 9.0)))).toFixed(2)}/hr`
+                        : '₹0.00/hr'}
+                      readOnly
+                      disabled
+                      className="w-full border rounded-xl px-4 py-2.5 text-sm font-mono font-bold bg-gray-100 text-gray-500 border-gray-200 cursor-not-allowed select-none"
                     />
                   </div>
                 </div>
@@ -1527,19 +1537,29 @@ export default function SettingsPage() {
                     <input 
                       type="number"
                       value={editingUser.base_salary}
-                      onChange={(e) => setEditingUser({...editingUser, base_salary: e.target.value})}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const b = batches.find(item => String(item.id) === String(editingUser.batch_id));
+                        const hrs = b?.min_working_hours ? parseFloat(b.min_working_hours) : 9.0;
+                        const autoRate = parseFloat(val) > 0 ? (parseFloat(val) / (30 * hrs)).toFixed(2) : editingUser.hourly_rate;
+                        setEditingUser({...editingUser, base_salary: val, hourly_rate: autoRate});
+                      }}
                       placeholder="e.g. 25000"
                       className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Hourly Rate (₹)</label>
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">
+                      Hourly Rate (₹) {parseFloat(editingUser.base_salary) > 0 && <span className="text-primary font-bold">(Auto)</span>}
+                    </label>
                     <input 
-                      type="number"
-                      value={editingUser.hourly_rate}
-                      onChange={(e) => setEditingUser({...editingUser, hourly_rate: e.target.value})}
-                      placeholder="e.g. 150"
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
+                      type="text"
+                      value={parseFloat(editingUser.base_salary) > 0 
+                        ? `₹${(parseFloat(editingUser.base_salary) / (30 * (parseFloat(batches.find(b => String(b.id) === String(editingUser.batch_id))?.min_working_hours || 9.0)))).toFixed(2)}/hr`
+                        : '₹0.00/hr'}
+                      readOnly
+                      disabled
+                      className="w-full border rounded-xl px-4 py-2.5 text-sm font-mono font-bold bg-gray-100 text-gray-500 border-gray-200 cursor-not-allowed select-none"
                     />
                   </div>
                 </div>

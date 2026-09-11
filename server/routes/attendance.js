@@ -95,24 +95,13 @@ async function autoCheckoutPendingRecords() {
 
     for (const r of rows) {
       const dateStr = getISTDate(r.date);
-      let officeStartTime = defaultOfficeStartTime;
       let minWorkingHours = defaultMinWorkingHours;
-
-      if (r.batch_start_time) {
-        officeStartTime = r.batch_start_time.substring(0, 5);
-      }
       if (r.batch_min_hours !== null && r.batch_min_hours !== undefined) {
         minWorkingHours = parseFloat(r.batch_min_hours);
       }
 
-      const [startH, startM] = officeStartTime.split(':').map(Number);
-      const startMinutes = startH * 60 + startM;
-      const checkoutMinutes = startMinutes + Math.round(minWorkingHours * 60);
-      const checkoutH = Math.floor(checkoutMinutes / 60) % 24;
-      const checkoutM = checkoutMinutes % 60;
-
-      const checkoutTimeStr = `${String(checkoutH).padStart(2, '0')}:${String(checkoutM).padStart(2, '0')}:00`;
-      const checkoutTimeISO = `${dateStr}T${checkoutTimeStr}+05:30`;
+      // Business rule: End-of-day / recovery process sets checkout strictly to 7:00 PM IST of that attendance date
+      const checkoutTimeISO = `${dateStr}T19:00:00+05:30`;
       let checkOutTime = new Date(checkoutTimeISO);
       
       const checkInTime = new Date(r.check_in);
@@ -129,20 +118,22 @@ async function autoCheckoutPendingRecords() {
       hoursWorked = parseFloat(hoursWorked.toFixed(2));
       
       let newStatus = r.status ? r.status.toLowerCase() : 'completed';
-      // Half-day is determined ONLY by check-in time (already set during check-in).
-      // Auto-checkout only transitions working/present → completed; never overrides half_day.
-      if (newStatus === 'working' || newStatus === 'present') {
+      let isLate = r.is_late;
+      if (newStatus === 'half_day' || hoursWorked < minWorkingHours) {
+        newStatus = 'half_day';
+        isLate = false;
+      } else {
         newStatus = 'completed';
       }
-      // If status is already 'half_day' (checked in after half-day cutoff), keep it.
 
       await pool.query(
         `UPDATE attendance SET
            check_out = $1,
            status = $2,
-           hours_worked = $3
-         WHERE id = $4`,
-        [checkOutTime.toISOString(), newStatus, hoursWorked, r.id]
+           hours_worked = $3,
+           is_late = $4
+         WHERE id = $5`,
+        [checkOutTime.toISOString(), newStatus, hoursWorked, isLate, r.id]
       );
       console.log(`[Auto-Checkout] User ${r.user_id} automatically checked out for date ${dateStr} at ${checkOutTime.toISOString()} (hours worked: ${hoursWorked})`);
     }
@@ -325,7 +316,7 @@ router.post('/checkin', authenticate, async (req, res) => {
 
     if (checkInMins > halfDayMinsCutoff) {
       status = ATTENDANCE_STATUS.HALF_DAY;
-      isLate = true;
+      isLate = false;
     } else if (checkInMins > lateMinsThreshold) {
       isLate = true;
     }
@@ -351,6 +342,8 @@ router.post('/checkin', authenticate, async (req, res) => {
     // without a check_in (e.g. from a leave record or absent placeholder).
     // If a check_in already exists, the DO NOTHING path returns 0 rows and we
     // fall back to the duplicate-check error above, so this is safe.
+    const assignedBatchId = userBatch.batch_id ? parseInt(userBatch.batch_id) : null;
+
     if (existing.length > 0) {
       // Row exists (no check_in confirmed above) — update it
       const { rows } = await pool.query(
@@ -358,10 +351,11 @@ router.post('/checkin', authenticate, async (req, res) => {
            check_in = $1, lat = $2, lng = $3,
            checkin_accuracy = $4, checkin_distance = $5, checkin_zone = $6,
            is_boundary_checkin = $7, checkin_verified = $8,
-           status = $9, is_late = $10, late_minutes = $11
-         WHERE user_id = $12 AND date = $13::date AND check_in IS NULL
+           status = $9, is_late = $10, late_minutes = $11,
+           batch_id = COALESCE(batch_id, $12)
+         WHERE user_id = $13 AND date = $14::date AND check_in IS NULL
          RETURNING *`,
-        [nowIso, ...geoParams, status, isLate, lateMins, userId, today]
+        [nowIso, ...geoParams, status, isLate, lateMins, assignedBatchId, userId, today]
       );
       if (!rows[0]) {
         // Another process snuck in a check_in between our SELECT and UPDATE
@@ -375,8 +369,8 @@ router.post('/checkin', authenticate, async (req, res) => {
            (user_id, check_in, lat, lng,
             checkin_accuracy, checkin_distance, checkin_zone,
             is_boundary_checkin, checkin_verified,
-            date, status, is_late, late_minutes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            date, status, is_late, late_minutes, batch_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          ON CONFLICT (user_id, date) DO NOTHING
          RETURNING *`,
         [userId, nowIso, lat || null, lng || null,
@@ -385,7 +379,7 @@ router.post('/checkin', authenticate, async (req, res) => {
          geoResult.zone,
          geoResult.isBoundaryCheckin,
          geoResult.checkinVerified,
-         today, status, isLate, lateMins]
+         today, status, isLate, lateMins, assignedBatchId]
       );
       if (!rows[0]) {
         // ON CONFLICT DO NOTHING fired — a row was inserted between our SELECT and INSERT
@@ -480,15 +474,18 @@ router.post('/checkout', authenticate, async (req, res) => {
     let newStatus = (existing[0].status || ATTENDANCE_STATUS.WORKING).toLowerCase();
     const currentStatusLower = newStatus;
 
-    // Half-day is determined ONLY by check-in time (already set during check-in when
-    // check-in time > half_day_cutoff_time). Checkout only finalises the status:
-    //   half_day  → stays half_day  (late enough that check-in set it)
-    //   working / present → completed
-    // We never override based on hours worked, because a late-arrival employee
-    // (is_late=true, status=working) who works a full shift must end as 'completed'.
+    let minWorkingHours = 9.0;
+    if (userBatch.min_working_hours) {
+      minWorkingHours = parseFloat(userBatch.min_working_hours);
+    } else if (settings.min_working_hours) {
+      minWorkingHours = parseFloat(settings.min_working_hours);
+    }
+
     if (currentStatusLower === ATTENDANCE_STATUS.HALF_DAY) {
-      newStatus = ATTENDANCE_STATUS.HALF_DAY; // keep as-is
-    } else if (currentStatusLower === ATTENDANCE_STATUS.WORKING || currentStatusLower === 'present') {
+      newStatus = ATTENDANCE_STATUS.HALF_DAY; // checked in after cutoff
+    } else if (hoursWorked < minWorkingHours) {
+      newStatus = ATTENDANCE_STATUS.HALF_DAY;
+    } else {
       newStatus = ATTENDANCE_STATUS.COMPLETED;
     }
 
@@ -515,19 +512,22 @@ router.post('/checkout', authenticate, async (req, res) => {
       } catch (_) { /* ignore */ }
     }
 
+    const isHalfDay = (newStatus === ATTENDANCE_STATUS.HALF_DAY);
+
     const { rows } = await pool.query(
       `UPDATE attendance SET
          check_out = $1, status = $2,
          checkout_lat = $3, checkout_lng = $4, checkout_accuracy = $5,
          checkout_distance = $6, checkout_zone = $7, checkout_outside_zone = $8,
-         hours_worked = $9
+         hours_worked = $9,
+         is_late = CASE WHEN $12::boolean THEN false ELSE is_late END
        WHERE user_id = $10 AND date = $11::date
        RETURNING *`,
       [
         nowIso, newStatus,
         lat || null, lng || null, (parseFloat(accuracy) || null),
         checkoutDistance, checkoutZone, checkoutOutsideZone,
-        hoursWorked, userId, today,
+        hoursWorked, userId, today, isHalfDay
       ]
     );
 

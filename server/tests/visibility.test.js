@@ -17,6 +17,7 @@ describe('Visibility & Access Control Tests', () => {
 
     // 2. Create mock users with different roles
     const roles = ['admin', 'project_head', 'design_head', 'employee', 'back_office'];
+    await pool.query("DELETE FROM users WHERE username IN ('test_admin', 'test_project_head', 'test_design_head', 'test_employee', 'test_back_office')");
     for (const role of roles) {
       const { rows } = await pool.query(
         `INSERT INTO users (name, role, username, password_hash) 

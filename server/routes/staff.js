@@ -5,11 +5,9 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { getISTDate } = require('../utils/date');
-const { calculatePayrollForEmployee } = require('../utils/payroll');
+const { calculatePayrollForEmployee, calculateDayAttendanceStats, calculateHourlyRate } = require('../utils/payroll');
 
 router.use(authenticate);
-
-// GET /api/staff - Get all staff with quick telemetry stats
 router.get('/', requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(`
@@ -49,7 +47,7 @@ router.get('/:id', async (req, res) => {
   try {
     // 1. Core Profile Details
     const { rows: userRows } = await pool.query(
-      'SELECT id, name, username, role, department, phone, base_salary, hourly_rate, created_at FROM users WHERE id = $1',
+      'SELECT id, name, username, role, department, phone, base_salary, hourly_rate, batch_id, created_at FROM users WHERE id = $1',
       [id]
     );
     if (userRows.length === 0) return res.status(404).json({ error: 'Employee not found' });
@@ -158,6 +156,7 @@ router.get('/:id', async (req, res) => {
          a.hours_worked,
          a.checkin_distance,
          a.checkin_zone,
+         a.batch_id,
           CASE
             WHEN a.id IS NOT NULL THEN
               CASE 
@@ -181,76 +180,53 @@ router.get('/:id', async (req, res) => {
       [id, startDateVal, endDateVal]
     );
 
-    // Fetch app settings to calculate penalty deductions
+    // Fetch app settings and batches
     const settingsRes = await pool.query('SELECT key, value FROM app_settings');
     const settings = settingsRes.rows.reduce((acc, row) => { acc[row.key] = row.value; return acc; }, {});
 
+    const { rows: allBatches } = await pool.query('SELECT * FROM attendance_batches');
+    const batchMap = new Map(allBatches.map(b => [b.id, b]));
+
+    const employeeBatch = employee.batch_id ? (batchMap.get(employee.batch_id) || {}) : {};
+    const defaultBatchMinHours = parseFloat(employeeBatch.min_working_hours || settings.min_working_hours || 9.0);
+
     const baseSalary = parseFloat(employee.base_salary || 0);
-    const hourlyRate = parseFloat(employee.hourly_rate || 0);
-    const latePenaltyAmount = parseFloat(settings.late_penalty_amount || 0);
-    const halfDayPenaltyPercent = parseFloat(settings.half_day_penalty_percent || 50);
+    const hourlyRate = baseSalary > 0
+      ? calculateHourlyRate(baseSalary, defaultBatchMinHours)
+      : parseFloat(employee.hourly_rate || 0);
 
     const processedAttendance = attendance.map(att => {
-      let deduction = 0;
-      let earnings = 0;
-      let overtimeHours = 0;
-      let regularHours = parseFloat(att.hours_worked || 0);
-
-      if (att.check_in && att.check_out) {
-        const ci = new Date(att.check_in);
-        const co = new Date(att.check_out);
-        
-        // Get date string of check-out in IST (YYYY-MM-DD)
-        const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
-        const dateStr = formatter.format(co);
-        
-        // Cutoff threshold is 7:00 PM (19:00) IST on the date of check-out
-        const cutoff = new Date(`${dateStr}T19:00:00+05:30`);
-        
-        if (co > cutoff) {
-          const startForOt = ci > cutoff ? ci : cutoff;
-          const otMs = co - startForOt;
-          overtimeHours = otMs / (1000 * 60 * 60);
-          regularHours = Math.max(0, regularHours - overtimeHours);
-        }
-      }
-
-      const recordDate = new Date(att.date);
-      const recordMonth = recordDate.getMonth() + 1;
-      const recordYear = recordDate.getFullYear();
-      const daysInMonth = new Date(recordYear, recordMonth, 0).getDate();
-      const dailyWage = daysInMonth > 0 ? baseSalary / daysInMonth : 0;
-
-      if (hourlyRate > 0) {
-        // Hourly rate employees only earn from regular hours (excluding overtime)
-        earnings = regularHours * hourlyRate;
-        deduction = 0;
+      let effectiveBatch = null;
+      if (att.batch_id) {
+        effectiveBatch = batchMap.get(att.batch_id) || null;
+      } else if (att.id) {
+        // Historical record with NULL batch_id: do NOT assign employee's current batch or fabricate batch
+        effectiveBatch = null;
       } else {
-        const statusLower = (att.status || '').toLowerCase();
-        if (statusLower === 'absent') {
-          earnings = 0;
-          deduction = dailyWage;
-        } else if (statusLower === 'half_day') {
-          earnings = dailyWage;
-          deduction = dailyWage * (halfDayPenaltyPercent / 100);
-        } else if (statusLower === 'leave' || statusLower === 'sunday' || statusLower === 'holiday') {
-          earnings = dailyWage;
-          deduction = 0;
-        } else {
-          earnings = dailyWage;
-          if (att.is_late) {
-            deduction = latePenaltyAmount;
-          }
-        }
+        // Day with no attendance record
+        effectiveBatch = employeeBatch;
       }
 
-      return {
-        ...att,
-        regular_hours: Math.round(regularHours * 100) / 100,
-        overtime_hours: Math.round(overtimeHours * 100) / 100,
-        earnings: Math.round(earnings * 100) / 100,
-        deduction: Math.round(deduction * 100) / 100
-      };
+      const officeStartTimeStr = effectiveBatch?.office_start_time
+        ? effectiveBatch.office_start_time.substring(0, 5)
+        : (settings.office_start_time || '10:00');
+      const lateThresholdTimeStr = effectiveBatch?.late_threshold_time
+        ? effectiveBatch.late_threshold_time.substring(0, 5)
+        : (settings.late_threshold_time || null);
+      const halfDayCutoffTimeStr = effectiveBatch?.half_day_cutoff_time
+        ? effectiveBatch.half_day_cutoff_time.substring(0, 5)
+        : (settings.half_day_cutoff_time || '13:00');
+      const dayBatchMinHours = parseFloat(effectiveBatch?.min_working_hours || defaultBatchMinHours);
+
+      return calculateDayAttendanceStats(att, {
+        baseSalary,
+        hourlyRate,
+        batchMinHours: dayBatchMinHours,
+        officeStartTimeStr,
+        lateThresholdTimeStr,
+        halfDayCutoffTimeStr,
+        lateThresholdMins: parseInt(settings.late_threshold_mins || 15, 10),
+      });
     });
 
     // 5. Leaves History

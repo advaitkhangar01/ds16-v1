@@ -157,25 +157,59 @@ async function startupSelfHealingCheck() {
   }
 }
 
+async function checkAndAutoCheckoutDaily() {
+  const now = new Date();
+  const tzOffsetHours = parseFloat(process.env.TIMEZONE_OFFSET_HOURS || '5.5');
+  const localTime = new Date(now.getTime() + (tzOffsetHours * 60 * 60 * 1000));
+  const localHour   = localTime.getUTCHours();
+  const localMinute = localTime.getUTCMinutes();
+
+  if (localHour === 0 && localMinute === 0) {
+    console.log('[Scheduler] Daily midnight trigger: Checking pending attendance records for auto-checkout...');
+    try {
+      const { autoCheckoutPendingRecords } = require('../routes/attendance');
+      if (typeof autoCheckoutPendingRecords === 'function') {
+        await autoCheckoutPendingRecords();
+      }
+    } catch (err) {
+      console.error('[Scheduler] Error running daily auto-checkout:', err.message);
+    }
+  }
+}
+
 /**
  * Starts the monthly close background scheduler.
  */
 function startMonthlyCloseScheduler() {
   console.log('[Scheduler] Initializing Monthly Close Scheduler...');
   
-  // 1. Run self-healing startup check after 10s (only fires if within grace window on 1st-7th)
+  // 1. Run attendance auto-checkout recovery after 5s
+  setTimeout(() => {
+    try {
+      const { autoCheckoutPendingRecords } = require('../routes/attendance');
+      if (typeof autoCheckoutPendingRecords === 'function') {
+        autoCheckoutPendingRecords();
+      }
+    } catch (err) {
+      console.error('[Scheduler] Startup auto-checkout error:', err.message);
+    }
+  }, 5000);
+
+  // 2. Run self-healing startup check after 10s (only fires if within grace window on 1st-7th)
   setTimeout(() => {
     startupSelfHealingCheck();
   }, 10000);
 
-  // 2. Check every minute — only acts at midnight on 1st of month (IST)
+  // 3. Check every minute
   setInterval(() => {
     checkAndAutoCloseMonth();
+    checkAndAutoCheckoutDaily();
   }, 60 * 1000);
 }
 
 module.exports = {
   startMonthlyCloseScheduler,
   checkAndAutoCloseMonth,
-  startupSelfHealingCheck
+  startupSelfHealingCheck,
+  checkAndAutoCheckoutDaily
 };
