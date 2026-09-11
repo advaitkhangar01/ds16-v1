@@ -300,7 +300,8 @@ router.get('/:id', async (req, res) => {
     const { rows: payrollStats } = await pool.query(
       `SELECT 
          COALESCE(SUM(COALESCE(net_paid, base_salary, 0)), 0) as total_net_paid,
-         COALESCE(SUM(COALESCE(deductions, 0)), 0) as total_deductions
+         COALESCE(SUM(COALESCE(deductions, 0)), 0) as total_deductions,
+         COUNT(*) as payroll_count
        FROM payroll
        WHERE user_id = $1`,
       [id]
@@ -308,16 +309,56 @@ router.get('/:id', async (req, res) => {
 
     const paidPayrollEarnings = parseFloat(payrollStats[0]?.total_net_paid || 0);
     const paidPayrollDeductions = parseFloat(payrollStats[0]?.total_deductions || 0);
+    const payrollCount = parseInt(payrollStats[0]?.payroll_count || 0, 10);
     const currentMonthSuggested = currentMonthPayroll ? parseFloat(currentMonthPayroll.suggested_salary || 0) : 0;
     const currentMonthDeductions = currentMonthPayroll ? parseFloat(currentMonthPayroll.deductions || 0) : 0;
 
-    const currentMonthInPayroll = payroll.some(p => p.month === currentMonth && p.year === currentYear);
-    const allTimeEarnings = currentMonthInPayroll
-      ? paidPayrollEarnings
-      : (paidPayrollEarnings + currentMonthSuggested);
-    const allTimeDeductions = currentMonthInPayroll
-      ? paidPayrollDeductions
-      : (paidPayrollDeductions + currentMonthDeductions);
+    let allTimeEarnings = 0;
+    let allTimeDeductions = 0;
+
+    if (payrollCount > 0) {
+      const currentMonthInPayroll = payroll.some(p => p.month === currentMonth && p.year === currentYear);
+      allTimeEarnings = currentMonthInPayroll
+        ? paidPayrollEarnings
+        : (paidPayrollEarnings + currentMonthSuggested);
+      allTimeDeductions = currentMonthInPayroll
+        ? paidPayrollDeductions
+        : (paidPayrollDeductions + currentMonthDeductions);
+    } else {
+      // Fallback: If payroll table has no closed records for this user, compute historical attendance earnings prior to current month
+      const { rows: histAttRows } = await pool.query(
+        `SELECT 
+           COALESCE(SUM(
+             CASE 
+               WHEN LOWER(a.status) IN ('present', 'completed', 'working') THEN 
+                 COALESCE(NULLIF(u.base_salary, 0) / 30, (a.hours_worked * u.hourly_rate), 0)
+               WHEN LOWER(a.status) = 'half_day' THEN 
+                 COALESCE((NULLIF(u.base_salary, 0) / 30) * 0.5, (a.hours_worked * u.hourly_rate), 0)
+               ELSE 0 
+             END
+           ), 0) as hist_earnings,
+           COALESCE(SUM(
+             CASE 
+               WHEN LOWER(a.status) = 'half_day' THEN 
+                 COALESCE((NULLIF(u.base_salary, 0) / 30) * 0.5, 0)
+               WHEN LOWER(a.status) = 'absent' THEN 
+                 COALESCE(NULLIF(u.base_salary, 0) / 30, 0)
+               ELSE 0 
+             END
+           ), 0) as hist_deductions
+         FROM attendance a
+         JOIN users u ON u.id = a.user_id
+         WHERE a.user_id = $1
+           AND a.date < DATE_TRUNC('month', CURRENT_DATE)`,
+        [id]
+      );
+
+      const histEarnings = parseFloat(histAttRows[0]?.hist_earnings || 0);
+      const histDeductions = parseFloat(histAttRows[0]?.hist_deductions || 0);
+
+      allTimeEarnings = histEarnings + currentMonthSuggested;
+      allTimeDeductions = histDeductions + currentMonthDeductions;
+    }
 
     res.json({
       employee,
