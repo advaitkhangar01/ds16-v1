@@ -283,6 +283,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   let totalOvertimeEarnings = 0;
 
   let unpaidLeavesRemaining = unpaidLeaves;
+  let futureDaysCount = 0;
   const dailyRecords = [];
   const todayStr = getISTDate();
 
@@ -344,16 +345,16 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       } else {
         dayStatus = 'present';
       }
-    } else if (isFuture) {
-      dayStatus = 'future';
-    } else if (dateStr === todayStr) {
-      dayStatus = 'today_pending';
     } else if (isSunday) {
       dayStatus = 'sunday';
     } else if (holidayDates.has(dateStr)) {
       dayStatus = 'holiday';
     } else if (isOnApprovedLeave || status === 'leave') {
       dayStatus = 'leave';
+    } else if (isFuture) {
+      dayStatus = 'future';
+    } else if (dateStr === todayStr) {
+      dayStatus = 'today_pending';
     } else {
       dayStatus = 'absent';
     }
@@ -393,8 +394,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       }
     );
 
-    // Tally counts
-    if (dayStats.status === 'present' || dayStats.status === 'working' || dayStats.status === 'completed') {
+    if (dayStats.status === 'future') {
+      futureDaysCount++;
+    } else if (dayStats.status === 'present' || dayStats.status === 'working' || dayStats.status === 'completed') {
       fullDaysWorked++;
     } else if (dayStats.status === 'half_day') {
       halfDaysWorked++;
@@ -439,15 +441,18 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   const absenceDeductionAmount = unmarkedAbsentCount * perDaySalary;
   const unpaidLeaveDeductionAmount = unpaidLeaves * perDaySalary;
 
-  // Monthly base-salary formula:
-  // suggestedSalary = max(0, Base Salary - totalAttendanceDeductions - latePenaltyAmount + totalOvertimeEarnings)
-  const suggestedSalary = Math.max(0, baseSalary - totalAttendanceDeductions - latePenaltyAmount + totalOvertimeEarnings);
-  const totalEarnings = baseSalary + totalOvertimeEarnings;
-  const totalDeductions = totalAttendanceDeductions + latePenaltyAmount;
-
   const halfDayFactor = 0.5;
   const effectiveDays = (fullDaysWorked + (halfDaysWorked * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
   const finalPayableDays = Math.max(0, effectiveDays - latePenaltyDays);
+
+  const accruedSalary = Math.max(0, (finalPayableDays * perDaySalary) + totalOvertimeEarnings);
+  const projectedSalary = Math.max(0, baseSalary - totalAttendanceDeductions - latePenaltyAmount + totalOvertimeEarnings);
+
+  // In an active month with future days remaining, suggested salary represents actual accrued earnings to date
+  const isMonthInProgress = futureDaysCount > 0;
+  const suggestedSalary = isMonthInProgress ? accruedSalary : projectedSalary;
+  const totalEarnings = isMonthInProgress ? accruedSalary : (baseSalary + totalOvertimeEarnings);
+  const totalDeductions = totalAttendanceDeductions + latePenaltyAmount;
 
   if (baseSalary <= 0 && hourlyRate > 0) {
     const hourlySuggested = (totalRegularHours + totalOvertimeHours) * hourlyRate;
@@ -511,6 +516,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     overtime_earnings: Math.round(totalOvertimeEarnings * 100) / 100,
     calculation_method: 'monthly',
     suggested_salary: Math.round(suggestedSalary * 100) / 100,
+    accrued_salary: Math.round(accruedSalary * 100) / 100,
+    projected_salary: Math.round(projectedSalary * 100) / 100,
+    is_month_in_progress: isMonthInProgress,
     earnings: Math.round(totalEarnings * 100) / 100,
     deductions: Math.round(totalDeductions * 100) / 100,
     total_attendance_deductions: Math.round(totalAttendanceDeductions * 100) / 100,
