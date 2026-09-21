@@ -166,16 +166,45 @@ export default function SalaryBreakdownModal({ isOpen, onClose, defaultTab = 'ea
         ) : (
           <>
             {/* Summary stat chips */}
-            <div className="grid grid-cols-4 divide-x divide-slate-100 border-b border-slate-100 flex-shrink-0">
+            <div className={`grid ${summary.is_month_in_progress && (summary.projected_net_salary || summary.net_salary_payable) ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-4'} divide-x divide-slate-100 border-b border-slate-100 flex-shrink-0`}>
               {[
-                { label: 'Earned',     value: `₹${(summary.earned_this_month    ?? 0).toLocaleString('en-IN')}`, color: 'text-emerald-600' },
-                { label: 'Deducted',   value: `₹${(summary.deductions_this_month?? 0).toLocaleString('en-IN')}`, color: 'text-red-500'     },
-                { label: 'Days In',    value: summary.full_days ?? 0,                                               color: 'text-slate-800'   },
-                { label: 'Late / Abs', value: `${summary.late_count ?? 0} / ${summary.unmarked_absent_count ?? 0}`, color: 'text-amber-600' },
+                { 
+                  label: 'Earned', 
+                  sublabel: summary.is_month_in_progress ? 'Accrued through today' : 'Net earned',
+                  value: `₹${Math.round(Number(summary.earned_this_month ?? 0)).toLocaleString('en-IN')}`, 
+                  color: 'text-emerald-600' 
+                },
+                { 
+                  label: 'Deducted', 
+                  sublabel: 'Penalties & shortfall',
+                  value: `₹${Math.round(Number(summary.deductions_this_month ?? 0)).toLocaleString('en-IN')}`, 
+                  color: 'text-red-500'     
+                },
+                ...(summary.is_month_in_progress && (summary.projected_net_salary || summary.net_salary_payable) ? [{
+                  label: 'Projected Net',
+                  sublabel: 'Month-end payout',
+                  value: `₹${Math.round(Number(summary.projected_net_salary || summary.net_salary_payable)).toLocaleString('en-IN')}`,
+                  color: 'text-primary'
+                }] : []),
+                { 
+                  label: 'Days In', 
+                  sublabel: summary.half_days > 0 ? `${summary.full_days}F · ${summary.half_days}H` : 'Full days',
+                  value: summary.full_days ?? 0, 
+                  color: 'text-slate-800'   
+                },
+                { 
+                  label: 'Late / Abs', 
+                  sublabel: 'Lates / Absences',
+                  value: `${summary.late_count ?? 0} / ${summary.unmarked_absent_count ?? 0}`, 
+                  color: 'text-amber-600' 
+                },
               ].map((s, i) => (
-                <div key={i} className="flex flex-col items-center justify-center py-3 bg-white">
+                <div key={i} className="flex flex-col items-center justify-center py-2.5 px-2 bg-white text-center">
                   <p className={`text-sm font-black font-mono tracking-tight ${s.color}`}>{s.value}</p>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{s.label}</p>
+                  <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-0.5">{s.label}</p>
+                  {s.sublabel && (
+                    <p className="text-[8px] font-bold text-slate-400 mt-0.5">{s.sublabel}</p>
+                  )}
                 </div>
               ))}
             </div>

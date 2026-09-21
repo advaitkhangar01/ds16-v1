@@ -14,11 +14,24 @@ async function calculateSalaryStats(userId, month, year, todayStr, settings) {
     // Find today's daily record in the processed daily logs
     const todayRecord = payrollData.processedAttendance?.find(r => r.date === todayStr);
 
+    const isMonthInProgress = !!payrollData.is_month_in_progress;
+    // Canonical contract:
+    // earned_this_month = sum of all elapsed daily earnings including today's eligible attendance
+    // (during an active month, this is accrued_earnings_to_date: 17751.61)
+    // When month is closed, it settles at net_salary_payable: 26601.61
+    const accruedEarnings = parseFloat(payrollData.accrued_earnings_to_date || payrollData.accrued_salary || 0);
+    const netSalaryPayable = parseFloat(payrollData.net_salary_payable || payrollData.suggested_salary || 0);
+    const earnedThisMonth = isMonthInProgress ? accruedEarnings : netSalaryPayable;
+
     return {
-      earned_this_month: payrollData.suggested_salary || 0,
-      deductions_this_month: payrollData.deductions || 0,
-      today_earned: todayRecord ? Math.round(todayRecord.earnings) : 0,
-      today_deductions: todayRecord ? Math.round(todayRecord.deduction) : 0,
+      earned_this_month: Math.round(earnedThisMonth * 100) / 100,
+      accrued_earnings_to_date: Math.round(accruedEarnings * 100) / 100,
+      net_salary_payable: Math.round(netSalaryPayable * 100) / 100,
+      projected_net_salary: Math.round(netSalaryPayable * 100) / 100,
+      is_month_in_progress: isMonthInProgress,
+      deductions_this_month: Math.round((payrollData.deductions || 0) * 100) / 100,
+      today_earned: todayRecord ? parseFloat(todayRecord.earnings || 0) : 0,
+      today_deductions: todayRecord ? parseFloat(todayRecord.deduction || 0) : 0,
       late_count: payrollData.late_count || 0,
       half_day_count: payrollData.half_days || 0,
       leaves_count: payrollData.leaves_count || 0,
@@ -29,6 +42,10 @@ async function calculateSalaryStats(userId, month, year, todayStr, settings) {
     console.error('[Dashboard Warning] calculateSalaryStats failed, using fallback stats:', err.message);
     return {
       earned_this_month: 0,
+      accrued_earnings_to_date: 0,
+      net_salary_payable: 0,
+      projected_net_salary: 0,
+      is_month_in_progress: false,
       deductions_this_month: 0,
       today_earned: 0,
       today_deductions: 0,
@@ -621,17 +638,26 @@ router.get('/salary-breakdown', authenticate, async (req, res) => {
     const payrollData = await calculatePayrollForEmployee(userId, month, year, settings, pool);
     if (!payrollData) return res.status(404).json({ error: 'No payroll data found' });
 
+    const isMonthInProgress = !!payrollData.is_month_in_progress;
+    const accruedEarnings = parseFloat(payrollData.accrued_earnings_to_date || payrollData.accrued_salary || 0);
+    const netSalaryPayable = parseFloat(payrollData.net_salary_payable || payrollData.suggested_salary || 0);
+    const earnedThisMonth = isMonthInProgress ? accruedEarnings : netSalaryPayable;
+
     res.json({
       month,
       year,
       summary: {
         base_salary:           parseFloat(payrollData.employee.base_salary || 0),
-        earned_this_month:     Math.max(0, payrollData.suggested_salary),
-        deductions_this_month: payrollData.deductions,
-        late_deduction_amount: payrollData.late_deduction_amount || 0,
-        half_day_deduction_amount: payrollData.half_day_deduction_amount || 0,
-        absence_deduction_amount: payrollData.absence_deduction_amount || 0,
-        unpaid_leave_deduction_amount: payrollData.unpaid_leave_deduction_amount || 0,
+        earned_this_month:     Math.round(earnedThisMonth * 100) / 100,
+        accrued_earnings_to_date: Math.round(accruedEarnings * 100) / 100,
+        net_salary_payable:    Math.round(netSalaryPayable * 100) / 100,
+        projected_net_salary:  Math.round(netSalaryPayable * 100) / 100,
+        is_month_in_progress:  isMonthInProgress,
+        deductions_this_month: Math.round((payrollData.deductions || 0) * 100) / 100,
+        late_deduction_amount: Math.round((payrollData.late_deduction_amount || 0) * 100) / 100,
+        half_day_deduction_amount: Math.round((payrollData.half_day_deduction_amount || 0) * 100) / 100,
+        absence_deduction_amount: Math.round((payrollData.absence_deduction_amount || 0) * 100) / 100,
+        unpaid_leave_deduction_amount: Math.round((payrollData.unpaid_leave_deduction_amount || 0) * 100) / 100,
         full_days:             payrollData.full_days_worked,
         half_days:             payrollData.half_days_worked,
         late_count:            payrollData.late_count,
@@ -831,4 +857,5 @@ router.get('/employee', authenticate, async (req, res) => {
   }
 });
 
+router.calculateSalaryStats = calculateSalaryStats;
 module.exports = router;

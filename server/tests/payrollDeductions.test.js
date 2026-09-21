@@ -1,6 +1,7 @@
 // server/tests/payrollDeductions.test.js
 const pool = require('../db');
 const { calculatePayrollForEmployee } = require('../utils/payroll');
+const { calculateSalaryStats } = require('../routes/dashboard');
 
 describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
   let testUserId;
@@ -263,6 +264,15 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       // Verify Accrued Earnings to Date (kept strictly separate) = ₹17,751.61
       expect(res.accrued_salary).toBeCloseTo(17751.61, 0);
       expect(res.accrued_earnings_to_date).toBeCloseTo(17751.61, 0);
+
+      // Verify Dashboard calculateSalaryStats API contract (2-decimal precision canonical values)
+      const salaryStats = await calculateSalaryStats(abhijitId, 9, 2026, '2026-09-21', septSettings);
+      expect(salaryStats.earned_this_month).toBeCloseTo(17751.61, 1);
+      expect(salaryStats.accrued_earnings_to_date).toBeCloseTo(17751.61, 1);
+      expect(salaryStats.deductions_this_month).toBeCloseTo(5237.77, 1);
+      expect(salaryStats.net_salary_payable).toBeCloseTo(26601.61, 1);
+      expect(salaryStats.projected_net_salary).toBeCloseTo(26601.61, 1);
+      expect(salaryStats.is_month_in_progress).toBe(true);
 
     } finally {
       await pool.query('DELETE FROM attendance WHERE user_id = $1', [abhijitId]);

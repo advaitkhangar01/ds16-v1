@@ -21,6 +21,12 @@ import { createPortal } from 'react-dom';
 // --- New Compact Components ---
 
 function QuickStats({ salary, onCardClick }) {
+  const earnedAmount = Math.round(Number(salary?.earned_this_month || 0));
+  const deductedAmount = Math.round(Number(salary?.deductions_this_month || 0));
+  const todayEarned = Math.round(Number(salary?.today_earned || 0));
+  const todayDeductions = Math.round(Number(salary?.today_deductions || 0));
+  const projectedNet = salary?.projected_net_salary !== undefined ? Math.round(Number(salary.projected_net_salary)) : (salary?.net_salary_payable !== undefined ? Math.round(Number(salary.net_salary_payable)) : null);
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {/* Earnings Card — click opens modal on Earnings tab */}
@@ -36,13 +42,18 @@ function QuickStats({ salary, onCardClick }) {
           </svg>
         </p>
         <div className="flex items-baseline gap-1.5">
-          <span className="text-xl font-black text-slate-900 font-mono tracking-tight">₹{salary?.earned_this_month ?? 0}</span>
+          <span className="text-xl font-black text-slate-900 font-mono tracking-tight">₹{earnedAmount.toLocaleString('en-IN')}</span>
           <span className={`text-[10px] font-bold font-mono ${
-            salary?.today_earned > 0 ? 'text-emerald-500' : 'text-slate-300'
+            todayEarned > 0 ? 'text-emerald-500' : 'text-slate-300'
           }`}>
-            {salary?.today_earned > 0 ? `+₹${salary.today_earned} today` : 'Not checked in'}
+            {todayEarned > 0 ? `+₹${todayEarned.toLocaleString('en-IN')} today` : 'Not checked in'}
           </span>
         </div>
+        {salary?.is_month_in_progress && projectedNet !== null && (
+          <p className="text-[10px] font-black text-slate-500 font-mono mt-1">
+            Projected Net: <span className="text-emerald-700">₹{projectedNet.toLocaleString('en-IN')}</span>
+          </p>
+        )}
         <p className="text-[9px] text-slate-300 mt-1.5 group-hover:text-emerald-400 transition-colors font-bold uppercase tracking-widest">Click for full breakdown →</p>
       </button>
 
@@ -59,9 +70,9 @@ function QuickStats({ salary, onCardClick }) {
           </svg>
         </p>
         <div className="flex items-baseline gap-1.5">
-          <span className="text-xl font-black text-amber-600 font-mono tracking-tight">₹{salary?.deductions_this_month ?? 0}</span>
-          {salary?.today_deductions > 0 && (
-            <span className="text-[10px] font-bold text-amber-400 font-mono">+₹{salary.today_deductions} today</span>
+          <span className="text-xl font-black text-amber-600 font-mono tracking-tight">₹{deductedAmount.toLocaleString('en-IN')}</span>
+          {todayDeductions > 0 && (
+            <span className="text-[10px] font-bold text-amber-400 font-mono">+₹{todayDeductions.toLocaleString('en-IN')} today</span>
           )}
         </div>
         <p className="text-[10px] text-slate-400 mt-1 leading-tight">
