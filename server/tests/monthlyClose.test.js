@@ -16,6 +16,13 @@ describe('Monthly Close & Period Lock Subsystem Integration Tests', () => {
   const testDate = '2025-01-15';
 
   beforeAll(async () => {
+    // Pre-cleanup in case a previous run failed
+    await pool.query("DELETE FROM payroll WHERE user_id IN (SELECT id FROM users WHERE username IN ('mc_admin', 'mc_employee'))");
+    await pool.query("DELETE FROM attendance WHERE user_id IN (SELECT id FROM users WHERE username IN ('mc_admin', 'mc_employee'))");
+    await pool.query("DELETE FROM users WHERE username IN ('mc_admin', 'mc_employee')");
+    await pool.query("DELETE FROM clients WHERE name = 'MC Visibility Client'");
+    await pool.query("DELETE FROM payroll WHERE month = $1 AND year = $2", [testMonth, testYear]);
+
     // 1. Create a dummy client
     const { rows: clientRows } = await pool.query(
       `INSERT INTO clients (name, email) VALUES ('MC Visibility Client', 'mc_test@visibility.com') RETURNING id`
@@ -67,9 +74,17 @@ describe('Monthly Close & Period Lock Subsystem Integration Tests', () => {
     await pool.query('DELETE FROM monthly_closing_log WHERE month = $1 AND year = $2', [testMonth, testYear]);
     await pool.query('DELETE FROM transactions WHERE description LIKE \'TEST_%\'');
     await pool.query('DELETE FROM payroll WHERE month = $1 AND year = $2', [testMonth, testYear]);
-    await pool.query('DELETE FROM project_assignments WHERE project_id = $1', [dummyProject.id]);
-    await pool.query('DELETE FROM projects WHERE id = $1', [dummyProject.id]);
-    await pool.query('DELETE FROM users WHERE id IN ($1, $2)', [adminUser.id, employeeUser.id]);
+    if (adminUser?.id || employeeUser?.id) {
+      await pool.query('DELETE FROM payroll WHERE user_id IN ($1, $2)', [adminUser?.id || 0, employeeUser?.id || 0]);
+      await pool.query('DELETE FROM attendance WHERE user_id IN ($1, $2)', [adminUser?.id || 0, employeeUser?.id || 0]);
+    }
+    if (dummyProject?.id) {
+      await pool.query('DELETE FROM project_assignments WHERE project_id = $1', [dummyProject.id]);
+      await pool.query('DELETE FROM projects WHERE id = $1', [dummyProject.id]);
+    }
+    if (adminUser?.id || employeeUser?.id) {
+      await pool.query('DELETE FROM users WHERE id IN ($1, $2)', [adminUser?.id || 0, employeeUser?.id || 0]);
+    }
     await pool.query('DELETE FROM clients WHERE name = \'MC Visibility Client\'');
   });
 

@@ -74,18 +74,27 @@ if (process.env.NODE_ENV !== 'test') {
                     AND ccu.table_name = 'users'
                     AND ccu.column_name = 'id'
               ) LOOP
-                  should_cascade := (r.column_name = 'user_id' OR r.table_name = 'attendance' OR r.table_name = 'payroll' OR r.table_name = 'leave_requests');
-                  needs_update := (should_cascade AND r.delete_rule <> 'CASCADE') OR (NOT should_cascade AND r.delete_rule <> 'SET NULL');
-                  
-                  IF needs_update THEN
-                      EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT ' || quote_ident(r.constraint_name);
+                  -- Statutory Protection: payroll and attendance MUST NOT cascade on delete
+                  IF r.table_name IN ('payroll', 'attendance') THEN
+                      IF r.delete_rule = 'CASCADE' THEN
+                          EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT ' || quote_ident(r.constraint_name);
+                          EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' ADD CONSTRAINT ' || quote_ident(r.constraint_name) || 
+                                  ' FOREIGN KEY (' || quote_ident(r.column_name) || ') REFERENCES users(id) ON DELETE RESTRICT';
+                      END IF;
+                  ELSE
+                      should_cascade := (r.column_name = 'user_id' OR r.table_name IN ('leave_requests', 'employee_leave_balance', 'daily_reports', 'notifications', 'task_participants', 'project_assignments'));
+                      needs_update := (should_cascade AND r.delete_rule <> 'CASCADE') OR (NOT should_cascade AND r.delete_rule <> 'SET NULL');
                       
-                      IF should_cascade THEN
-                          EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' ADD CONSTRAINT ' || quote_ident(r.constraint_name) || 
-                                  ' FOREIGN KEY (' || quote_ident(r.column_name) || ') REFERENCES users(id) ON DELETE CASCADE';
-                      ELSE
-                          EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' ADD CONSTRAINT ' || quote_ident(r.constraint_name) || 
-                                  ' FOREIGN KEY (' || quote_ident(r.column_name) || ') REFERENCES users(id) ON DELETE SET NULL';
+                      IF needs_update THEN
+                          EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT ' || quote_ident(r.constraint_name);
+                          
+                          IF should_cascade THEN
+                              EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' ADD CONSTRAINT ' || quote_ident(r.constraint_name) || 
+                                      ' FOREIGN KEY (' || quote_ident(r.column_name) || ') REFERENCES users(id) ON DELETE CASCADE';
+                          ELSE
+                              EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' ADD CONSTRAINT ' || quote_ident(r.constraint_name) || 
+                                      ' FOREIGN KEY (' || quote_ident(r.column_name) || ') REFERENCES users(id) ON DELETE SET NULL';
+                          END IF;
                       END IF;
                   END IF;
               END LOOP;

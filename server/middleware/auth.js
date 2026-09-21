@@ -23,10 +23,11 @@ const authenticate = async (req, res, next) => {
     const decoded = jwt.verify(token, ACTUAL_SECRET);
 
     const { rows } = await pool.query(
-      'SELECT id, name, role, department, phone, username, tenant_id FROM users WHERE id = $1',
+      'SELECT id, name, role, department, phone, username, tenant_id, is_active FROM users WHERE id = $1',
       [decoded.userId]
     );
     if (!rows[0]) return res.status(401).json({ error: 'User not found' });
+    if (rows[0].is_active === false) return res.status(401).json({ error: 'User account has been deactivated' });
 
     req.user = rows[0];
     req.tenantId = rows[0].tenant_id || 1;

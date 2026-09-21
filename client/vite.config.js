@@ -25,6 +25,8 @@ export default defineConfig({
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
           ui: ['react-hot-toast', 'lucide-react'],
+          export_tools: ['jspdf', 'html2canvas', 'xlsx'],
+          charts: ['recharts'],
         },
       },
     },

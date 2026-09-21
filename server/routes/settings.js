@@ -22,7 +22,7 @@ router.use(authenticate);
 router.get('/users', requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT u.id, u.name, u.username, u.role, u.department, u.phone, u.base_salary, u.hourly_rate, u.batch_id, u.created_at, b.name as batch_name 
+      `SELECT u.id, u.name, u.username, u.role, u.department, u.phone, u.base_salary, u.hourly_rate, u.batch_id, u.created_at, u.is_active, u.deactivated_at, b.name as batch_name 
        FROM users u
        LEFT JOIN attendance_batches b ON u.batch_id = b.id
        ORDER BY u.name ASC`
@@ -121,12 +121,16 @@ router.delete('/users/:id', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'You cannot delete your own account' });
     }
 
-    const { rowCount } = await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+    // Soft-delete user to protect historical payroll, attendance, and statutory records
+    const { rowCount } = await pool.query(
+      'UPDATE users SET is_active = FALSE, deactivated_at = NOW() WHERE id = $1',
+      [userId]
+    );
     if (rowCount === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json({ message: 'User deleted successfully' });
+    res.json({ message: 'User deactivated successfully' });
   } catch (err) {
     console.error('Settings: delete user error:', err);
     res.status(500).json({ error: 'Failed to delete user' });

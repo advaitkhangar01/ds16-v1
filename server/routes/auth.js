@@ -29,6 +29,10 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    if (user.is_active === false) {
+      return res.status(403).json({ error: 'This account has been deactivated. Please contact administrator.' });
+    }
+
     const token = signToken(user.id);
 
     res.json({
@@ -51,7 +55,7 @@ router.post('/login', async (req, res) => {
 // GET /api/auth/users
 router.get('/users', authenticate, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT id, name, username, role, department FROM users ORDER BY name ASC');
+    const { rows } = await pool.query('SELECT id, name, username, role, department FROM users WHERE is_active IS NOT FALSE ORDER BY name ASC');
     res.json({ users: rows });
   } catch (err) {
     console.error('Fetch users error:', err);
