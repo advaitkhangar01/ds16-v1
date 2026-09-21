@@ -76,8 +76,8 @@ router.get('/:id', async (req, res) => {
 
     let statsQuery = `
       SELECT 
-        COUNT(*) FILTER (WHERE LOWER(status) = 'working' OR LOWER(status) = 'completed' OR LOWER(status) = 'present') as total_present,
-        COUNT(*) FILTER (WHERE is_late = true) as total_late,
+        COUNT(*) FILTER (WHERE LOWER(status) = 'working' OR LOWER(status) = 'completed' OR LOWER(status) = 'present' OR LOWER(status) = 'half_day') as total_present,
+        COUNT(*) FILTER (WHERE is_late = true AND LOWER(COALESCE(status, '')) NOT IN ('half_day', 'absent')) as total_late,
         AVG(hours_worked) FILTER (WHERE hours_worked > 0) as avg_hours
       FROM attendance
       WHERE user_id = $1
@@ -96,8 +96,8 @@ router.get('/:id', async (req, res) => {
     // All-time stats (never filtered by date range)
     const { rows: allTimeStats } = await pool.query(
       `SELECT 
-         COUNT(*) FILTER (WHERE LOWER(status) = 'working' OR LOWER(status) = 'completed' OR LOWER(status) = 'present') as all_time_checkins,
-         COUNT(*) FILTER (WHERE is_late = true) as all_time_late
+         COUNT(*) FILTER (WHERE LOWER(status) = 'working' OR LOWER(status) = 'completed' OR LOWER(status) = 'present' OR LOWER(status) = 'half_day') as all_time_checkins,
+         COUNT(*) FILTER (WHERE is_late = true AND LOWER(COALESCE(status, '')) NOT IN ('half_day', 'absent')) as all_time_late
        FROM attendance
        WHERE user_id = $1`,
       [id]
@@ -115,7 +115,7 @@ router.get('/:id', async (req, res) => {
        FROM attendance
        WHERE user_id = $1
          AND date >= $2 AND date <= $3
-         AND (LOWER(status) = 'working' OR LOWER(status) = 'completed' OR LOWER(status) = 'present')`,
+         AND (LOWER(status) = 'working' OR LOWER(status) = 'completed' OR LOWER(status) = 'present' OR LOWER(status) = 'half_day')`,
       [id, thisMonthStart, thisMonthEnd]
     );
 
@@ -125,13 +125,14 @@ router.get('/:id', async (req, res) => {
        FROM attendance
        WHERE user_id = $1
          AND date >= $2 AND date <= $3
-         AND is_late = true`,
+         AND is_late = true
+         AND LOWER(COALESCE(status, '')) NOT IN ('half_day', 'absent')`,
       [id, thisMonthStart, thisMonthEnd]
     );
 
     let attendance = [];
+    const todayStrVal = getISTDate();
     if (startDate || endDate) {
-      const todayStrVal = getISTDate();
       const [yearVal, monthVal] = todayStrVal.split('-').map(Number);
       const defaultStart = `${yearVal}-${String(monthVal).padStart(2, '0')}-01`;
       const defaultEnd   = todayStrVal;
@@ -166,6 +167,8 @@ router.get('/:id', async (req, res) => {
                    CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
                  ELSE LOWER(COALESCE(a.status, 'working'))
                END
+             WHEN ud.date > (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date THEN 'upcoming'
+             WHEN ud.date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date AND a.id IS NULL THEN 'today_pending'
              WHEN lr.id IS NOT NULL THEN 'leave'
              WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
              WHEN h.date IS NOT NULL THEN 'holiday'
@@ -257,6 +260,7 @@ router.get('/:id', async (req, res) => {
         lateThresholdTimeStr,
         halfDayCutoffTimeStr,
         lateThresholdMins: parseInt(settings.late_threshold_mins || 15, 10),
+        isFuture: (att.date > todayStrVal)
       });
     });
 

@@ -144,4 +144,129 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
     expect(lateDeductionDays).toBe(0.75);
     expect(Math.round(lateDeductionAmount * 100) / 100).toBe(625.00);
   });
+
+  test('Abhijit canonical September 2026 reconciliation: 14 present, 4 absent, 3 lates, 9 upcoming', async () => {
+    const { rows: uRows } = await pool.query(
+      `INSERT INTO users (name, username, password_hash, role, base_salary, hourly_rate)
+       VALUES ('Abhijit Canonical', 'abhijit_canon_${Date.now()}', 'hash', 'employee', 30000.00, 0.00)
+       RETURNING id`
+    );
+    const abhijitId = uRows[0].id;
+
+    try {
+      const septSettings = {
+        office_start_time: '10:00',
+        late_threshold_time: '10:15',
+        half_day_cutoff_time: '13:00',
+        late_penalty_rule_count: '3',
+        late_penalty_rule_days: '0.15',
+        min_working_hours: '9.0'
+      };
+
+      // 11 Full Days Worked (3 late: 4 Sept +31m, 8 Sept +75m, 14 Sept +85m; and total OT = 16.5544h)
+      // Total OT hours distributed across checkouts > 19:00 IST
+      const fullDaysData = [
+        { date: '2026-09-01', inTime: '10:00', outTime: '21:00', late: false, lateMins: 0, hours: 11 }, // 2h OT
+        { date: '2026-09-02', inTime: '10:00', outTime: '21:00', late: false, lateMins: 0, hours: 11 }, // 2h OT
+        { date: '2026-09-03', inTime: '10:00', outTime: '20:30', late: false, lateMins: 0, hours: 10.5 }, // 1.5h OT
+        { date: '2026-09-04', inTime: '10:31', outTime: '21:00', late: true, lateMins: 31, hours: 10.48 }, // 2h OT, Late 1
+        { date: '2026-09-05', inTime: '10:00', outTime: '20:00', late: false, lateMins: 0, hours: 10 }, // 1h OT
+        { date: '2026-09-07', inTime: '10:00', outTime: '20:30', late: false, lateMins: 0, hours: 10.5 }, // 1.5h OT
+        { date: '2026-09-08', inTime: '11:15', outTime: '21:00', late: true, lateMins: 75, hours: 9.75 }, // 2h OT, Late 2
+        { date: '2026-09-09', inTime: '10:00', outTime: '20:00', late: false, lateMins: 0, hours: 10 }, // 1h OT
+        { date: '2026-09-11', inTime: '10:00', outTime: '20:30', late: false, lateMins: 0, hours: 10.5 }, // 1.5h OT
+        { date: '2026-09-14', inTime: '11:25', outTime: '20:30', late: true, lateMins: 85, hours: 9.08 }, // 1.5h OT, Late 3
+        { date: '2026-09-15', inTime: '10:00', outTime: '19:33:16', late: false, lateMins: 0, hours: 9.5544 } // 0.5544h OT (33m 16s)
+      ];
+
+      for (const fd of fullDaysData) {
+        const outTimeStr = fd.outTime.length === 5 ? `${fd.outTime}:00` : fd.outTime;
+        await pool.query(
+          `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            abhijitId,
+            fd.date,
+            `${fd.date}T${fd.inTime}:00+05:30`,
+            `${fd.date}T${outTimeStr}+05:30`,
+            'working',
+            fd.late,
+            fd.lateMins,
+            fd.hours
+          ]
+        );
+      }
+
+      // 3 Half Days (12, 17, 21 Sept): 5.43h, 5.75h, 6.03h
+      const halfDaysData = [
+        { date: '2026-09-12', hours: 5.43 },
+        { date: '2026-09-17', hours: 5.75 },
+        { date: '2026-09-21', hours: 6.03 }
+      ];
+      for (const hd of halfDaysData) {
+        await pool.query(
+          `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            abhijitId,
+            hd.date,
+            `${hd.date}T13:00:00+05:30`,
+            `${hd.date}T18:30:00+05:30`,
+            'half_day',
+            false,
+            0,
+            hd.hours
+          ]
+        );
+      }
+
+      // Run payroll calculation for Sept 2026
+      const res = await calculatePayrollForEmployee(abhijitId, 9, 2026, septSettings, pool);
+
+      // Verify physical attendance
+      expect(res.full_days_worked).toBe(11);
+      expect(res.half_days_worked).toBe(3);
+      expect(res.total_present).toBe(14); // MUST be 14, NOT 18
+
+      // Verify absences and Sundays up to 21 Sept
+      expect(res.unmarked_absent_count).toBe(4);
+      expect(res.total_absent).toBe(4);
+      expect(res.sundays_count).toBe(3); // 6, 13, 20 Sept only; 27 Sept Sunday must NOT be counted
+
+      // Verify upcoming future days
+      const upcomingRecords = res.processedAttendance.filter(r => r.status === 'upcoming');
+      expect(upcomingRecords.length).toBe(9); // 22 through 30 Sept
+      for (const ur of upcomingRecords) {
+        expect(ur.earnings).toBe(0);
+        expect(ur.deduction).toBe(0);
+        expect(ur.is_late).toBe(false);
+      }
+
+      // Verify late penalty
+      expect(res.late_count).toBe(3);
+      expect(res.late_penalty_days).toBe(0.15);
+      expect(res.late_deduction_amount).toBe(150.00);
+
+      // Verify attendance deductions (4 absences * ₹1,000 + ₹1,087.77 half-day shortfall)
+      expect(res.total_attendance_deductions).toBeCloseTo(5087.77, 1);
+
+      // Verify single unambiguous Total Deductions = ₹5,087.77 + ₹150.00 = ₹5,237.77
+      expect(res.deductions).toBeCloseTo(5237.77, 1);
+
+      // Verify Overtime (~16.55h @ ₹111.11/hr = ₹1,839.38)
+      expect(res.overtime_earnings).toBeCloseTo(1839.38, 0);
+
+      // Verify Net Salary Payable = Base (30,000) - Total Deductions (5,237.77) + OT (1,839.38) = ₹26,601.61
+      expect(res.net_salary_payable).toBeCloseTo(26601.61, 1);
+      expect(res.suggested_salary).toBeCloseTo(26601.61, 1);
+
+      // Verify Accrued Earnings to Date (kept strictly separate) = ₹17,751.61
+      expect(res.accrued_salary).toBeCloseTo(17751.61, 0);
+      expect(res.accrued_earnings_to_date).toBeCloseTo(17751.61, 0);
+
+    } finally {
+      await pool.query('DELETE FROM attendance WHERE user_id = $1', [abhijitId]);
+      await pool.query('DELETE FROM users WHERE id = $1', [abhijitId]);
+    }
+  });
 });

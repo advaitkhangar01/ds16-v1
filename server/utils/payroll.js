@@ -42,11 +42,30 @@ function calculateDayAttendanceStats(att, options = {}) {
   const fullDayValue = baseSalary > 0 ? (baseSalary / 30) : (hourlyRate * batchMinHours);
   const effectiveHourlyRate = baseSalary > 0 && batchMinHours > 0 ? (fullDayValue / batchMinHours) : hourlyRate;
 
-  let dayStatus = att.status ? att.status.toLowerCase() : (isFuture ? 'future' : (isSunday ? 'sunday' : (isPaidHoliday ? 'holiday' : 'absent')));
+  let dayStatus = att.status ? att.status.toLowerCase() : (isFuture ? 'upcoming' : (isSunday ? 'sunday' : (isPaidHoliday ? 'holiday' : 'absent')));
+  if (isFuture || dayStatus === 'future') {
+    dayStatus = 'upcoming';
+  }
   let isLate = false;
   let lateMins = 0;
   let regularHours = parseFloat(att.hours_worked || 0);
   let overtimeHours = 0;
+
+  // Future and pending records cannot have worked hours, lateness, overtime, or deductions
+  if (dayStatus === 'upcoming' || dayStatus === 'today_pending') {
+    return {
+      ...att,
+      status: dayStatus,
+      is_late: false,
+      late_minutes: 0,
+      regular_hours: 0,
+      overtime_hours: 0,
+      overtime_earnings: 0,
+      earnings: 0,
+      normal_earnings: 0,
+      deduction: 0
+    };
+  }
 
   // Overtime logic: check-out > 7:00 PM IST (19:00) on the date of check-out
   if (att.check_in && att.check_out) {
@@ -132,9 +151,6 @@ function calculateDayAttendanceStats(att, options = {}) {
     } else if (dayStatus === 'absent') {
       dayEarnings = 0;
       dayDeduction = fullDayValue;
-    } else if (dayStatus === 'future' || dayStatus === 'today_pending') {
-      dayEarnings = 0;
-      dayDeduction = 0;
     } else {
       dayEarnings = fullDayValue;
       dayDeduction = 0;
@@ -345,16 +361,16 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       } else {
         dayStatus = 'present';
       }
+    } else if (isFuture) {
+      dayStatus = 'upcoming';
+    } else if (dateStr === todayStr) {
+      dayStatus = 'today_pending';
+    } else if (isOnApprovedLeave || status === 'leave') {
+      dayStatus = 'leave';
     } else if (isSunday) {
       dayStatus = 'sunday';
     } else if (holidayDates.has(dateStr)) {
       dayStatus = 'holiday';
-    } else if (isOnApprovedLeave || status === 'leave') {
-      dayStatus = 'leave';
-    } else if (isFuture) {
-      dayStatus = 'future';
-    } else if (dateStr === todayStr) {
-      dayStatus = 'today_pending';
     } else {
       dayStatus = 'absent';
     }
@@ -394,8 +410,10 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       }
     );
 
-    if (dayStats.status === 'future') {
+    if (dayStats.status === 'upcoming' || dayStats.status === 'future') {
       futureDaysCount++;
+    } else if (dayStats.status === 'today_pending') {
+      // Pending check-in today, neither present nor absent yet
     } else if (dayStats.status === 'present' || dayStats.status === 'working' || dayStats.status === 'completed') {
       fullDaysWorked++;
     } else if (dayStats.status === 'half_day') {
@@ -410,8 +428,8 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       holidaysCount++;
     }
 
-    // Business rule: exclude half_day and absent from lateCount
-    if (dayStats.is_late && dayStats.status !== 'half_day' && dayStats.status !== 'absent') {
+    // Business rule: exclude half_day, absent, upcoming, today_pending from lateCount
+    if (dayStats.is_late && dayStats.status !== 'half_day' && dayStats.status !== 'absent' && dayStats.status !== 'upcoming' && dayStats.status !== 'today_pending') {
       lateCount++;
     }
 
@@ -445,14 +463,14 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   const effectiveDays = (fullDaysWorked + (halfDaysWorked * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
   const finalPayableDays = Math.max(0, effectiveDays - latePenaltyDays);
 
-  const accruedSalary = Math.max(0, (finalPayableDays * perDaySalary) + totalOvertimeEarnings);
-  const projectedSalary = Math.max(0, baseSalary - totalAttendanceDeductions - latePenaltyAmount + totalOvertimeEarnings);
-
-  // In an active month with future days remaining, suggested salary represents actual accrued earnings to date
-  const isMonthInProgress = futureDaysCount > 0;
-  const suggestedSalary = isMonthInProgress ? accruedSalary : projectedSalary;
-  const totalEarnings = isMonthInProgress ? accruedSalary : (baseSalary + totalOvertimeEarnings);
   const totalDeductions = totalAttendanceDeductions + latePenaltyAmount;
+  const netSalaryPayable = Math.max(0, Math.round((baseSalary - totalDeductions + totalOvertimeEarnings) * 100) / 100);
+  const accruedEarningsToDate = Math.max(0, Math.round((totalNormalEarnings + totalOvertimeEarnings) * 100) / 100);
+  const accruedSalary = accruedEarningsToDate;
+
+  const isMonthInProgress = futureDaysCount > 0;
+  const suggestedSalary = netSalaryPayable;
+  const totalEarnings = baseSalary + totalOvertimeEarnings;
 
   if (baseSalary <= 0 && hourlyRate > 0) {
     const hourlySuggested = (totalRegularHours + totalOvertimeHours) * hourlyRate;
@@ -479,6 +497,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       overtime_earnings: Math.round(totalOvertimeHours * hourlyRate * 100) / 100,
       calculation_method: 'hourly',
       suggested_salary: Math.round(hourlySuggested * 100) / 100,
+      net_salary_payable: Math.round(hourlySuggested * 100) / 100,
+      accrued_salary: Math.round(hourlySuggested * 100) / 100,
+      accrued_earnings_to_date: Math.round(hourlySuggested * 100) / 100,
       earnings: Math.round(hourlySuggested * 100) / 100,
       deductions: 0,
       total_attendance_deductions: 0,
@@ -487,7 +508,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       half_day_deduction_amount: 0,
       absence_deduction_amount: 0,
       unpaid_leave_deduction_amount: 0,
-      total_present: fullDaysWorked + halfDaysWorked + sundaysCount + holidaysCount,
+      total_present: fullDaysWorked + halfDaysWorked,
+      present_days: fullDaysWorked + halfDaysWorked,
+      paid_days_equivalent: Math.round(effectiveDays * 100) / 100,
       total_absent: leavesCount + unmarkedAbsentCount,
       processedAttendance: dailyRecords
     };
@@ -516,8 +539,10 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     overtime_earnings: Math.round(totalOvertimeEarnings * 100) / 100,
     calculation_method: 'monthly',
     suggested_salary: Math.round(suggestedSalary * 100) / 100,
+    net_salary_payable: Math.round(netSalaryPayable * 100) / 100,
     accrued_salary: Math.round(accruedSalary * 100) / 100,
-    projected_salary: Math.round(projectedSalary * 100) / 100,
+    accrued_earnings_to_date: Math.round(accruedEarningsToDate * 100) / 100,
+    projected_salary: Math.round(netSalaryPayable * 100) / 100,
     is_month_in_progress: isMonthInProgress,
     earnings: Math.round(totalEarnings * 100) / 100,
     deductions: Math.round(totalDeductions * 100) / 100,
@@ -527,7 +552,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     half_day_deduction_amount: Math.round(halfDayDeductionAmount * 100) / 100,
     absence_deduction_amount: Math.round(absenceDeductionAmount * 100) / 100,
     unpaid_leave_deduction_amount: Math.round(unpaidLeaveDeductionAmount * 100) / 100,
-    total_present: fullDaysWorked + halfDaysWorked + sundaysCount + holidaysCount,
+    total_present: fullDaysWorked + halfDaysWorked,
+    present_days: fullDaysWorked + halfDaysWorked,
+    paid_days_equivalent: Math.round(effectiveDays * 100) / 100,
     total_absent: leavesCount + unmarkedAbsentCount,
     processedAttendance: dailyRecords
   };

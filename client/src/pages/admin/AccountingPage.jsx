@@ -2498,7 +2498,7 @@ export default function AccountingPage() {
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{emp.department}</p>
                           </div>
                           <div className="text-right">
-                            <p className="text-xs font-black text-primary font-mono">₹{(emp.suggested_salary || 0).toLocaleString('en-IN')}</p>
+                            <p className="text-xs font-black text-primary font-mono">₹{Number(emp.net_salary_payable !== undefined ? emp.net_salary_payable : (emp.suggested_salary || 0)).toLocaleString('en-IN')}</p>
                             <p className="text-[8px] font-bold text-gray-400 uppercase">Suggested</p>
                           </div>
                         </div>
@@ -2580,7 +2580,7 @@ export default function AccountingPage() {
                               </div>
                               <div className="text-[10px] text-gray-400 font-bold uppercase">{emp.department}</div>
                             </td>
-                            <td className="px-6 py-4 text-center bg-emerald-50/5">
+                            <td className="px-6 py-4 text-center bg-emerald-50/5" title={`${emp.full_days_worked || 0} Full Days + ${emp.half_days_worked || 0} Half Days (Physical Attendance)`}>
                               <span className="font-bold text-emerald-700">{emp.total_present || 0}</span>
                               <span className="text-[9px] text-gray-400 font-bold ml-0.5">d</span>
                             </td>
@@ -2704,7 +2704,7 @@ export default function AccountingPage() {
                             </td>
                             <td className="px-6 py-4 text-right font-black font-mono relative">
                               <div className="text-gray-900">
-                                ₹{Number(processed ? processed.net_paid : (emp.suggested_salary + parseFloat(rowIncentives[emp.id] || 0))).toLocaleString('en-IN')}
+                                ₹{Number(processed ? processed.net_paid : ((emp.net_salary_payable !== undefined ? emp.net_salary_payable : emp.suggested_salary) + parseFloat(rowIncentives[emp.id] || 0))).toLocaleString('en-IN')}
                               </div>
                               
                               {/* Breakdown Tooltip */}

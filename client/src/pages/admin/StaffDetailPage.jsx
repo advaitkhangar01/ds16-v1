@@ -190,16 +190,32 @@ export default function StaffDetailPage() {
 
     if (isFiltered) {
       let periodEarnings = 0;
-      let periodDeduction = 0;
+      let periodAttendanceDeduction = 0;
+      let periodLateCount = 0;
       if (attendance && attendance.length > 0) {
         attendance.forEach(att => {
-          periodEarnings += Number(att.earnings || 0);
-          periodDeduction += Number(att.deduction || 0);
+          const isUpcomingOrPending = att.status === 'upcoming' || att.status === 'future' || att.status === 'today_pending';
+          if (!isUpcomingOrPending) {
+            periodEarnings += Number(att.earnings || 0);
+            periodAttendanceDeduction += Number(att.deduction || 0);
+            if (att.is_late && att.status !== 'half_day' && att.status !== 'absent') {
+              periodLateCount++;
+            }
+          }
         });
       }
+
+      const baseSalary = Number(employee?.base_salary || currentMonthPayroll?.employee?.base_salary || 0);
+      const perDaySalary = baseSalary > 0 ? baseSalary / 30 : 0;
+      const lateGroups = Math.floor(periodLateCount / 3);
+      const latePenaltyAmount = lateGroups * 0.15 * perDaySalary;
+      const totalPeriodDeductions = periodAttendanceDeduction + latePenaltyAmount;
+
       return {
         totalEarnings: Math.round(periodEarnings),
-        totalDeduction: Math.round(periodDeduction),
+        totalDeduction: Math.round(totalPeriodDeductions * 100) / 100,
+        periodAttendanceDeduction: Math.round(periodAttendanceDeduction * 100) / 100,
+        periodLatePenalty: Math.round(latePenaltyAmount * 100) / 100,
         earningsThisMonth: 0,
         deductionsThisMonth: 0
       };
@@ -365,15 +381,22 @@ export default function StaffDetailPage() {
       else if (att.status === 'leave') statusStr = 'On Leave';
       else if (att.status === 'sunday') statusStr = 'Sunday';
       else if (att.status === 'holiday') statusStr = 'Holiday';
+      else if (att.status === 'upcoming' || att.status === 'future') statusStr = 'Upcoming';
+      else if (att.status === 'today_pending') statusStr = 'Pending Today';
+
+      const isUpcoming = att.status === 'upcoming' || att.status === 'future' || att.status === 'today_pending';
+      if (isUpcoming) {
+        anomalyLabel = '—';
+      }
 
       rows.push([
         formatDateIST(att.date),
         att.check_in ? formatTimeIST(att.check_in) : '—',
         att.check_out ? formatTimeIST(att.check_out) : '—',
-        att.hours_worked > 0 ? parseFloat(att.hours_worked).toFixed(1) : '0',
-        att.overtime_hours > 0 ? parseFloat(att.overtime_hours).toFixed(1) : '0',
-        att.earnings > 0 ? Number(att.earnings) : 0,
-        att.deduction > 0 ? Number(att.deduction) : 0,
+        att.hours_worked > 0 ? parseFloat(att.hours_worked).toFixed(2) : '0',
+        att.overtime_hours > 0 ? parseFloat(att.overtime_hours).toFixed(2) : '0',
+        isUpcoming ? '—' : (att.earnings > 0 ? Number(att.earnings) : 0),
+        isUpcoming ? '—' : (att.deduction > 0 ? Number(att.deduction) : 0),
         anomalyLabel,
         geoInfo,
         statusStr
@@ -389,8 +412,10 @@ export default function StaffDetailPage() {
     const lateDeductionDays = cmp.late_penalty_days !== undefined ? cmp.late_penalty_days : (lateGroups * 0.15);
     const lateDeductionAmount = cmp.late_deduction_amount !== undefined ? cmp.late_deduction_amount : (lateDeductionDays * perDaySalary);
     const totalDeductions = cmp.deductions !== undefined ? cmp.deductions : 0;
+    const attendanceDeductions = cmp.total_attendance_deductions !== undefined ? cmp.total_attendance_deductions : Math.max(0, totalDeductions - lateDeductionAmount);
     const overtimeEarnings = cmp.overtime_earnings !== undefined ? cmp.overtime_earnings : 0;
-    const netSalaryPayable = cmp.suggested_salary !== undefined ? cmp.suggested_salary : Math.max(0, baseSalary - totalDeductions + overtimeEarnings);
+    const netSalaryPayable = cmp.net_salary_payable !== undefined ? cmp.net_salary_payable : (cmp.suggested_salary !== undefined ? cmp.suggested_salary : Math.max(0, baseSalary - totalDeductions + overtimeEarnings));
+    const accruedEarnings = cmp.accrued_salary !== undefined ? cmp.accrued_salary : (cmp.accrued_earnings_to_date || 0);
 
     // Append Salary Justification Section below existing attendance table
     rows.push([]);
@@ -406,14 +431,18 @@ export default function StaffDetailPage() {
     // Table Rows
     rows.push(['Monthly Salary', 'Fixed monthly salary', '1 month', baseSalary > 0 ? `₹${baseSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—']);
     rows.push(['Daily Salary Basis', `₹${baseSalary.toLocaleString('en-IN')} ÷ 30 days`, `₹${perDaySalary.toFixed(2)}/day`, `₹${perDaySalary.toFixed(2)}`]);
+    rows.push(['Attendance Deductions', 'Absences & Half-day short hours', '—', `₹${Number(attendanceDeductions).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     rows.push(['Late Arrivals', 'Attendance records counted as late', `${lateCount} lates`, '—']);
     rows.push(['Late Deduction Groups', `FLOOR(${lateCount} ÷ 3)`, `${lateGroups} groups`, '—']);
-    rows.push(['Late Deduction', `${lateGroups} groups × 0.15 day × ₹${perDaySalary.toFixed(2)}`, `${lateDeductionDays.toFixed(2)} day`, `₹${lateDeductionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    rows.push(['Late Penalty Deduction', `${lateGroups} groups × 0.15 day × ₹${perDaySalary.toFixed(2)}`, `${lateDeductionDays.toFixed(2)} day`, `₹${Number(lateDeductionAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     if (overtimeEarnings > 0) {
-      rows.push(['Overtime Earnings', 'Check-out after 7:00 PM IST at hourly rate', `${cmp.total_overtime_hours || 0} hrs`, `₹${overtimeEarnings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+      rows.push(['Overtime Earnings', 'Check-out after 7:00 PM IST at hourly rate', `${cmp.total_overtime_hours || 0} hrs`, `₹${Number(overtimeEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     }
     rows.push(['Total Deductions', 'Attendance short hours + late penalty deductions', '—', `₹${Number(totalDeductions).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     rows.push(['Net Salary Payable', `Base Salary – Deductions + Overtime`, 'Final payable', `₹${Number(netSalaryPayable).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    if (accruedEarnings > 0 && cmp.is_month_in_progress) {
+      rows.push(['Accrued Earnings to Date', 'Pro-rated worked days + elapsed Sundays + OT', `${cmp.payable_days || 0} days`, `₹${Number(accruedEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    }
 
     // Additional Notes / Rules Section
     rows.push([]);
@@ -935,12 +964,28 @@ export default function StaffDetailPage() {
                     <tbody className="divide-y divide-gray-100 font-medium text-gray-600">
                       {attendance.map((att) => {
                         const isLate = att.is_late === true;
+                        const isUpcomingOrPending = att.status === 'upcoming' || att.status === 'future' || att.status === 'today_pending';
 
                         const deductionText = att.deduction > 0 ? ` (₹${Math.round(att.deduction).toLocaleString('en-IN')})` : '';
 
                         let anomalyLabel = 'Regular';
                         let anomalyClass = 'bg-slate-50 text-slate-500 border-slate-200';
-                        if (att.status === 'absent') {
+                        if (att.status === 'upcoming' || att.status === 'future') {
+                          anomalyLabel = '—';
+                          anomalyClass = 'bg-transparent text-gray-300 border-transparent';
+                        } else if (att.status === 'today_pending') {
+                          anomalyLabel = 'Pending';
+                          anomalyClass = 'bg-blue-50 text-blue-500 border border-blue-100';
+                        } else if (att.status === 'sunday') {
+                          anomalyLabel = 'Sunday';
+                          anomalyClass = 'bg-slate-50 text-slate-400 border border-slate-200';
+                        } else if (att.status === 'holiday') {
+                          anomalyLabel = 'Holiday';
+                          anomalyClass = 'bg-indigo-50 text-indigo-500 border border-indigo-100';
+                        } else if (att.status === 'leave') {
+                          anomalyLabel = `Leave${deductionText}`;
+                          anomalyClass = 'bg-violet-50 text-violet-600 border border-violet-100 font-bold';
+                        } else if (att.status === 'absent') {
                           anomalyLabel = `Absent${deductionText}`;
                           anomalyClass = 'bg-red-50 text-red-600 border border-red-100 font-bold';
                         } else if (att.status === 'half_day') {
@@ -968,13 +1013,13 @@ export default function StaffDetailPage() {
                               {att.check_out ? formatTimeIST(att.check_out) : '—'}
                             </td>
                             <td className="px-6 py-4 font-bold font-mono text-gray-900">
-                              {att.hours_worked > 0 ? `${parseFloat(att.hours_worked).toFixed(1)} hrs` : '—'}
+                              {att.hours_worked > 0 ? `${parseFloat(att.hours_worked).toFixed(2)} hrs` : '—'}
                             </td>
                             <td className="px-6 py-4 font-bold font-mono text-amber-600">
-                              {att.overtime_hours > 0 ? `${parseFloat(att.overtime_hours).toFixed(1)} hrs` : '—'}
+                              {att.overtime_hours > 0 ? `${parseFloat(att.overtime_hours).toFixed(2)} hrs` : '—'}
                             </td>
                             <td className="px-6 py-4 font-bold font-mono text-emerald-600">
-                              {att.earnings > 0 ? `₹${Number(att.earnings).toLocaleString('en-IN')}` : '—'}
+                              {isUpcomingOrPending ? '—' : (att.earnings > 0 ? `₹${Number(att.earnings).toLocaleString('en-IN')}` : '—')}
                             </td>
                             <td className="px-6 py-4 text-center">
                               <span className={`inline-flex px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border ${anomalyClass}`}>
@@ -1003,6 +1048,8 @@ export default function StaffDetailPage() {
                                 att.status === 'leave' ? 'bg-violet-50 text-violet-600 border-violet-100 font-bold' :
                                 att.status === 'sunday' ? 'bg-slate-100 text-slate-600 border-slate-200 font-bold' :
                                 att.status === 'holiday' ? 'bg-indigo-50 text-indigo-600 border-indigo-100 font-bold' :
+                                (att.status === 'upcoming' || att.status === 'future') ? 'bg-gray-100 text-gray-500 border-gray-200' :
+                                att.status === 'today_pending' ? 'bg-blue-50 text-blue-600 border-blue-200' :
                                 'bg-red-50 text-red-500 border-red-100'
                               }`}>
                                 {att.status === 'working' ? 'Present' : 
@@ -1010,7 +1057,9 @@ export default function StaffDetailPage() {
                                  att.status === 'half_day' ? 'Half Day' : 
                                  att.status === 'leave' ? 'On Leave' : 
                                  att.status === 'sunday' ? 'Sunday' : 
-                                 att.status === 'holiday' ? 'Holiday' : 'Absent'}
+                                 att.status === 'holiday' ? 'Holiday' : 
+                                 (att.status === 'upcoming' || att.status === 'future') ? 'Upcoming' :
+                                 att.status === 'today_pending' ? 'Pending Today' : 'Absent'}
                               </span>
                             </td>
                           </tr>
