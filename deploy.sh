@@ -87,12 +87,29 @@ echo "🔄 Step 5/6: Reloading PM2 processes (zero downtime)..."
 pm2 reload ecosystem.config.js --update-env 2>/dev/null || pm2 reload all --update-env 2>/dev/null || pm2 restart all
 echo "✓ PM2 reloaded"
 
-# 6. Health Probe Verification
+# 6. Health Probe Verification (Resilient IPv4 Retry Loop)
 echo "🩺 Step 6/6: Verifying service health..."
-sleep 3
-HEALTH_CHECK=$(curl -s http://localhost:3001/api/health || curl -s http://localhost:3000/api/health || echo "FAILED")
+TARGET_PORT="3001"
+if [ -f "${APP_DIR}/server/.env" ]; then
+    ENV_PORT=$(grep -E '^PORT=' "${APP_DIR}/server/.env" | cut -d '=' -f2- | tr -d '\r' | tr -d ' ' || true)
+    if [ -n "$ENV_PORT" ]; then
+        TARGET_PORT="$ENV_PORT"
+    fi
+fi
 
-if [[ "$HEALTH_CHECK" == *"status"* ]] || [[ "$HEALTH_CHECK" == *"ok"* ]] || [[ "$HEALTH_CHECK" == *"DS16"* ]]; then
+HEALTH_STATUS="FAILED"
+for i in {1..10}; do
+    echo "  → Probing http://127.0.0.1:${TARGET_PORT}/api/health (attempt $i/10)..."
+    RESPONSE=$(curl -s -m 3 "http://127.0.0.1:${TARGET_PORT}/api/health" || true)
+    if [[ "$RESPONSE" == *"status"* ]] || [[ "$RESPONSE" == *"ok"* ]] || [[ "$RESPONSE" == *"DS16"* ]]; then
+        HEALTH_STATUS="OK"
+        HEALTH_CHECK="$RESPONSE"
+        break
+    fi
+    sleep 1
+done
+
+if [ "$HEALTH_STATUS" = "OK" ]; then
     echo "✅ Health check PASSED! Service is live and responding."
     echo ""
     pm2 list
@@ -101,8 +118,8 @@ if [[ "$HEALTH_CHECK" == *"status"* ]] || [[ "$HEALTH_CHECK" == *"ok"* ]] || [[ 
     echo "🎉 Safe deployment completed successfully with zero downtime!"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 else
-    echo "❌ HEALTH PROBE WARNING: Unexpected response: ${HEALTH_CHECK}"
-    echo "⚠️ Check PM2 logs with: pm2 logs --lines 50"
+    echo "❌ HEALTH PROBE WARNING: Could not connect to http://127.0.0.1:${TARGET_PORT}/api/health"
+    echo "⚠️ Check PM2 logs with: pm2 logs ds16-final --lines 30"
     if [ -f "$BACKUP_FILE" ]; then
         echo "ℹ️ Pre-deploy backup available at: ${BACKUP_FILE}"
     fi
