@@ -166,26 +166,26 @@ export default function SalaryBreakdownModal({ isOpen, onClose, defaultTab = 'ea
         ) : (
           <>
             {/* Summary stat chips */}
-            <div className={`grid ${summary.is_month_in_progress && (summary.projected_net_salary || summary.net_salary_payable) ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-4'} divide-x divide-slate-100 border-b border-slate-100 flex-shrink-0`}>
+            <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-slate-100 border-b border-slate-100 flex-shrink-0">
               {[
                 { 
                   label: 'Earned', 
-                  sublabel: summary.is_month_in_progress ? 'Accrued through today' : 'Net earned',
-                  value: `₹${Math.round(Number(summary.earned_this_month ?? 0)).toLocaleString('en-IN')}`, 
+                  sublabel: 'Accrued through today',
+                  value: `₹${Math.round(Number(summary.accrued_earnings_to_date || summary.earned_this_month || 0)).toLocaleString('en-IN')}`, 
                   color: 'text-emerald-600' 
                 },
                 { 
                   label: 'Deducted', 
                   sublabel: 'Penalties & shortfall',
-                  value: `₹${Math.round(Number(summary.deductions_this_month ?? 0)).toLocaleString('en-IN')}`, 
+                  value: `₹${Math.round(Number(summary.total_deductions_to_date || summary.deductions_this_month || 0)).toLocaleString('en-IN')}`, 
                   color: 'text-red-500'     
                 },
-                ...(summary.is_month_in_progress && (summary.projected_net_salary || summary.net_salary_payable) ? [{
-                  label: 'Projected Net',
-                  sublabel: 'Month-end payout',
-                  value: `₹${Math.round(Number(summary.projected_net_salary || summary.net_salary_payable)).toLocaleString('en-IN')}`,
-                  color: 'text-primary'
-                }] : []),
+                { 
+                  label: 'Net Payable', 
+                  sublabel: 'Earned − Deducted',
+                  value: `₹${Math.round(Number(summary.current_net_payable !== undefined ? summary.current_net_payable : (summary.net_salary_payable || 0))).toLocaleString('en-IN')}`, 
+                  color: 'text-primary' 
+                },
                 { 
                   label: 'Days In', 
                   sublabel: summary.half_days > 0 ? `${summary.full_days}F · ${summary.half_days}H` : 'Full days',
@@ -330,9 +330,15 @@ export default function SalaryBreakdownModal({ isOpen, onClose, defaultTab = 'ea
                   </div>
                 )}
                 <div className="text-right border-l border-slate-200 pl-6">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Net This Month</p>
-                  <p className="text-sm font-black text-slate-900 font-mono leading-tight">₹{(summary.earned_this_month ?? 0).toLocaleString('en-IN')}</p>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Net Payable</p>
+                  <p className="text-sm font-black text-slate-900 font-mono leading-tight">₹{Math.round(Number(summary.current_net_payable !== undefined ? summary.current_net_payable : (summary.net_salary_payable || 0))).toLocaleString('en-IN')}</p>
                 </div>
+                {summary.is_month_in_progress && summary.projected_month_end_net && (
+                  <div className="text-right border-l border-slate-200 pl-6 hidden sm:block">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Projected Month-End</p>
+                    <p className="text-sm font-black text-slate-500 font-mono leading-tight">₹{Math.round(Number(summary.projected_month_end_net)).toLocaleString('en-IN')}</p>
+                  </div>
+                )}
               </div>
             </div>
           </>

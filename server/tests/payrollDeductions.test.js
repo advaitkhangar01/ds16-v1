@@ -257,11 +257,20 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       // Verify Overtime (~16.55h @ ₹111.11/hr = ₹1,839.38)
       expect(res.overtime_earnings).toBeCloseTo(1839.38, 0);
 
-      // Verify Net Salary Payable = Base (30,000) - Total Deductions (5,237.77) + OT (1,839.38) = ₹26,601.61
-      expect(res.net_salary_payable).toBeCloseTo(26601.61, 1);
-      expect(res.suggested_salary).toBeCloseTo(26601.61, 1);
+      // Canonical Business Rule:
+      // In-progress Net Payable = Accrued Earnings (17,751.61) - Total Deductions (5,237.77) = ₹12,513.84
+      expect(res.current_net_payable).toBeCloseTo(12513.84, 1);
+      expect(res.net_salary_payable).toBeCloseTo(12513.84, 1);
+      expect(res.suggested_salary).toBeCloseTo(12513.84, 1);
 
-      // Verify Accrued Earnings to Date (kept strictly separate) = ₹17,751.61
+      // Invariant: current_net_payable === accrued_earnings_to_date - deductions
+      expect(res.current_net_payable).toBeCloseTo(res.accrued_earnings_to_date - res.deductions, 1);
+
+      // Month-end projection kept strictly separate
+      expect(res.projected_month_end_net).toBeCloseTo(26601.61, 1);
+      expect(res.projected_net_salary).toBeCloseTo(26601.61, 1);
+
+      // Verify Accrued Earnings to Date = ₹17,751.61
       expect(res.accrued_salary).toBeCloseTo(17751.61, 0);
       expect(res.accrued_earnings_to_date).toBeCloseTo(17751.61, 0);
 
@@ -270,8 +279,9 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       expect(salaryStats.earned_this_month).toBeCloseTo(17751.61, 1);
       expect(salaryStats.accrued_earnings_to_date).toBeCloseTo(17751.61, 1);
       expect(salaryStats.deductions_this_month).toBeCloseTo(5237.77, 1);
-      expect(salaryStats.net_salary_payable).toBeCloseTo(26601.61, 1);
-      expect(salaryStats.projected_net_salary).toBeCloseTo(26601.61, 1);
+      expect(salaryStats.current_net_payable).toBeCloseTo(12513.84, 1);
+      expect(salaryStats.net_salary_payable).toBeCloseTo(12513.84, 1);
+      expect(salaryStats.projected_month_end_net).toBeCloseTo(26601.61, 1);
       expect(salaryStats.is_month_in_progress).toBe(true);
 
     } finally {

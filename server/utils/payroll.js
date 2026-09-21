@@ -43,7 +43,8 @@ function calculateDayAttendanceStats(att, options = {}) {
   const effectiveHourlyRate = baseSalary > 0 && batchMinHours > 0 ? (fullDayValue / batchMinHours) : hourlyRate;
 
   let dayStatus = att.status ? att.status.toLowerCase() : (isFuture ? 'upcoming' : (isSunday ? 'sunday' : (isPaidHoliday ? 'holiday' : 'absent')));
-  if (isFuture || dayStatus === 'future') {
+  const hasActualAttendance = !!(att.check_in || att.check_out || (att.hours_worked && parseFloat(att.hours_worked) > 0));
+  if ((isFuture || dayStatus === 'future') && !hasActualAttendance) {
     dayStatus = 'upcoming';
   }
   let isLate = false;
@@ -300,6 +301,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
 
   let unpaidLeavesRemaining = unpaidLeaves;
   let futureDaysCount = 0;
+  let unworkedFutureWorkingDays = 0;
   const dailyRecords = [];
   const todayStr = getISTDate();
 
@@ -412,6 +414,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
 
     if (dayStats.status === 'upcoming' || dayStats.status === 'future') {
       futureDaysCount++;
+      if (!isSunday && !holidayDates.has(dateStr)) {
+        unworkedFutureWorkingDays++;
+      }
     } else if (dayStats.status === 'today_pending') {
       // Pending check-in today, neither present nor absent yet
     } else if (dayStats.status === 'present' || dayStats.status === 'working' || dayStats.status === 'completed') {
@@ -463,13 +468,21 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   const effectiveDays = (fullDaysWorked + (halfDaysWorked * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
   const finalPayableDays = Math.max(0, effectiveDays - latePenaltyDays);
 
-  const totalDeductions = totalAttendanceDeductions + latePenaltyAmount;
-  const netSalaryPayable = Math.max(0, Math.round((baseSalary - totalDeductions + totalOvertimeEarnings) * 100) / 100);
+  const totalDeductions = Math.round((totalAttendanceDeductions + latePenaltyAmount) * 100) / 100;
+  const isMonthInProgress = unworkedFutureWorkingDays > 0;
   const accruedEarningsToDate = Math.max(0, Math.round((totalNormalEarnings + totalOvertimeEarnings) * 100) / 100);
   const accruedSalary = accruedEarningsToDate;
 
-  const isMonthInProgress = futureDaysCount > 0;
-  const suggestedSalary = netSalaryPayable;
+  // Canonical Business Rule:
+  // For an in-progress month, Net Payable = Accrued Earnings - Total Deductions
+  // For a closed / completed month, Net Payable = Base Salary - Total Deductions + Overtime
+  const currentNetPayable = isMonthInProgress
+    ? Math.max(0, Math.round((accruedEarningsToDate - totalDeductions) * 100) / 100)
+    : Math.max(0, Math.round((baseSalary - totalDeductions + totalOvertimeEarnings) * 100) / 100);
+
+  const projectedMonthEndNet = Math.max(0, Math.round((baseSalary - totalDeductions + totalOvertimeEarnings) * 100) / 100);
+  const netSalaryPayable = currentNetPayable;
+  const suggestedSalary = currentNetPayable;
   const totalEarnings = baseSalary + totalOvertimeEarnings;
 
   if (baseSalary <= 0 && hourlyRate > 0) {
@@ -498,10 +511,15 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       calculation_method: 'hourly',
       suggested_salary: Math.round(hourlySuggested * 100) / 100,
       net_salary_payable: Math.round(hourlySuggested * 100) / 100,
+      current_net_payable: Math.round(hourlySuggested * 100) / 100,
       accrued_salary: Math.round(hourlySuggested * 100) / 100,
       accrued_earnings_to_date: Math.round(hourlySuggested * 100) / 100,
+      projected_month_end_net: Math.round(hourlySuggested * 100) / 100,
+      projected_net_salary: Math.round(hourlySuggested * 100) / 100,
+      projected_salary: Math.round(hourlySuggested * 100) / 100,
       earnings: Math.round(hourlySuggested * 100) / 100,
       deductions: 0,
+      total_deductions_to_date: 0,
       total_attendance_deductions: 0,
       late_deduction_days: 0,
       late_deduction_amount: 0,
@@ -540,12 +558,16 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     calculation_method: 'monthly',
     suggested_salary: Math.round(suggestedSalary * 100) / 100,
     net_salary_payable: Math.round(netSalaryPayable * 100) / 100,
+    current_net_payable: Math.round(currentNetPayable * 100) / 100,
     accrued_salary: Math.round(accruedSalary * 100) / 100,
     accrued_earnings_to_date: Math.round(accruedEarningsToDate * 100) / 100,
-    projected_salary: Math.round(netSalaryPayable * 100) / 100,
+    projected_month_end_net: Math.round(projectedMonthEndNet * 100) / 100,
+    projected_net_salary: Math.round(projectedMonthEndNet * 100) / 100,
+    projected_salary: Math.round(projectedMonthEndNet * 100) / 100,
     is_month_in_progress: isMonthInProgress,
     earnings: Math.round(totalEarnings * 100) / 100,
     deductions: Math.round(totalDeductions * 100) / 100,
+    total_deductions_to_date: Math.round(totalDeductions * 100) / 100,
     total_attendance_deductions: Math.round(totalAttendanceDeductions * 100) / 100,
     late_deduction_days: latePenaltyDays,
     late_deduction_amount: Math.round(lateDeductionAmount * 100) / 100,

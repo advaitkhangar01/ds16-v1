@@ -211,11 +211,13 @@ export default function StaffDetailPage() {
       const latePenaltyAmount = lateGroups * 0.15 * perDaySalary;
       const totalPeriodDeductions = periodAttendanceDeduction + latePenaltyAmount;
 
+      const periodNetPayable = Math.max(0, Math.round((periodEarnings - totalPeriodDeductions) * 100) / 100);
       return {
         totalEarnings: Math.round(periodEarnings),
         totalDeduction: Math.round(totalPeriodDeductions * 100) / 100,
         periodAttendanceDeduction: Math.round(periodAttendanceDeduction * 100) / 100,
         periodLatePenalty: Math.round(latePenaltyAmount * 100) / 100,
+        netPayable: periodNetPayable,
         earningsThisMonth: 0,
         deductionsThisMonth: 0
       };
@@ -223,17 +225,22 @@ export default function StaffDetailPage() {
 
     // Default view: use backend authoritative financialStats
     if (financialStats) {
+      const net = Math.max(0, Math.round((Number(financialStats.this_month_earnings || 0) - Number(financialStats.this_month_deductions || 0)) * 100) / 100);
       return {
         totalEarnings: Number(financialStats.total_earnings || 0),
         totalDeduction: Number(financialStats.total_deductions || 0),
         earningsThisMonth: Number(financialStats.this_month_earnings || 0),
-        deductionsThisMonth: Number(financialStats.this_month_deductions || 0)
+        deductionsThisMonth: Number(financialStats.this_month_deductions || 0),
+        netPayable: financialStats.current_net_payable !== undefined ? Number(financialStats.current_net_payable) : net
       };
     }
 
     // Fallback calculation if financialStats not present
-    const earningsThisMonth = currentMonthPayroll ? Number(currentMonthPayroll.suggested_salary || 0) : 0;
+    const earningsThisMonth = currentMonthPayroll ? Number(currentMonthPayroll.accrued_earnings_to_date || currentMonthPayroll.suggested_salary || 0) : 0;
     const deductionsThisMonth = currentMonthPayroll ? Number(currentMonthPayroll.deductions || 0) : 0;
+    const netPayable = currentMonthPayroll?.current_net_payable !== undefined 
+      ? Number(currentMonthPayroll.current_net_payable) 
+      : Math.max(0, Math.round((earningsThisMonth - deductionsThisMonth) * 100) / 100);
 
     let allTimePayrollEarnings = 0;
     let allTimePayrollDeductions = 0;
@@ -254,11 +261,12 @@ export default function StaffDetailPage() {
       totalEarnings: Math.round(totalEarnings),
       totalDeduction: Math.round(totalDeduction),
       earningsThisMonth: Math.round(earningsThisMonth),
-      deductionsThisMonth: Math.round(deductionsThisMonth)
+      deductionsThisMonth: Math.round(deductionsThisMonth),
+      netPayable
     };
   };
 
-  const { totalEarnings, totalDeduction, earningsThisMonth, deductionsThisMonth } = calculateAttendanceMetrics();
+  const { totalEarnings, totalDeduction, earningsThisMonth, deductionsThisMonth, netPayable } = calculateAttendanceMetrics();
 
   const calculateCurrentMonthLeavesTaken = () => {
     const today = new Date();
@@ -414,8 +422,13 @@ export default function StaffDetailPage() {
     const totalDeductions = cmp.deductions !== undefined ? cmp.deductions : 0;
     const attendanceDeductions = cmp.total_attendance_deductions !== undefined ? cmp.total_attendance_deductions : Math.max(0, totalDeductions - lateDeductionAmount);
     const overtimeEarnings = cmp.overtime_earnings !== undefined ? cmp.overtime_earnings : 0;
-    const netSalaryPayable = cmp.net_salary_payable !== undefined ? cmp.net_salary_payable : (cmp.suggested_salary !== undefined ? cmp.suggested_salary : Math.max(0, baseSalary - totalDeductions + overtimeEarnings));
-    const accruedEarnings = cmp.accrued_salary !== undefined ? cmp.accrued_salary : (cmp.accrued_earnings_to_date || 0);
+    const accruedEarnings = cmp.accrued_earnings_to_date !== undefined ? cmp.accrued_earnings_to_date : (cmp.accrued_salary || 0);
+    const netSalaryPayable = cmp.current_net_payable !== undefined 
+      ? cmp.current_net_payable 
+      : (cmp.net_salary_payable !== undefined ? cmp.net_salary_payable : Math.max(0, accruedEarnings - totalDeductions));
+    const projectedMonthEndNet = cmp.projected_month_end_net !== undefined 
+      ? cmp.projected_month_end_net 
+      : Math.max(0, baseSalary - totalDeductions + overtimeEarnings);
 
     // Append Salary Justification Section below existing attendance table
     rows.push([]);
@@ -438,10 +451,11 @@ export default function StaffDetailPage() {
     if (overtimeEarnings > 0) {
       rows.push(['Overtime Earnings', 'Check-out after 7:00 PM IST at hourly rate', `${cmp.total_overtime_hours || 0} hrs`, `₹${Number(overtimeEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     }
+    rows.push(['Accrued Earnings to Date', 'Worked days + elapsed Sundays + OT through cutoff', `${cmp.payable_days || 0} days`, `₹${Number(accruedEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     rows.push(['Total Deductions', 'Attendance short hours + late penalty deductions', '—', `₹${Number(totalDeductions).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
-    rows.push(['Net Salary Payable', `Base Salary – Deductions + Overtime`, 'Final payable', `₹${Number(netSalaryPayable).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
-    if (accruedEarnings > 0 && cmp.is_month_in_progress) {
-      rows.push(['Accrued Earnings to Date', 'Pro-rated worked days + elapsed Sundays + OT', `${cmp.payable_days || 0} days`, `₹${Number(accruedEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    rows.push(['Net Salary Payable', `Earnings − Total Deductions`, 'Current accrued payable', `₹${Number(netSalaryPayable).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    if (cmp.is_month_in_progress) {
+      rows.push(['Projected Month-End Net', 'Base Salary − Deductions + Overtime (Full month projection)', 'Month-end projected', `₹${Number(projectedMonthEndNet).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     }
 
     // Additional Notes / Rules Section
@@ -750,7 +764,7 @@ export default function StaffDetailPage() {
               </div>
  
               {/* Financial Metrics Tiles */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pb-4 border-b border-gray-100">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 pb-4 border-b border-gray-100">
                 {startDate || endDate ? (
                   <>
                     <div className="bg-emerald-50/40 border border-emerald-100 p-4 rounded-2xl">
@@ -771,6 +785,10 @@ export default function StaffDetailPage() {
                         {attendanceStats.total_late} times
                       </span>
                     </div>
+                    <div className="bg-primary/5 border border-primary/20 p-4 rounded-2xl">
+                      <p className="text-[9px] font-black text-primary uppercase tracking-widest mb-1">Net Payable</p>
+                      <span className="text-lg font-black text-primary font-mono">₹{Number(netPayable).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
                   </>
                 ) : (
                   <>
@@ -789,6 +807,10 @@ export default function StaffDetailPage() {
                     <div className="bg-red-50 border border-red-200/60 p-4 rounded-2xl">
                       <p className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-1">Deductions This Month</p>
                       <span className="text-lg font-black text-red-700 font-mono">₹{deductionsThisMonth.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="bg-primary/5 border border-primary/20 p-4 rounded-2xl">
+                      <p className="text-[9px] font-black text-primary uppercase tracking-widest mb-1">Net Payable</p>
+                      <span className="text-lg font-black text-primary font-mono">₹{Number(netPayable).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   </>
                 )}

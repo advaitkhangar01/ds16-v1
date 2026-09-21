@@ -16,20 +16,25 @@ async function calculateSalaryStats(userId, month, year, todayStr, settings) {
 
     const isMonthInProgress = !!payrollData.is_month_in_progress;
     // Canonical contract:
-    // earned_this_month = sum of all elapsed daily earnings including today's eligible attendance
-    // (during an active month, this is accrued_earnings_to_date: 17751.61)
-    // When month is closed, it settles at net_salary_payable: 26601.61
+    // earned_this_month = sum of all elapsed daily earnings including today's eligible attendance (accrued: 17751.61)
+    // deductions_this_month = total attendance + late deductions to date (5237.77)
+    // net_salary_payable = current accrued net payable (17751.61 - 5237.77 = 12513.84)
+    // projected_month_end_net = full month base salary projection (26601.61)
     const accruedEarnings = parseFloat(payrollData.accrued_earnings_to_date || payrollData.accrued_salary || 0);
-    const netSalaryPayable = parseFloat(payrollData.net_salary_payable || payrollData.suggested_salary || 0);
+    const netSalaryPayable = parseFloat(payrollData.current_net_payable !== undefined ? payrollData.current_net_payable : (payrollData.net_salary_payable || 0));
+    const projectedMonthEndNet = parseFloat(payrollData.projected_month_end_net || payrollData.projected_net_salary || 0);
     const earnedThisMonth = isMonthInProgress ? accruedEarnings : netSalaryPayable;
 
     return {
       earned_this_month: Math.round(earnedThisMonth * 100) / 100,
       accrued_earnings_to_date: Math.round(accruedEarnings * 100) / 100,
-      net_salary_payable: Math.round(netSalaryPayable * 100) / 100,
-      projected_net_salary: Math.round(netSalaryPayable * 100) / 100,
-      is_month_in_progress: isMonthInProgress,
       deductions_this_month: Math.round((payrollData.deductions || 0) * 100) / 100,
+      total_deductions_to_date: Math.round((payrollData.deductions || 0) * 100) / 100,
+      net_salary_payable: Math.round(netSalaryPayable * 100) / 100,
+      current_net_payable: Math.round(netSalaryPayable * 100) / 100,
+      projected_month_end_net: Math.round(projectedMonthEndNet * 100) / 100,
+      projected_net_salary: Math.round(projectedMonthEndNet * 100) / 100,
+      is_month_in_progress: isMonthInProgress,
       today_earned: todayRecord ? parseFloat(todayRecord.earnings || 0) : 0,
       today_deductions: todayRecord ? parseFloat(todayRecord.deduction || 0) : 0,
       late_count: payrollData.late_count || 0,
@@ -640,7 +645,8 @@ router.get('/salary-breakdown', authenticate, async (req, res) => {
 
     const isMonthInProgress = !!payrollData.is_month_in_progress;
     const accruedEarnings = parseFloat(payrollData.accrued_earnings_to_date || payrollData.accrued_salary || 0);
-    const netSalaryPayable = parseFloat(payrollData.net_salary_payable || payrollData.suggested_salary || 0);
+    const netSalaryPayable = parseFloat(payrollData.current_net_payable !== undefined ? payrollData.current_net_payable : (payrollData.net_salary_payable || 0));
+    const projectedMonthEndNet = parseFloat(payrollData.projected_month_end_net || payrollData.projected_net_salary || 0);
     const earnedThisMonth = isMonthInProgress ? accruedEarnings : netSalaryPayable;
 
     res.json({
@@ -650,10 +656,13 @@ router.get('/salary-breakdown', authenticate, async (req, res) => {
         base_salary:           parseFloat(payrollData.employee.base_salary || 0),
         earned_this_month:     Math.round(earnedThisMonth * 100) / 100,
         accrued_earnings_to_date: Math.round(accruedEarnings * 100) / 100,
-        net_salary_payable:    Math.round(netSalaryPayable * 100) / 100,
-        projected_net_salary:  Math.round(netSalaryPayable * 100) / 100,
-        is_month_in_progress:  isMonthInProgress,
         deductions_this_month: Math.round((payrollData.deductions || 0) * 100) / 100,
+        total_deductions_to_date: Math.round((payrollData.deductions || 0) * 100) / 100,
+        net_salary_payable:    Math.round(netSalaryPayable * 100) / 100,
+        current_net_payable:   Math.round(netSalaryPayable * 100) / 100,
+        projected_month_end_net: Math.round(projectedMonthEndNet * 100) / 100,
+        projected_net_salary:  Math.round(projectedMonthEndNet * 100) / 100,
+        is_month_in_progress:  isMonthInProgress,
         late_deduction_amount: Math.round((payrollData.late_deduction_amount || 0) * 100) / 100,
         half_day_deduction_amount: Math.round((payrollData.half_day_deduction_amount || 0) * 100) / 100,
         absence_deduction_amount: Math.round((payrollData.absence_deduction_amount || 0) * 100) / 100,

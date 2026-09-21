@@ -381,8 +381,9 @@ router.get('/:id', async (req, res) => {
       financialStats: {
         total_earnings: Math.round(allTimeEarnings),
         total_deductions: Math.round(allTimeDeductions),
-        this_month_earnings: Math.round(currentMonthSuggested),
-        this_month_deductions: Math.round(currentMonthDeductions)
+        this_month_earnings: Math.round(currentMonthPayroll ? (currentMonthPayroll.accrued_earnings_to_date || currentMonthPayroll.suggested_salary || 0) : 0),
+        this_month_deductions: Math.round(currentMonthDeductions),
+        current_net_payable: Math.round(currentMonthPayroll ? (currentMonthPayroll.current_net_payable || 0) : 0)
       },
       attendance: processedAttendance,
       leaveStats: {

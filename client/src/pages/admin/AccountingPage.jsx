@@ -2498,8 +2498,8 @@ export default function AccountingPage() {
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{emp.department}</p>
                           </div>
                           <div className="text-right">
-                            <p className="text-xs font-black text-primary font-mono">₹{Number(emp.net_salary_payable !== undefined ? emp.net_salary_payable : (emp.suggested_salary || 0)).toLocaleString('en-IN')}</p>
-                            <p className="text-[8px] font-bold text-gray-400 uppercase">Suggested</p>
+                            <p className="text-xs font-black text-primary font-mono">₹{Number(emp.current_net_payable !== undefined ? emp.current_net_payable : (emp.net_salary_payable !== undefined ? emp.net_salary_payable : (emp.suggested_salary || 0))).toLocaleString('en-IN')}</p>
+                            <p className="text-[8px] font-bold text-gray-400 uppercase">Net Payable</p>
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2 mb-4">
@@ -2704,11 +2704,11 @@ export default function AccountingPage() {
                             </td>
                             <td className="px-6 py-4 text-right font-black font-mono relative">
                               <div className="text-gray-900">
-                                ₹{Number(processed ? processed.net_paid : ((emp.net_salary_payable !== undefined ? emp.net_salary_payable : emp.suggested_salary) + parseFloat(rowIncentives[emp.id] || 0))).toLocaleString('en-IN')}
+                                ₹{Number(processed ? processed.net_paid : ((emp.current_net_payable !== undefined ? emp.current_net_payable : (emp.net_salary_payable !== undefined ? emp.net_salary_payable : emp.suggested_salary)) + parseFloat(rowIncentives[emp.id] || 0))).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </div>
                               
                               {/* Breakdown Tooltip */}
-                              <div className="absolute bottom-full right-0 mb-2 w-48 bg-gray-900 text-white rounded-xl p-3 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all z-50 transform translate-y-2 group-hover:translate-y-0">
+                              <div className="absolute bottom-full right-0 mb-2 w-52 bg-gray-900 text-white rounded-xl p-3 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all z-50 transform translate-y-2 group-hover:translate-y-0">
                                 <div className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 border-b border-gray-700 pb-1">Salary Breakdown</div>
                                 <div className="space-y-1.5">
                                   <div className="flex justify-between text-[11px]">
@@ -2727,6 +2727,20 @@ export default function AccountingPage() {
                                     <span>Payable Days:</span>
                                     <span className="text-primary">{emp.payable_days}d</span>
                                   </div>
+                                  <div className="flex justify-between text-[11px] pt-1 border-t border-gray-700 mt-1">
+                                    <span className="text-gray-400">Accrued:</span>
+                                    <span className="font-bold text-emerald-400">₹{Number(emp.accrued_earnings_to_date || 0).toLocaleString('en-IN')}</span>
+                                  </div>
+                                  <div className="flex justify-between text-[11px]">
+                                    <span className="text-gray-400">Deductions:</span>
+                                    <span className="font-bold text-red-400">-₹{Number(emp.deductions || 0).toLocaleString('en-IN')}</span>
+                                  </div>
+                                  {emp.is_month_in_progress && emp.projected_month_end_net && (
+                                    <div className="flex justify-between text-[11px] pt-1 border-t border-gray-700 mt-1">
+                                      <span className="text-gray-400 text-[9px]">Projected:</span>
+                                      <span className="font-bold text-slate-300 text-[9px]">₹{Number(emp.projected_month_end_net).toLocaleString('en-IN')}</span>
+                                    </div>
+                                  )}
                                   <div className="flex justify-between text-[11px] pt-1 border-t border-gray-700 mt-1">
                                     <span className="text-gray-400 italic text-[9px]">
                                       Base: ₹{parseFloat(emp.base_salary || 0).toLocaleString('en-IN')}

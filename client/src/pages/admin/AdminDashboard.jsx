@@ -215,7 +215,12 @@ function MyAdminSalaryStats({ salary, onCardClick }) {
   const deductedAmount = Math.round(Number(salary.deductions_this_month || 0));
   const todayEarned = Math.round(Number(salary.today_earned || 0));
   const todayDeductions = Math.round(Number(salary.today_deductions || 0));
-  const projectedNet = salary.projected_net_salary !== undefined ? Math.round(Number(salary.projected_net_salary)) : (salary.net_salary_payable !== undefined ? Math.round(Number(salary.net_salary_payable)) : null);
+  const currentNet = salary.current_net_payable !== undefined 
+    ? Math.round(Number(salary.current_net_payable)) 
+    : (salary.net_salary_payable !== undefined ? Math.round(Number(salary.net_salary_payable)) : (earnedAmount - deductedAmount));
+  const projectedMonthEnd = salary.projected_month_end_net !== undefined 
+    ? Math.round(Number(salary.projected_month_end_net)) 
+    : (salary.projected_net_salary !== undefined ? Math.round(Number(salary.projected_net_salary)) : null);
 
   return (
     <div className="grid grid-cols-2 gap-4">
@@ -239,11 +244,16 @@ function MyAdminSalaryStats({ salary, onCardClick }) {
             {todayEarned > 0 ? `+₹${todayEarned.toLocaleString('en-IN')} today` : 'Not checked in'}
           </span>
         </div>
-        {salary.is_month_in_progress && projectedNet !== null && (
-          <p className="text-[10px] font-black text-slate-500 font-mono mt-1">
-            Projected Net: <span className="text-emerald-700">₹{projectedNet.toLocaleString('en-IN')}</span>
-          </p>
-        )}
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-black font-mono">
+          <span className="text-slate-600">
+            Net Payable: <span className="text-emerald-700">₹{currentNet.toLocaleString('en-IN')}</span>
+          </span>
+          {salary.is_month_in_progress && projectedMonthEnd !== null && (
+            <span className="text-slate-400 font-normal">
+              · Projected: <span className="text-slate-600 font-bold">₹{projectedMonthEnd.toLocaleString('en-IN')}</span>
+            </span>
+          )}
+        </div>
         <p className="text-[9px] text-slate-300 mt-1.5 group-hover:text-emerald-400 transition-colors font-bold uppercase tracking-widest">Click for breakdown →</p>
       </button>
 
