@@ -514,7 +514,11 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
           }
         }
 
-        const finalNetPaid = Math.max(0, finalBaseSalary + finalBonus + finalIncentives - finalDeductions);
+        const finalOvertime = parseFloat(payrollData.overtime_earnings || 0);
+        let finalNetPaid = Math.max(0, finalBaseSalary + finalBonus + finalIncentives + finalOvertime - finalDeductions);
+        if (isOverride && existingPayroll.length > 0) {
+          finalNetPaid = parseFloat(existingPayroll[0].net_paid || finalNetPaid);
+        }
 
         await client.query(
           `INSERT INTO payroll (user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status, is_manual_override)

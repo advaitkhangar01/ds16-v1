@@ -265,7 +265,8 @@ router.put('/payroll/employees/:id', checkPeriodLock, async (req, res) => {
           const finalBonus = parseFloat(existingPayroll[0].bonus || 0);
           const finalIncentives = incentives !== undefined ? parseFloat(incentives) : parseFloat(existingPayroll[0].incentives || 0);
           const finalDeductions = parseFloat(payrollData.deductions || 0);
-          const finalNetPaid = Math.max(0, finalBaseSalary + finalBonus + finalIncentives - finalDeductions);
+          const finalOvertime = parseFloat(payrollData.overtime_earnings || 0);
+          const finalNetPaid = Math.max(0, finalBaseSalary + finalBonus + finalIncentives + finalOvertime - finalDeductions);
 
           await pool.query(
             `UPDATE payroll 

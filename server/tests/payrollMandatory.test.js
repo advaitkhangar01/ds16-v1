@@ -187,9 +187,9 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(stats.normal_earnings).toBeCloseTo(fullDayValue, 1);
   });
 
-  // Rule 9: Late arrival and Overtime coexist independently (with 1-hour completed multiple)
+  // Rule 9: Late arrival and Overtime coexist independently on the same day
   test('Rule 9: Late arrival and Overtime coexist independently on the same day', () => {
-    // Check-in 10:30 (late), check-out 20:30 (1.5h after 7 PM -> 1h completed OT multiple)
+    // Check-in 10:30 (late), check-out 20:30 (1.5h after 7 PM)
     const stats = calculateDayAttendanceStats(
       {
         date: '2026-09-18',
@@ -208,7 +208,7 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     );
 
     expect(stats.is_late).toBe(true);
-    expect(stats.overtime_hours).toBe(1.0);
+    expect(stats.overtime_hours).toBe(1.5);
     expect(stats.overtime_earnings).toBeGreaterThan(0);
   });
 

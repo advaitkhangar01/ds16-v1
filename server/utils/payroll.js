@@ -79,11 +79,9 @@ function calculateDayAttendanceStats(att, options = {}) {
       const startForOt = ci > cutoff ? ci : cutoff;
       const otMs = co.getTime() - startForOt.getTime();
       if (otMs > 0) {
-        // Rule 4: Overtime is only paid in completed 1-hour multiples.
-        // e.g. < 60 mins -> 0 hrs; 8:30 PM (90 mins) -> 1 hr; 9:00 PM (120 mins) -> 2 hrs.
-        const rawOtHours = otMs / (1000 * 60 * 60);
-        overtimeHours = Math.floor(rawOtHours);
-        regularHours = Math.max(0, regularHours - rawOtHours);
+        // Continuous overtime after 19:00 IST without break deductions
+        overtimeHours = otMs / (1000 * 60 * 60);
+        regularHours = Math.max(0, regularHours - overtimeHours);
       }
     }
   }
@@ -474,16 +472,37 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   const finalPayableDays = Math.max(0, effectiveDays - latePenaltyDays);
 
   const totalDeductions = Math.round((totalAttendanceDeductions + latePenaltyAmount) * 100) / 100;
-  const isMonthInProgress = unworkedFutureWorkingDays > 0;
+
+  // Check if period is formally closed in monthly_closing_log
+  let isPeriodClosed = false;
+  try {
+    const { rows: closeRows } = await dbPool.query(
+      'SELECT id FROM monthly_closing_log WHERE month = $1 AND year = $2',
+      [month, year]
+    );
+    isPeriodClosed = closeRows.length > 0;
+  } catch (err) {
+    // Graceful fallback if table is unavailable
+  }
+
+  const isMonthInProgress = !isPeriodClosed && unworkedFutureWorkingDays > 0;
+
   const accruedEarningsToDate = Math.max(0, Math.round((totalNormalEarnings + totalOvertimeEarnings) * 100) / 100);
   const accruedSalary = accruedEarningsToDate;
 
-  // Option A Canonical Formula: Net Payable = Base Salary - Total Deductions + Overtime
-  const netSalaryPayable = Math.max(0, Math.round((baseSalary - totalDeductions + totalOvertimeEarnings) * 100) / 100);
-  const currentNetPayable = netSalaryPayable;
-  const suggestedSalary = netSalaryPayable;
-  const projectedMonthEndNet = netSalaryPayable;
-  const totalEarnings = Math.round((baseSalary + totalOvertimeEarnings) * 100) / 100;
+  // Projected month-end net: Base Salary - Total Deductions + Overtime
+  const projectedMonthEndNet = Math.max(0, Math.round((baseSalary - totalDeductions + totalOvertimeEarnings) * 100) / 100);
+
+  // Authoritative Current Net Payable:
+  // For an in-progress month: Net Payable = Accrued Earnings - Total Deductions (17,751.61 - 5,237.77 = 12,513.84)
+  // For a closed / completed month: Net Payable = projectedMonthEndNet
+  const currentNetPayable = isMonthInProgress
+    ? Math.max(0, Math.round((accruedEarningsToDate - totalDeductions) * 100) / 100)
+    : projectedMonthEndNet;
+
+  const netSalaryPayable = currentNetPayable;
+  const suggestedSalary = currentNetPayable;
+  const totalEarnings = isMonthInProgress ? accruedEarningsToDate : Math.round((baseSalary + totalOvertimeEarnings) * 100) / 100;
 
   if (baseSalary <= 0 && hourlyRate > 0) {
     const hourlySuggested = (totalRegularHours + totalOvertimeHours) * hourlyRate;

@@ -23,7 +23,7 @@ async function calculateSalaryStats(userId, month, year, todayStr, settings) {
     const accruedEarnings = parseFloat(payrollData.accrued_earnings_to_date || payrollData.accrued_salary || 0);
     const netSalaryPayable = parseFloat(payrollData.current_net_payable !== undefined ? payrollData.current_net_payable : (payrollData.net_salary_payable || 0));
     const projectedMonthEndNet = parseFloat(payrollData.projected_month_end_net || payrollData.projected_net_salary || 0);
-    const earnedThisMonth = netSalaryPayable;
+    const earnedThisMonth = isMonthInProgress ? accruedEarnings : netSalaryPayable;
 
     return {
       earned_this_month: Math.round(earnedThisMonth * 100) / 100,

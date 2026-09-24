@@ -258,25 +258,35 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       // Total Deductions = Attendance deductions + late penalty = ₹5,237.78
       expect(res.deductions).toBeCloseTo(5237.78, 1);
 
-      // Verify Overtime (completed 1-hour multiples after 19:00 IST)
-      // 14 OT hours @ ₹111.111.../hr = ₹1,555.56
-      expect(res.total_overtime_hours).toBe(14);
-      expect(res.overtime_earnings).toBeCloseTo(1555.56, 1);
+      // Verify Overtime (continuous after 19:00 IST)
+      // 16.5544 OT hours @ ₹111.111.../hr = ₹1,839.38
+      expect(res.total_overtime_hours).toBeCloseTo(16.55, 1);
+      expect(res.overtime_earnings).toBeCloseTo(1839.38, 1);
 
-      // Verify Option A Canonical Net Payable:
-      // Net Payable = Base Salary (30,000) - Deductions (5,237.78) + Overtime (1,555.56) = ₹26,317.78
-      expect(res.current_net_payable).toBeCloseTo(26317.78, 1);
-      expect(res.net_salary_payable).toBeCloseTo(26317.78, 1);
-      expect(res.suggested_salary).toBeCloseTo(26317.78, 1);
-      expect(res.projected_month_end_net).toBeCloseTo(26317.78, 1);
+      // Verify Authoritative Accrued Earnings to date:
+      // Normal Earnings (11 full + 3 Sundays + 3 half) = ₹15,912.22
+      // Overtime Earnings = ₹1,839.38
+      // Total Accrued Earnings = ₹17,751.61
+      expect(res.accrued_earnings_to_date).toBeCloseTo(17751.61, 1);
+
+      // Verify Authoritative Current Net Payable:
+      // Net Payable = Accrued Earnings (17,751.61) - Deductions (5,237.78) = ₹12,513.84
+      expect(res.current_net_payable).toBeCloseTo(12513.84, 1);
+      expect(res.net_salary_payable).toBeCloseTo(12513.84, 1);
+      expect(res.suggested_salary).toBeCloseTo(12513.84, 1);
+
+      // Verify Month-End Projection (Separate from Current Net Payable):
+      // Base Salary (30,000) - Deductions (5,237.78) + Overtime (1,839.38) = ₹26,601.61
+      expect(res.projected_month_end_net).toBeCloseTo(26601.61, 1);
 
       // Verify Dashboard calculateSalaryStats API contract
       const salaryStats = await calculateSalaryStats(abhijitId, 9, 2026, '2026-09-21', septSettings);
-      expect(salaryStats.earned_this_month).toBeCloseTo(26317.78, 1);
+      expect(salaryStats.earned_this_month).toBeCloseTo(17751.61, 1);
+      expect(salaryStats.accrued_earnings_to_date).toBeCloseTo(17751.61, 1);
       expect(salaryStats.deductions_this_month).toBeCloseTo(5237.78, 1);
-      expect(salaryStats.current_net_payable).toBeCloseTo(26317.78, 1);
-      expect(salaryStats.net_salary_payable).toBeCloseTo(26317.78, 1);
-      expect(salaryStats.projected_month_end_net).toBeCloseTo(26317.78, 1);
+      expect(salaryStats.current_net_payable).toBeCloseTo(12513.84, 1);
+      expect(salaryStats.net_salary_payable).toBeCloseTo(12513.84, 1);
+      expect(salaryStats.projected_month_end_net).toBeCloseTo(26601.61, 1);
       expect(salaryStats.is_month_in_progress).toBe(true);
 
     } finally {
