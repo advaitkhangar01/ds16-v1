@@ -221,8 +221,8 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
         );
       }
 
-      // Run payroll calculation for Sept 2026
-      const res = await calculatePayrollForEmployee(abhijitId, 9, 2026, septSettings, pool);
+      // Run payroll calculation for Sept 2026 as of 21 Sept
+      const res = await calculatePayrollForEmployee(abhijitId, 9, 2026, septSettings, pool, '2026-09-21');
 
       // Verify physical attendance
       expect(res.full_days_worked).toBe(11);
@@ -234,8 +234,8 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       expect(res.total_absent).toBe(4);
       expect(res.sundays_count).toBe(3); // 6, 13, 20 Sept only; 27 Sept Sunday must NOT be counted
 
-      // Verify upcoming future days
-      const upcomingRecords = res.processedAttendance.filter(r => r.status === 'upcoming');
+      // Verify upcoming / pending future days
+      const upcomingRecords = res.processedAttendance.filter(r => r.status === 'upcoming' || r.status === 'today_pending');
       expect(upcomingRecords.length).toBe(9); // 22 through 30 Sept
       for (const ur of upcomingRecords) {
         expect(ur.earnings).toBe(0);
@@ -243,45 +243,52 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
         expect(ur.is_late).toBe(false);
       }
 
-      // Verify late penalty
+      // Verify late arrivals count and consecutive late penalty
+      // Abhijit had 3 late arrivals (4th, 8th, 14th) separated by on-time days, so 0 consecutive groups
       expect(res.late_count).toBe(3);
-      expect(res.late_penalty_days).toBe(0.15);
-      expect(res.late_deduction_amount).toBe(150.00);
+      expect(res.consecutive_late_groups).toBe(0);
+      expect(res.late_penalty_days).toBe(0);
+      expect(res.late_deduction_amount).toBe(0);
 
-      // Verify attendance deductions (4 absences * ₹1,000 + ₹1,087.77 half-day shortfall)
-      expect(res.total_attendance_deductions).toBeCloseTo(5087.77, 1);
+      // Verify Rules 5, 6, 7: Half days & absents have ZERO deduction
+      expect(res.total_attendance_deductions).toBe(0);
+      expect(res.half_day_deduction_amount).toBe(0);
+      expect(res.absence_deduction_amount).toBe(0);
 
-      // Verify single unambiguous Total Deductions = ₹5,087.77 + ₹150.00 = ₹5,237.77
-      expect(res.deductions).toBeCloseTo(5237.77, 1);
+      // Total Deductions = late penalty only = ₹0.00
+      expect(res.deductions).toBe(0);
 
-      // Verify Overtime (~16.55h @ ₹111.11/hr = ₹1,839.38)
-      expect(res.overtime_earnings).toBeCloseTo(1839.38, 0);
+      // Verify Overtime (Rule 4: strictly completed 1-hour multiples after 19:00 IST)
+      // 14 OT hours @ ₹111.111.../hr = ₹1,555.56
+      expect(res.total_overtime_hours).toBe(14);
+      expect(res.overtime_earnings).toBeCloseTo(1555.56, 1);
 
-      // Canonical Business Rule:
-      // In-progress Net Payable = Accrued Earnings (17,751.61) - Total Deductions (5,237.77) = ₹12,513.84
-      expect(res.current_net_payable).toBeCloseTo(12513.84, 1);
-      expect(res.net_salary_payable).toBeCloseTo(12513.84, 1);
-      expect(res.suggested_salary).toBeCloseTo(12513.84, 1);
+      // Verify Accrued Earnings to Date:
+      // 11 full days (₹11,000) + 3 Sundays (₹3,000) + 3 half days (₹1,912.22) + 14h OT (₹1,555.56) = ₹17,467.78
+      expect(res.accrued_salary).toBeCloseTo(17467.78, 1);
+      expect(res.accrued_earnings_to_date).toBeCloseTo(17467.78, 1);
+
+      // Canonical Business Rule: Net Payable = Total Earnings - Total Deductions
+      // ₹17,467.78 - ₹0.00 = ₹17,467.78
+      expect(res.current_net_payable).toBeCloseTo(17467.78, 1);
+      expect(res.net_salary_payable).toBeCloseTo(17467.78, 1);
+      expect(res.suggested_salary).toBeCloseTo(17467.78, 1);
 
       // Invariant: current_net_payable === accrued_earnings_to_date - deductions
       expect(res.current_net_payable).toBeCloseTo(res.accrued_earnings_to_date - res.deductions, 1);
 
-      // Month-end projection kept strictly separate
-      expect(res.projected_month_end_net).toBeCloseTo(26601.61, 1);
-      expect(res.projected_net_salary).toBeCloseTo(26601.61, 1);
+      // Month-end projection
+      expect(res.projected_month_end_net).toBeCloseTo(31555.56, 1);
+      expect(res.projected_net_salary).toBeCloseTo(31555.56, 1);
 
-      // Verify Accrued Earnings to Date = ₹17,751.61
-      expect(res.accrued_salary).toBeCloseTo(17751.61, 0);
-      expect(res.accrued_earnings_to_date).toBeCloseTo(17751.61, 0);
-
-      // Verify Dashboard calculateSalaryStats API contract (2-decimal precision canonical values)
+      // Verify Dashboard calculateSalaryStats API contract
       const salaryStats = await calculateSalaryStats(abhijitId, 9, 2026, '2026-09-21', septSettings);
-      expect(salaryStats.earned_this_month).toBeCloseTo(17751.61, 1);
-      expect(salaryStats.accrued_earnings_to_date).toBeCloseTo(17751.61, 1);
-      expect(salaryStats.deductions_this_month).toBeCloseTo(5237.77, 1);
-      expect(salaryStats.current_net_payable).toBeCloseTo(12513.84, 1);
-      expect(salaryStats.net_salary_payable).toBeCloseTo(12513.84, 1);
-      expect(salaryStats.projected_month_end_net).toBeCloseTo(26601.61, 1);
+      expect(salaryStats.earned_this_month).toBeCloseTo(17467.78, 1);
+      expect(salaryStats.accrued_earnings_to_date).toBeCloseTo(17467.78, 1);
+      expect(salaryStats.deductions_this_month).toBe(0);
+      expect(salaryStats.current_net_payable).toBeCloseTo(17467.78, 1);
+      expect(salaryStats.net_salary_payable).toBeCloseTo(17467.78, 1);
+      expect(salaryStats.projected_month_end_net).toBeCloseTo(31555.56, 1);
       expect(salaryStats.is_month_in_progress).toBe(true);
 
     } finally {

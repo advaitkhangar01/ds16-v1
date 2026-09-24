@@ -155,7 +155,7 @@ router.get('/payroll/employees', async (req, res) => {
   const { month, year } = req.query;
   try {
     // 1. Fetch all employees and admins for payroll
-    const empRes = await pool.query("SELECT id, name, department, role, base_salary, hourly_rate FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head') ORDER BY name");
+    const empRes = await pool.query("SELECT id, name, department, role, base_salary, hourly_rate FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head') AND is_active IS NOT FALSE ORDER BY name");
     const employees = empRes.rows;
 
     if (!month || !year) {

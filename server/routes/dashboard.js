@@ -8,7 +8,7 @@ const { calculatePayrollForEmployee } = require('../utils/payroll');
 
 async function calculateSalaryStats(userId, month, year, todayStr, settings) {
   try {
-    const payrollData = await calculatePayrollForEmployee(userId, month, year, settings, pool);
+    const payrollData = await calculatePayrollForEmployee(userId, month, year, settings, pool, todayStr);
     if (!payrollData) return null;
 
     // Find today's daily record in the processed daily logs
@@ -99,7 +99,8 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
              )
          ) AS on_leave
        FROM users u
-       LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date`,
+       LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date
+       WHERE u.is_active IS NOT FALSE`,
       [today]
     );
     const attendance = attendanceRows[0];
@@ -705,12 +706,13 @@ router.get('/employee', authenticate, async (req, res) => {
     const { rows: todayStatusRows } = await pool.query(
       `SELECT 
          CASE
-           WHEN a.id IS NOT NULL THEN
+           WHEN a.check_in IS NOT NULL THEN
              CASE 
-               WHEN LOWER(COALESCE(a.status, '')) = 'present' THEN 
+               WHEN LOWER(COALESCE(a.status, '')) IN ('present', 'working') THEN 
                  CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
                ELSE LOWER(COALESCE(a.status, 'working'))
              END
+           WHEN a.id IS NOT NULL AND LOWER(COALESCE(a.status, '')) IN ('leave', 'half_day', 'absent') THEN LOWER(a.status)
            WHEN lr.id IS NOT NULL THEN 'leave'
            WHEN EXTRACT(DOW FROM $2::date) = 0 THEN 'sunday'
            WHEN h.date IS NOT NULL THEN 'holiday'
@@ -756,7 +758,8 @@ router.get('/employee', authenticate, async (req, res) => {
              )
          ) AS on_leave
        FROM users u
-       LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date`,
+       LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $1::date
+       WHERE u.is_active IS NOT FALSE`,
       [todayStr]
     );
     const teamStats = teamStatsRows[0];

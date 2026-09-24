@@ -195,7 +195,7 @@ async function generateSnapshot(month, year, client = pool) {
   }
 
   // 3. HR details
-  const empRes = await client.query("SELECT COUNT(*) as count FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head')");
+  const empRes = await client.query("SELECT COUNT(*) as count FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head') AND is_active IS NOT FALSE");
   const totalEmployees = parseInt(empRes.rows[0].count);
 
   const processedRes = await client.query("SELECT COUNT(*) as count FROM payroll WHERE month = $1 AND year = $2 AND status = 'paid'", [month, year]);
@@ -281,7 +281,7 @@ router.get('/preview', requireAccounting, async (req, res) => {
 
     // 2. Payroll pending count & details
     const empRes = await pool.query(
-      "SELECT id, name, base_salary, hourly_rate FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head')"
+      "SELECT id, name, base_salary, hourly_rate FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head') AND is_active IS NOT FALSE"
     );
     const payrollProcessedRes = await pool.query(
       "SELECT user_id, status FROM payroll WHERE month = $1 AND year = $2",
@@ -431,7 +431,7 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
     }
 
     // 2. Identify employees and compute leave balances
-    const empRes = await client.query("SELECT id, role FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head')");
+    const empRes = await client.query("SELECT id, role FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head') AND is_active IS NOT FALSE");
     
     // Fetch app_settings for payroll calculations
     const { rows: settingsRows } = await client.query('SELECT key, value FROM app_settings');

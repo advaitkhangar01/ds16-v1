@@ -38,30 +38,38 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
     }
   }
 
+  const normStatus = (status || (checkIn ? (checkOut ? 'completed' : 'working') : '')).toLowerCase();
+
   // Trust the server's status for half_day — don't recalculate from hours in the frontend,
   // as that causes a collision with the late-arrival path (both use hoursWorked < threshold).
-  const isHalfDay = status === 'half_day';
+  const isHalfDay = normStatus === 'half_day';
 
   if (isHalfDay) {
     return <span className="badge bg-sky-50 text-sky-600 border-sky-200 font-bold">◑ Half Day</span>;
   }
-  if (status === 'working' || status === 'completed' || status === 'present') {
+  if (normStatus === 'working' || normStatus === 'completed' || normStatus === 'present' || checkIn) {
     return (
       <span className={`badge ${isLate ? 'bg-red-50 text-red-600 border-red-200' : 'badge-working'}`}>
         ● {isLate ? 'Late Arrival' : 'Present'}
       </span>
     );
   }
-  if (status === 'leave') {
+  if (normStatus === 'leave') {
     return <span className="badge bg-violet-50 text-violet-600 border-violet-200 font-bold">● On Leave</span>;
   }
-  if (status === 'sunday') {
+  if (normStatus === 'sunday') {
     return <span className="badge bg-slate-100 text-slate-600 border-slate-200 font-bold">○ Sunday</span>;
   }
-  if (status === 'holiday') {
+  if (normStatus === 'holiday') {
     return <span className="badge bg-indigo-50 text-indigo-600 border-indigo-200 font-bold">★ Holiday</span>;
   }
-  return <span className="badge badge-absent text-red-600">Absent</span>;
+  if (normStatus === 'upcoming' || normStatus === 'future') {
+    return <span className="badge bg-slate-100 text-slate-500 border-slate-200 font-bold">○ Upcoming</span>;
+  }
+  if (normStatus === 'today_pending' || normStatus === 'pending') {
+    return <span className="badge bg-amber-50 text-amber-600 border-amber-200 font-bold">⏳ Pending</span>;
+  }
+  return <span className="badge badge-absent text-red-600 font-bold">Absent</span>;
 }
 
 export default function AttendancePage() {
@@ -205,11 +213,11 @@ export default function AttendancePage() {
       } else if (statusFilter === 'late') {
         filtered = filtered.filter(r => r.is_late);
       } else if (statusFilter === ATTENDANCE_STATUS.HALF_DAY) {
-        filtered = filtered.filter(r => r.status === ATTENDANCE_STATUS.HALF_DAY);
+        filtered = filtered.filter(r => r.status?.toLowerCase() === ATTENDANCE_STATUS.HALF_DAY);
       } else if (statusFilter === ATTENDANCE_STATUS.ABSENT) {
-        filtered = filtered.filter(r => r.status === ATTENDANCE_STATUS.ABSENT);
+        filtered = filtered.filter(r => !r.checkIn && r.status?.toLowerCase() === ATTENDANCE_STATUS.ABSENT);
       } else if (statusFilter === ATTENDANCE_STATUS.LEAVE) {
-        filtered = filtered.filter(r => r.status === ATTENDANCE_STATUS.LEAVE);
+        filtered = filtered.filter(r => r.status?.toLowerCase() === ATTENDANCE_STATUS.LEAVE);
       }
     }
     
@@ -313,9 +321,9 @@ export default function AttendancePage() {
     const counts = {
       present: baseRecords.filter(r => r.checkIn).length,
       late: baseRecords.filter(r => r.is_late).length,
-      halfDay: baseRecords.filter(r => r.status === ATTENDANCE_STATUS.HALF_DAY).length,
-      absent: baseRecords.filter(r => r.status === ATTENDANCE_STATUS.ABSENT).length,
-      leave: baseRecords.filter(r => r.status === ATTENDANCE_STATUS.LEAVE).length,
+      halfDay: baseRecords.filter(r => r.status?.toLowerCase() === ATTENDANCE_STATUS.HALF_DAY).length,
+      absent: baseRecords.filter(r => !r.checkIn && r.status?.toLowerCase() === ATTENDANCE_STATUS.ABSENT).length,
+      leave: baseRecords.filter(r => r.status?.toLowerCase() === ATTENDANCE_STATUS.LEAVE).length,
       total: baseRecords.length
     };
 
@@ -685,17 +693,19 @@ export default function AttendancePage() {
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {!isFuture && visibleUsers.map(u => {
                         const record = dayRecords.find(r => r.user_id === u.id);
-                        const isPresent = record && (
-                          record.status === ATTENDANCE_STATUS.WORKING ||
-                          record.status === ATTENDANCE_STATUS.COMPLETED ||
-                          record.status === 'present'
-                        );
+                        const recStatus = record?.status?.toLowerCase();
+                        const isPresent = Boolean(record && (
+                          record.checkIn ||
+                          recStatus === ATTENDANCE_STATUS.WORKING ||
+                          recStatus === ATTENDANCE_STATUS.COMPLETED ||
+                          recStatus === 'present'
+                        ));
 
                         let statusText = 'Absent';
                         let styleClass = 'bg-red-50 text-red-700 border-red-500 hover:bg-red-100 hover:scale-105';
 
                         // Use server-stored flags — avoids re-deriving with different settings keys
-                        const cellIsHalfDay = record?.status === ATTENDANCE_STATUS.HALF_DAY;
+                        const cellIsHalfDay = recStatus === ATTENDANCE_STATUS.HALF_DAY;
                         const cellIsLate    = !!record?.is_late && !cellIsHalfDay;
 
                         if (cellIsHalfDay) {
@@ -707,15 +717,21 @@ export default function AttendancePage() {
                         } else if (isPresent) {
                           statusText = 'Present';
                           styleClass = 'bg-emerald-50 text-emerald-700 border-emerald-500 hover:bg-emerald-100 hover:scale-105';
-                        } else if (record?.status === ATTENDANCE_STATUS.LEAVE) {
+                        } else if (recStatus === ATTENDANCE_STATUS.LEAVE) {
                           statusText = 'Leave';
                           styleClass = 'bg-violet-50 text-violet-700 border-violet-500 hover:bg-violet-100 hover:scale-105';
-                        } else if (record?.status === 'sunday') {
+                        } else if (recStatus === 'sunday') {
                           statusText = 'Sunday';
                           styleClass = 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200 hover:scale-105';
-                        } else if (record?.status === 'holiday') {
+                        } else if (recStatus === 'holiday') {
                           statusText = 'Holiday';
                           styleClass = 'bg-indigo-50 text-indigo-700 border-indigo-300 hover:bg-indigo-100 hover:scale-105';
+                        } else if (recStatus === 'today_pending' || recStatus === 'pending') {
+                          statusText = 'Pending';
+                          styleClass = 'bg-amber-50 text-amber-600 border-amber-300 hover:bg-amber-100 hover:scale-105';
+                        } else if (recStatus === 'upcoming' || recStatus === 'future') {
+                          statusText = 'Upcoming';
+                          styleClass = 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200 hover:scale-105';
                         }
 
                         // Filter dots based on statusFilter

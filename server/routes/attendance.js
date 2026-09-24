@@ -68,7 +68,7 @@ async function autoCheckoutPendingRecords() {
        WHERE a.check_in IS NOT NULL 
          AND a.check_out IS NULL 
          AND a.date < $1::date
-         AND a.date >= $1::date - INTERVAL '3 days'`,
+         AND a.date >= $1::date - INTERVAL '30 days'`,
       [today]
     );
 
@@ -131,7 +131,8 @@ async function autoCheckoutPendingRecords() {
            check_out = $1,
            status = $2,
            hours_worked = $3,
-           is_late = $4
+           is_late = $4,
+           late_minutes = CASE WHEN $4::boolean THEN late_minutes ELSE 0 END
          WHERE id = $5`,
         [checkOutTime.toISOString(), newStatus, hoursWorked, isLate, r.id]
       );
@@ -317,12 +318,14 @@ router.post('/checkin', authenticate, async (req, res) => {
     if (checkInMins > halfDayMinsCutoff) {
       status = ATTENDANCE_STATUS.HALF_DAY;
       isLate = false;
-    } else if (checkInMins > lateMinsThreshold) {
-      isLate = true;
-    }
-
-    if (checkInMins > startMins) {
-      lateMins = checkInMins - startMins;
+      lateMins = 0;
+    } else {
+      if (checkInMins > lateMinsThreshold) {
+        isLate = true;
+      }
+      if (checkInMins > startMins) {
+        lateMins = checkInMins - startMins;
+      }
     }
 
     // ── Write attendance record ──────────────────────────────────────────────
@@ -474,12 +477,7 @@ router.post('/checkout', authenticate, async (req, res) => {
     let newStatus = (existing[0].status || ATTENDANCE_STATUS.WORKING).toLowerCase();
     const currentStatusLower = newStatus;
 
-    let minWorkingHours = 9.0;
-    if (userBatch.min_working_hours) {
-      minWorkingHours = parseFloat(userBatch.min_working_hours);
-    } else if (settings.min_working_hours) {
-      minWorkingHours = parseFloat(settings.min_working_hours);
-    }
+    let minWorkingHours = parseFloat(userBatch.min_working_hours || settings.min_working_hours || 4.0);
 
     if (currentStatusLower === ATTENDANCE_STATUS.HALF_DAY) {
       newStatus = ATTENDANCE_STATUS.HALF_DAY; // checked in after cutoff
@@ -520,7 +518,8 @@ router.post('/checkout', authenticate, async (req, res) => {
          checkout_lat = $3, checkout_lng = $4, checkout_accuracy = $5,
          checkout_distance = $6, checkout_zone = $7, checkout_outside_zone = $8,
          hours_worked = $9,
-         is_late = CASE WHEN $12::boolean THEN false ELSE is_late END
+         is_late = CASE WHEN $12::boolean THEN false ELSE is_late END,
+         late_minutes = CASE WHEN $12::boolean THEN 0 ELSE late_minutes END
        WHERE user_id = $10 AND date = $11::date
        RETURNING *`,
       [
@@ -564,12 +563,13 @@ router.get('/today', authenticate, async (req, res) => {
          a.is_boundary_checkin, a.checkin_verified,
          a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
           CASE
-            WHEN a.id IS NOT NULL THEN
+            WHEN a.check_in IS NOT NULL THEN
               CASE 
-                WHEN LOWER(COALESCE(a.status, '')) = 'present' THEN 
+                WHEN LOWER(COALESCE(a.status, '')) IN ('present', 'working') THEN 
                   CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
                 ELSE LOWER(COALESCE(a.status, 'working'))
               END
+            WHEN a.id IS NOT NULL AND LOWER(COALESCE(a.status, '')) IN ('leave', 'half_day', 'absent') THEN LOWER(a.status)
             WHEN lr.id IS NOT NULL THEN LOWER($2)
             WHEN EXTRACT(DOW FROM $1::date) = 0 THEN 'sunday'
             WHEN h.date IS NOT NULL THEN 'holiday'
@@ -582,6 +582,7 @@ router.get('/today', authenticate, async (req, res) => {
          AND lr.type NOT IN ('advance', 'resignation')
          AND $1::date BETWEEN lr.start_date AND lr.end_date
        LEFT JOIN holidays h ON h.date = $1::date
+       WHERE (u.is_active IS NOT FALSE OR a.id IS NOT NULL)
        ORDER BY a.check_in ASC NULLS LAST, u.name ASC`,
       [today, ATTENDANCE_STATUS.LEAVE, ATTENDANCE_STATUS.ABSENT, LEAVE_STATUS.APPROVED]
     );
@@ -634,7 +635,7 @@ router.get('/all', authenticate, async (req, res) => {
        target_users AS (
          SELECT id, name, role, department 
          FROM users 
-         WHERE ($3::integer IS NULL OR id = $3)
+         WHERE (($3::integer IS NULL AND is_active IS NOT FALSE) OR id = $3)
        ),
        user_dates AS (
          SELECT u.id AS user_id, u.name AS employee_name, u.role, u.department, d.date
@@ -668,12 +669,15 @@ router.get('/all', authenticate, async (req, res) => {
          a.checkout_zone,
          a.checkout_outside_zone,
           CASE
-            WHEN a.id IS NOT NULL THEN
+            WHEN a.check_in IS NOT NULL THEN
               CASE 
-                WHEN LOWER(COALESCE(a.status, '')) = 'present' THEN 
+                WHEN LOWER(COALESCE(a.status, '')) IN ('present', 'working') THEN 
                   CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
                 ELSE LOWER(COALESCE(a.status, 'working'))
               END
+            WHEN a.id IS NOT NULL AND LOWER(COALESCE(a.status, '')) IN ('leave', 'half_day', 'absent') THEN LOWER(a.status)
+            WHEN ud.date > (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date THEN 'upcoming'
+            WHEN ud.date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date AND a.id IS NULL THEN 'today_pending'
             WHEN lr.id IS NOT NULL THEN 'leave'
             WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
             WHEN h.date IS NOT NULL THEN 'holiday'
@@ -782,7 +786,7 @@ router.get('/attempts', authenticate, requireAdmin, async (req, res) => {
 router.get('/users', authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, role, department FROM users ORDER BY name ASC'
+      'SELECT id, name, role, department FROM users WHERE is_active IS NOT FALSE ORDER BY name ASC'
     );
     res.json({ users: rows });
   } catch (err) {

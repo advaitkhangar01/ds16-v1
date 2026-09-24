@@ -313,6 +313,7 @@ router.post('/app', requireAdmin, async (req, res) => {
     'geofence_enabled', 'office_lat', 'office_lng',
     'geofence_strict_radius', 'geofence_buffer_radius', 'geofence_max_accuracy',
     'late_penalty_amount', 'half_day_penalty_percent',
+    'late_penalty_rule_count', 'late_penalty_rule_days',
     'company_name', 'company_address', 'company_phone', 'company_email',
     'company_gst', 'company_website', 'company_logo',
     'overtime_threshold_hour',

@@ -25,6 +25,7 @@ router.get('/', requireAdmin, async (req, res) => {
         (SELECT LOWER(status) FROM attendance a WHERE a.user_id = u.id AND a.date = CURRENT_DATE LIMIT 1) as attendance_status_today,
         (SELECT check_in FROM attendance a WHERE a.user_id = u.id AND a.date = CURRENT_DATE LIMIT 1) as check_in_today
       FROM users u
+      WHERE u.is_active IS NOT FALSE
       ORDER BY u.name ASC
     `);
     res.json({ staff: rows });
@@ -341,15 +342,7 @@ router.get('/:id', async (req, res) => {
                ELSE 0 
              END
            ), 0) as hist_earnings,
-           COALESCE(SUM(
-             CASE 
-               WHEN LOWER(a.status) = 'half_day' THEN 
-                 COALESCE((NULLIF(u.base_salary, 0) / 30) * 0.5, 0)
-               WHEN LOWER(a.status) = 'absent' THEN 
-                 COALESCE(NULLIF(u.base_salary, 0) / 30, 0)
-               ELSE 0 
-             END
-           ), 0) as hist_deductions
+           0 as hist_deductions
          FROM attendance a
          JOIN users u ON u.id = a.user_id
          WHERE a.user_id = $1

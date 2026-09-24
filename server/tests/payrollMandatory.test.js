@@ -135,8 +135,8 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(res.late_deduction_amount).toBe(0);
   });
 
-  // Rule 6: 5h short day pays exactly 5 * hourlyRate
-  test('Rule 6: 5h short day deducts unworked hours so employee receives 5 * hourly', () => {
+  // Rule 6: 5h short day pays for actual hours worked, ZERO deduction
+  test('Rule 6: 5h short day pays for actual hours worked with zero penalty/deduction', () => {
     const stats = calculateDayAttendanceStats(
       { date: '2026-09-15', status: 'half_day', hours_worked: 5.0, batch_id: testBatchId },
       { baseSalary: 25000, batchMinHours: 8.5 }
@@ -144,14 +144,13 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     const fullDayValue = 25000 / 30; // 833.333...
     const hourly = fullDayValue / 8.5; // 98.0392...
     const expectedPay = 5.0 * hourly;
-    const expectedDeduction = fullDayValue - expectedPay;
 
-    expect(stats.deduction).toBeCloseTo(expectedDeduction, 1);
+    expect(stats.deduction).toBe(0);
     expect(stats.normal_earnings).toBeCloseTo(expectedPay, 1);
   });
 
-  // Rule 7: 1.5h attendance pays exactly 1.5 * hourlyRate
-  test('Rule 7: 1.5h attendance pays exactly 1.5 * hourly', () => {
+  // Rule 7: 1.5h attendance pays exactly 1.5 * hourlyRate with zero deduction
+  test('Rule 7: 1.5h attendance pays exactly 1.5 * hourly with zero deduction', () => {
     const stats = calculateDayAttendanceStats(
       { date: '2026-09-16', status: 'half_day', hours_worked: 1.5, batch_id: testBatchId },
       { baseSalary: 25000, batchMinHours: 8.5 }
@@ -159,9 +158,8 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     const fullDayValue = 25000 / 30;
     const hourly = fullDayValue / 8.5;
     const expectedPay = 1.5 * hourly;
-    const expectedDeduction = fullDayValue - expectedPay;
 
-    expect(stats.deduction).toBeCloseTo(expectedDeduction, 1);
+    expect(stats.deduction).toBe(0);
     expect(stats.normal_earnings).toBeCloseTo(expectedPay, 1);
   });
 
@@ -187,9 +185,9 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(stats.normal_earnings).toBeCloseTo(fullDayValue, 1);
   });
 
-  // Rule 9: Late arrival and Overtime coexist independently
+  // Rule 9: Late arrival and Overtime coexist independently (with 1-hour completed multiple)
   test('Rule 9: Late arrival and Overtime coexist independently on the same day', () => {
-    // Check-in 10:30 (late), check-out 20:30 (1.5h OT)
+    // Check-in 10:30 (late), check-out 20:30 (1.5h after 7 PM -> 1h completed OT multiple)
     const stats = calculateDayAttendanceStats(
       {
         date: '2026-09-18',
@@ -208,7 +206,7 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     );
 
     expect(stats.is_late).toBe(true);
-    expect(stats.overtime_hours).toBe(1.5);
+    expect(stats.overtime_hours).toBe(1.0);
     expect(stats.overtime_earnings).toBeGreaterThan(0);
   });
 

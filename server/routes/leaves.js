@@ -137,7 +137,7 @@ router.get('/', authenticate, async (req, res) => {
     const params = [];
     console.log('[Leaves] Fetching leaves for user:', req.user.id, 'Role:', req.user.role);
 
-    if (req.user.role !== USER_ROLES.ADMIN) {
+    if (req.user.role !== USER_ROLES.ADMIN && req.user.role !== 'back_office' && req.user.role !== 'accounts') {
       query += ` WHERE l.user_id = $1`;
       params.push(req.user.id);
     }
