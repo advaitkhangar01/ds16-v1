@@ -133,31 +133,30 @@ function calculateDayAttendanceStats(att, options = {}) {
       dayEarnings = fullDayValue;
       dayDeduction = 0;
     } else if (dayStatus === 'half_day') {
-      // Rule 5: Half day shall only be marked and not be counted as deduction/penalty
-      // Paid for actual hours worked, ZERO deduction
+      // Half-day: deduct unworked regular hours shortfall
       if (regularHours > 0) {
         dayEarnings = regularHours * effectiveHourlyRate;
+        dayDeduction = Math.max(0, fullDayValue - dayEarnings);
       } else {
         dayEarnings = fullDayValue * 0.5;
+        dayDeduction = fullDayValue * 0.5;
       }
-      dayDeduction = 0;
     } else if (dayStatus === 'sunday' || dayStatus === 'holiday') {
-      // Rule 9: Sundays are paid days
+      // Sundays and holidays are paid days
       dayEarnings = fullDayValue;
       dayDeduction = 0;
     } else if (dayStatus === 'leave') {
-      // Rule 8: If employee applied for paid leave & approved -> paid, otherwise unpaid (0)
       if (isUnpaidLeave) {
         dayEarnings = 0;
-        dayDeduction = 0;
+        dayDeduction = fullDayValue;
       } else {
         dayEarnings = fullDayValue;
         dayDeduction = 0;
       }
     } else if (dayStatus === 'absent') {
-      // Rule 6 & 7: Absents are counted as zero, ZERO deduction
+      // Absent: 1 day salary deduction
       dayEarnings = 0;
-      dayDeduction = 0;
+      dayDeduction = fullDayValue;
     } else {
       dayEarnings = fullDayValue;
       dayDeduction = 0;
@@ -300,8 +299,6 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   let leavesCount = 0;
   let unmarkedAbsentCount = 0;
   let lateCount = 0;
-  let consecutiveLateStreak = 0;
-  let consecutiveLateGroups = 0;
   let totalRegularHours = 0;
   let totalOvertimeHours = 0;
   let totalNormalEarnings = 0;
@@ -446,26 +443,6 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       lateCount++;
     }
 
-    // Rule 6: Consecutive late arrival evaluation
-    // Deductions only and only occur when the employee has consecutively arrived late for 3 days.
-    // Non-working days (Sundays and holidays where employee did not work) do not break the streak.
-    // Upcoming and today_pending days are ignored.
-    if (dayStats.status !== 'upcoming' && dayStats.status !== 'today_pending') {
-      const isNonWorkingDay = (isSunday || holidayDates.has(dateStr)) && !record?.check_in;
-      if (!isNonWorkingDay) {
-        if (dayStats.is_late) {
-          consecutiveLateStreak++;
-          if (consecutiveLateStreak === latePenaltyRuleCount) {
-            consecutiveLateGroups++;
-            consecutiveLateStreak = 0;
-          }
-        } else {
-          // Attended on-time, or status was half_day, absent, or leave -> streak breaks
-          consecutiveLateStreak = 0;
-        }
-      }
-    }
-
     totalRegularHours += dayStats.regular_hours;
     totalOvertimeHours += dayStats.overtime_hours;
     totalNormalEarnings += dayStats.normal_earnings;
@@ -474,37 +451,39 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     dailyRecords.push(dayStats);
   }
 
-  // Rule 6: Consecutive 3-day Late Penalty (0.15 day per 3 consecutive lates)
-  const latePenaltyDays = Math.round(consecutiveLateGroups * latePenaltyRuleDays * 100) / 100;
+  // Cumulative Late Penalty (Standard): Every 3 late marks = 0.15 day deduction
+  const completedLateGroups = Math.floor(lateCount / latePenaltyRuleCount);
+  const latePenaltyDays = Math.round(completedLateGroups * latePenaltyRuleDays * 100) / 100;
   const latePenaltyAmount = latePenaltyDays * perDaySalary;
   const lateDeductionAmount = latePenaltyAmount;
 
-  // Rules 5, 6, 7: NO other type of deduction or penalty exists
-  const totalAttendanceDeductions = 0;
-  const halfDayDeductionAmount = 0;
-  const absenceDeductionAmount = 0;
-  const unpaidLeaveDeductionAmount = 0;
+  // Attendance Deductions: Absences, Unpaid Leaves, and Half-day shortfalls
+  let halfDayDeductionAmount = 0;
+  for (const d of dailyRecords) {
+    if (d.status === 'half_day') {
+      halfDayDeductionAmount += (d.deduction || 0);
+    }
+  }
+
+  const absenceDeductionAmount = unmarkedAbsentCount * perDaySalary;
+  const unpaidLeaveDeductionAmount = unpaidLeaves * perDaySalary;
+  const totalAttendanceDeductions = absenceDeductionAmount + halfDayDeductionAmount + unpaidLeaveDeductionAmount;
 
   const halfDayFactor = 0.5;
   const effectiveDays = (fullDaysWorked + (halfDaysWorked * halfDayFactor) + paidHolidayCount + sundaysCount + (leavesCount - unpaidLeaves));
   const finalPayableDays = Math.max(0, effectiveDays - latePenaltyDays);
 
-  const totalDeductions = Math.round(latePenaltyAmount * 100) / 100;
+  const totalDeductions = Math.round((totalAttendanceDeductions + latePenaltyAmount) * 100) / 100;
   const isMonthInProgress = unworkedFutureWorkingDays > 0;
   const accruedEarningsToDate = Math.max(0, Math.round((totalNormalEarnings + totalOvertimeEarnings) * 100) / 100);
   const accruedSalary = accruedEarningsToDate;
 
-  // Canonical Business Rule:
-  // For an in-progress month, Net Payable = Accrued Earnings - Total Deductions
-  // For a closed / completed month, Net Payable = Base Salary - Total Deductions + Overtime
-  const currentNetPayable = isMonthInProgress
-    ? Math.max(0, Math.round((accruedEarningsToDate - totalDeductions) * 100) / 100)
-    : Math.max(0, Math.round((baseSalary - totalDeductions + totalOvertimeEarnings) * 100) / 100);
-
-  const projectedMonthEndNet = Math.max(0, Math.round((baseSalary - totalDeductions + totalOvertimeEarnings) * 100) / 100);
-  const netSalaryPayable = currentNetPayable;
-  const suggestedSalary = currentNetPayable;
-  const totalEarnings = isMonthInProgress ? accruedEarningsToDate : Math.round((baseSalary + totalOvertimeEarnings) * 100) / 100;
+  // Option A Canonical Formula: Net Payable = Base Salary - Total Deductions + Overtime
+  const netSalaryPayable = Math.max(0, Math.round((baseSalary - totalDeductions + totalOvertimeEarnings) * 100) / 100);
+  const currentNetPayable = netSalaryPayable;
+  const suggestedSalary = netSalaryPayable;
+  const projectedMonthEndNet = netSalaryPayable;
+  const totalEarnings = Math.round((baseSalary + totalOvertimeEarnings) * 100) / 100;
 
   if (baseSalary <= 0 && hourlyRate > 0) {
     const hourlySuggested = (totalRegularHours + totalOvertimeHours) * hourlyRate;
@@ -562,7 +541,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     half_days: halfDaysWorked,
     half_days_worked: halfDaysWorked,
     late_count: lateCount,
-    consecutive_late_groups: consecutiveLateGroups,
+    consecutive_late_groups: completedLateGroups,
     unpaid_leaves: unpaidLeaves,
     paid_holidays: paidHolidayCount,
     sundays_count: sundaysCount,

@@ -135,8 +135,8 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(res.late_deduction_amount).toBe(0);
   });
 
-  // Rule 6: 5h short day pays for actual hours worked, ZERO deduction
-  test('Rule 6: 5h short day pays for actual hours worked with zero penalty/deduction', () => {
+  // Rule 6: 5h short day deducts unworked hours shortfall so employee receives 5 * hourly
+  test('Rule 6: 5h short day deducts unworked hours so employee receives 5 * hourly', () => {
     const stats = calculateDayAttendanceStats(
       { date: '2026-09-15', status: 'half_day', hours_worked: 5.0, batch_id: testBatchId },
       { baseSalary: 25000, batchMinHours: 8.5 }
@@ -144,13 +144,14 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     const fullDayValue = 25000 / 30; // 833.333...
     const hourly = fullDayValue / 8.5; // 98.0392...
     const expectedPay = 5.0 * hourly;
+    const expectedDeduction = fullDayValue - expectedPay;
 
-    expect(stats.deduction).toBe(0);
+    expect(stats.deduction).toBeCloseTo(expectedDeduction, 1);
     expect(stats.normal_earnings).toBeCloseTo(expectedPay, 1);
   });
 
-  // Rule 7: 1.5h attendance pays exactly 1.5 * hourlyRate with zero deduction
-  test('Rule 7: 1.5h attendance pays exactly 1.5 * hourly with zero deduction', () => {
+  // Rule 7: 1.5h attendance pays exactly 1.5 * hourlyRate and deducts shortfall
+  test('Rule 7: 1.5h attendance pays exactly 1.5 * hourly and deducts shortfall', () => {
     const stats = calculateDayAttendanceStats(
       { date: '2026-09-16', status: 'half_day', hours_worked: 1.5, batch_id: testBatchId },
       { baseSalary: 25000, batchMinHours: 8.5 }
@@ -158,8 +159,9 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     const fullDayValue = 25000 / 30;
     const hourly = fullDayValue / 8.5;
     const expectedPay = 1.5 * hourly;
+    const expectedDeduction = fullDayValue - expectedPay;
 
-    expect(stats.deduction).toBe(0);
+    expect(stats.deduction).toBeCloseTo(expectedDeduction, 1);
     expect(stats.normal_earnings).toBeCloseTo(expectedPay, 1);
   });
 
