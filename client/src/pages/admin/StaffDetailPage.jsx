@@ -190,27 +190,14 @@ export default function StaffDetailPage() {
 
     if (isFiltered) {
       let periodEarnings = 0;
-      let consecutiveLateStreak = 0;
-      let consecutiveLateGroups = 0;
+      let periodLateCount = 0;
       if (attendance && attendance.length > 0) {
-        const sortedAtt = [...attendance].sort((a, b) => (a.date > b.date ? 1 : -1));
-        sortedAtt.forEach(att => {
+        attendance.forEach(att => {
           const isUpcomingOrPending = att.status === 'upcoming' || att.status === 'future' || att.status === 'today_pending';
           if (!isUpcomingOrPending) {
             periodEarnings += Number(att.earnings || 0);
-            const status = String(att.status || '').toLowerCase();
-            if (status === 'present' || status === 'working' || status === 'completed') {
-              if (att.is_late) {
-                consecutiveLateStreak++;
-                if (consecutiveLateStreak === 3) {
-                  consecutiveLateGroups++;
-                  consecutiveLateStreak = 0;
-                }
-              } else {
-                consecutiveLateStreak = 0;
-              }
-            } else if (status === 'absent' || status === 'leave') {
-              consecutiveLateStreak = 0;
+            if (att.is_late && att.status !== 'half_day' && att.status !== 'absent') {
+              periodLateCount++;
             }
           }
         });
@@ -218,15 +205,18 @@ export default function StaffDetailPage() {
 
       const baseSalary = Number(employee?.base_salary || currentMonthPayroll?.employee?.base_salary || 0);
       const perDaySalary = baseSalary > 0 ? baseSalary / 30 : 0;
-      const latePenaltyAmount = consecutiveLateGroups * 0.15 * perDaySalary;
+      const lateGroups = Math.floor(periodLateCount / 3);
+      const latePenaltyAmount = lateGroups * 0.15 * perDaySalary;
       const totalPeriodDeductions = latePenaltyAmount;
 
-      const periodNetPayable = Math.max(0, Math.round((periodEarnings - totalPeriodDeductions) * 100) / 100);
+      const roundedEarnings = Math.round(periodEarnings);
+      const roundedDeductions = Math.round(totalPeriodDeductions * 100) / 100;
+      const periodNetPayable = Math.max(0, Math.round(roundedEarnings - roundedDeductions));
       return {
-        totalEarnings: Math.round(periodEarnings),
-        totalDeduction: Math.round(totalPeriodDeductions * 100) / 100,
+        totalEarnings: roundedEarnings,
+        totalDeduction: roundedDeductions,
         periodAttendanceDeduction: 0,
-        periodLatePenalty: Math.round(latePenaltyAmount * 100) / 100,
+        periodLatePenalty: roundedDeductions,
         netPayable: periodNetPayable,
         earningsThisMonth: 0,
         deductionsThisMonth: 0
@@ -797,7 +787,7 @@ export default function StaffDetailPage() {
                     </div>
                     <div className="bg-primary/5 border border-primary/20 p-4 rounded-2xl">
                       <p className="text-[9px] font-black text-primary uppercase tracking-widest mb-1">Net Payable</p>
-                      <span className="text-lg font-black text-primary font-mono">₹{Number(netPayable).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="text-lg font-black text-primary font-mono">₹{Math.round(Number(netPayable)).toLocaleString('en-IN')}</span>
                     </div>
                   </>
                 ) : (
@@ -820,7 +810,7 @@ export default function StaffDetailPage() {
                     </div>
                     <div className="bg-primary/5 border border-primary/20 p-4 rounded-2xl">
                       <p className="text-[9px] font-black text-primary uppercase tracking-widest mb-1">Net Payable</p>
-                      <span className="text-lg font-black text-primary font-mono">₹{Number(netPayable).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="text-lg font-black text-primary font-mono">₹{Math.round(Number(netPayable)).toLocaleString('en-IN')}</span>
                     </div>
                   </>
                 )}

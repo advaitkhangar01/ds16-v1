@@ -243,19 +243,19 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
         expect(ur.is_late).toBe(false);
       }
 
-      // Verify late arrivals count and consecutive late groups (non-consecutive lates = 0 groups)
+      // Verify late arrivals count and cumulative late penalty (every 3 lates = 0.15 day deduction = ₹150)
       expect(res.late_count).toBe(3);
-      expect(res.consecutive_late_groups).toBe(0);
-      expect(res.late_penalty_days).toBe(0);
-      expect(res.late_deduction_amount).toBe(0);
+      expect(res.consecutive_late_groups).toBe(1);
+      expect(res.late_penalty_days).toBe(0.15);
+      expect(res.late_deduction_amount).toBe(150.00);
 
-      // Verify Rules 5, 6, 7 Deductions:
+      // Verify Deductions:
       // Half-day shortfalls and absences have 0 deduction
-      // Deductions only occur for 3 consecutive lates
+      // Deductions only include accumulated late penalties
       expect(res.absence_deduction_amount).toBe(0);
       expect(res.half_day_deduction_amount).toBe(0);
       expect(res.total_attendance_deductions).toBe(0);
-      expect(res.deductions).toBe(0);
+      expect(res.deductions).toBe(150.00);
 
       // Verify Overtime (Rule 4: completed 1-hour multiples after 19:00 IST)
       // 14 OT hours @ ₹111.111.../hr = ₹1,555.56
@@ -269,18 +269,18 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       expect(res.accrued_earnings_to_date).toBeCloseTo(17467.78, 1);
 
       // Verify Authoritative Current Net Payable:
-      // Net Payable = Accrued Earnings (17,467.78) - Deductions (0) = ₹17,467.78
-      expect(res.current_net_payable).toBeCloseTo(17467.78, 1);
-      expect(res.net_salary_payable).toBeCloseTo(17467.78, 1);
-      expect(res.suggested_salary).toBeCloseTo(17467.78, 1);
+      // Net Payable = Accrued Earnings (17,467.78) - Penalties (150) = ₹17,317.78
+      expect(res.current_net_payable).toBeCloseTo(17317.78, 1);
+      expect(res.net_salary_payable).toBeCloseTo(17317.78, 1);
+      expect(res.suggested_salary).toBeCloseTo(17317.78, 1);
 
       // Verify Dashboard calculateSalaryStats API contract
       const salaryStats = await calculateSalaryStats(abhijitId, 9, 2026, '2026-09-21', septSettings);
       expect(salaryStats.earned_this_month).toBeCloseTo(17467.78, 1);
       expect(salaryStats.accrued_earnings_to_date).toBeCloseTo(17467.78, 1);
-      expect(salaryStats.deductions_this_month).toBe(0);
-      expect(salaryStats.current_net_payable).toBeCloseTo(17467.78, 1);
-      expect(salaryStats.net_salary_payable).toBeCloseTo(17467.78, 1);
+      expect(salaryStats.deductions_this_month).toBe(150.00);
+      expect(salaryStats.current_net_payable).toBeCloseTo(17317.78, 1);
+      expect(salaryStats.net_salary_payable).toBeCloseTo(17317.78, 1);
       expect(salaryStats.is_month_in_progress).toBe(true);
 
     } finally {
@@ -354,10 +354,10 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       const res = await calculatePayrollForEmployee(testUserId, 9, 2026, septSettings, pool, '2026-09-09');
 
       expect(res.late_count).toBe(6);
-      expect(res.consecutive_late_groups).toBe(1); // Only days 1, 2, 3 triggered a group
-      expect(res.late_penalty_days).toBe(0.15);
-      expect(res.late_deduction_amount).toBe(150.00);
-      expect(res.deductions).toBe(150.00);
+      expect(res.consecutive_late_groups).toBe(2); // 6 lates = 2 groups
+      expect(res.late_penalty_days).toBe(0.30);
+      expect(res.late_deduction_amount).toBe(300.00);
+      expect(res.deductions).toBe(300.00);
 
       // Absent day 7 has 0 deduction
       expect(res.absence_deduction_amount).toBe(0);

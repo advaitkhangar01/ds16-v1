@@ -297,8 +297,6 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   let leavesCount = 0;
   let unmarkedAbsentCount = 0;
   let lateCount = 0;
-  let consecutiveLateStreak = 0;
-  let consecutiveLateGroups = 0;
   let totalRegularHours = 0;
   let totalOvertimeHours = 0;
   let totalNormalEarnings = 0;
@@ -441,26 +439,11 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     // Business rule: exclude half_day, absent, upcoming, today_pending from lateCount
     if (dayStats.is_late && dayStats.status !== 'half_day' && dayStats.status !== 'absent' && dayStats.status !== 'upcoming' && dayStats.status !== 'today_pending') {
       lateCount++;
-    }
-
-    // Rule 6: Consecutive late tracking
-    // Deductions will ONLY AND ONLY occur when the employee has consecutively arrived late for three days.
-    // Any on-time or absent day resets the streak. Sundays/holidays/future days do not reset or increment.
-    if (dayStats.status === 'present' || dayStats.status === 'working' || dayStats.status === 'completed') {
-      if (dayStats.is_late) {
-        consecutiveLateStreak++;
-        if (consecutiveLateStreak === latePenaltyRuleCount) {
-          consecutiveLateGroups++;
-          consecutiveLateStreak = 0;
-          const penaltyAmount = Math.round(latePenaltyRuleDays * perDaySalary * 100) / 100;
-          dayStats.deduction = penaltyAmount;
-          dayStats.deduction_reason = '3 consecutive late arrivals penalty';
-        }
-      } else {
-        consecutiveLateStreak = 0;
+      if (lateCount % latePenaltyRuleCount === 0) {
+        const penaltyAmount = Math.round(latePenaltyRuleDays * perDaySalary * 100) / 100;
+        dayStats.deduction = penaltyAmount;
+        dayStats.deduction_reason = `${latePenaltyRuleCount} accumulated late arrivals penalty`;
       }
-    } else if (dayStats.status === 'absent' || dayStats.status === 'leave') {
-      consecutiveLateStreak = 0;
     }
 
     totalRegularHours += dayStats.regular_hours;
@@ -471,8 +454,8 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     dailyRecords.push(dayStats);
   }
 
-  // Rule 6: 3 Consecutive Lates Penalty (0.15 day deduction per 3 consecutive lates)
-  const completedLateGroups = consecutiveLateGroups;
+  // Cumulative Late Penalty (Standard): Every 3 late marks accumulated in the month = 0.15 day deduction
+  const completedLateGroups = Math.floor(lateCount / latePenaltyRuleCount);
   const latePenaltyDays = Math.round(completedLateGroups * latePenaltyRuleDays * 100) / 100;
   const latePenaltyAmount = latePenaltyDays * perDaySalary;
   const lateDeductionAmount = latePenaltyAmount;
