@@ -74,7 +74,7 @@ function QuickStats({ salary, onCardClick }) {
         className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm hover:shadow-md hover:border-amber-200 hover:ring-2 hover:ring-amber-100 transition-all text-left w-full group cursor-pointer relative"
       >
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
-          Late Arrival / Half Day / Absent
+          Penalties & Deductions
           <svg className="w-3 h-3 ml-auto text-slate-200 group-hover:text-amber-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
           </svg>

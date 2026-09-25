@@ -515,7 +515,7 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
         }
 
         const finalOvertime = parseFloat(payrollData.overtime_earnings || 0);
-        let finalNetPaid = Math.max(0, finalBaseSalary + finalBonus + finalIncentives + finalOvertime - finalDeductions);
+        let finalNetPaid = Math.max(0, parseFloat(payrollData.net_salary_payable || 0) + finalBonus + finalIncentives);
         if (isOverride && existingPayroll.length > 0) {
           finalNetPaid = parseFloat(existingPayroll[0].net_paid || finalNetPaid);
         }

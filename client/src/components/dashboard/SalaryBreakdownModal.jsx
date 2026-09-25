@@ -175,14 +175,14 @@ export default function SalaryBreakdownModal({ isOpen, onClose, defaultTab = 'ea
                   color: 'text-emerald-600' 
                 },
                 { 
-                  label: 'Deducted', 
-                  sublabel: 'Penalties & shortfall',
+                  label: 'Penalties', 
+                  sublabel: '3 Consecutive Lates',
                   value: `₹${Math.round(Number(summary.total_deductions_to_date || summary.deductions_this_month || 0)).toLocaleString('en-IN')}`, 
                   color: 'text-red-500'     
                 },
                 { 
                   label: 'Net Payable', 
-                  sublabel: 'Earned − Deducted',
+                  sublabel: 'Earned − Penalties',
                   value: `₹${Math.round(Number(summary.current_net_payable !== undefined ? summary.current_net_payable : (summary.net_salary_payable || 0))).toLocaleString('en-IN')}`, 
                   color: 'text-primary' 
                 },

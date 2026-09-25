@@ -1554,7 +1554,7 @@ export default function AccountingPage() {
 
     try {
       // 1. Save to payroll table
-      const deductionsVal = Math.max(0, parseFloat(emp.base_salary || 0) - parseFloat(emp.suggested_salary || 0));
+      const deductionsVal = parseFloat(emp.deductions || 0);
 
       await api.post('/accounting/payroll', {
         user_id: emp.id,

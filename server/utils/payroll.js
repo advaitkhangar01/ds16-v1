@@ -452,6 +452,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
         if (consecutiveLateStreak === latePenaltyRuleCount) {
           consecutiveLateGroups++;
           consecutiveLateStreak = 0;
+          const penaltyAmount = Math.round(latePenaltyRuleDays * perDaySalary * 100) / 100;
+          dayStats.deduction = penaltyAmount;
+          dayStats.deduction_reason = '3 consecutive late arrivals penalty';
         }
       } else {
         consecutiveLateStreak = 0;
