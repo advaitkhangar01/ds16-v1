@@ -190,16 +190,27 @@ export default function StaffDetailPage() {
 
     if (isFiltered) {
       let periodEarnings = 0;
-      let periodAttendanceDeduction = 0;
-      let periodLateCount = 0;
+      let consecutiveLateStreak = 0;
+      let consecutiveLateGroups = 0;
       if (attendance && attendance.length > 0) {
-        attendance.forEach(att => {
+        const sortedAtt = [...attendance].sort((a, b) => (a.date > b.date ? 1 : -1));
+        sortedAtt.forEach(att => {
           const isUpcomingOrPending = att.status === 'upcoming' || att.status === 'future' || att.status === 'today_pending';
           if (!isUpcomingOrPending) {
             periodEarnings += Number(att.earnings || 0);
-            periodAttendanceDeduction += Number(att.deduction || 0);
-            if (att.is_late && att.status !== 'half_day' && att.status !== 'absent') {
-              periodLateCount++;
+            const status = String(att.status || '').toLowerCase();
+            if (status === 'present' || status === 'working' || status === 'completed') {
+              if (att.is_late) {
+                consecutiveLateStreak++;
+                if (consecutiveLateStreak === 3) {
+                  consecutiveLateGroups++;
+                  consecutiveLateStreak = 0;
+                }
+              } else {
+                consecutiveLateStreak = 0;
+              }
+            } else if (status === 'absent' || status === 'leave') {
+              consecutiveLateStreak = 0;
             }
           }
         });
@@ -207,15 +218,14 @@ export default function StaffDetailPage() {
 
       const baseSalary = Number(employee?.base_salary || currentMonthPayroll?.employee?.base_salary || 0);
       const perDaySalary = baseSalary > 0 ? baseSalary / 30 : 0;
-      const lateGroups = Math.floor(periodLateCount / 3);
-      const latePenaltyAmount = lateGroups * 0.15 * perDaySalary;
-      const totalPeriodDeductions = periodAttendanceDeduction + latePenaltyAmount;
+      const latePenaltyAmount = consecutiveLateGroups * 0.15 * perDaySalary;
+      const totalPeriodDeductions = latePenaltyAmount;
 
       const periodNetPayable = Math.max(0, Math.round((periodEarnings - totalPeriodDeductions) * 100) / 100);
       return {
         totalEarnings: Math.round(periodEarnings),
         totalDeduction: Math.round(totalPeriodDeductions * 100) / 100,
-        periodAttendanceDeduction: Math.round(periodAttendanceDeduction * 100) / 100,
+        periodAttendanceDeduction: 0,
         periodLatePenalty: Math.round(latePenaltyAmount * 100) / 100,
         netPayable: periodNetPayable,
         earningsThisMonth: 0,

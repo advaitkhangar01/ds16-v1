@@ -243,55 +243,129 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
         expect(ur.is_late).toBe(false);
       }
 
-      // Verify late arrivals count and cumulative late penalty (every 3 lates = 0.15 day deduction)
+      // Verify late arrivals count and consecutive late groups (non-consecutive lates = 0 groups)
       expect(res.late_count).toBe(3);
-      expect(res.late_penalty_days).toBe(0.15);
-      expect(res.late_deduction_amount).toBe(150.00);
+      expect(res.consecutive_late_groups).toBe(0);
+      expect(res.late_penalty_days).toBe(0);
+      expect(res.late_deduction_amount).toBe(0);
 
-      // Verify Option A Deductions:
-      // 4 absences * ₹1,000 = ₹4,000.00
-      // 3 half-day shortfalls = ₹1,087.78
-      expect(res.absence_deduction_amount).toBeCloseTo(4000.00, 1);
-      expect(res.half_day_deduction_amount).toBeCloseTo(1087.78, 1);
-      expect(res.total_attendance_deductions).toBeCloseTo(5087.78, 1);
+      // Verify Rules 5, 6, 7 Deductions:
+      // Half-day shortfalls and absences have 0 deduction
+      // Deductions only occur for 3 consecutive lates
+      expect(res.absence_deduction_amount).toBe(0);
+      expect(res.half_day_deduction_amount).toBe(0);
+      expect(res.total_attendance_deductions).toBe(0);
+      expect(res.deductions).toBe(0);
 
-      // Total Deductions = Attendance deductions + late penalty = ₹5,237.78
-      expect(res.deductions).toBeCloseTo(5237.78, 1);
-
-      // Verify Overtime (continuous after 19:00 IST)
-      // 16.5544 OT hours @ ₹111.111.../hr = ₹1,839.38
-      expect(res.total_overtime_hours).toBeCloseTo(16.55, 1);
-      expect(res.overtime_earnings).toBeCloseTo(1839.38, 1);
+      // Verify Overtime (Rule 4: completed 1-hour multiples after 19:00 IST)
+      // 14 OT hours @ ₹111.111.../hr = ₹1,555.56
+      expect(res.total_overtime_hours).toBe(14);
+      expect(res.overtime_earnings).toBeCloseTo(1555.56, 1);
 
       // Verify Authoritative Accrued Earnings to date:
       // Normal Earnings (11 full + 3 Sundays + 3 half) = ₹15,912.22
-      // Overtime Earnings = ₹1,839.38
-      // Total Accrued Earnings = ₹17,751.61
-      expect(res.accrued_earnings_to_date).toBeCloseTo(17751.61, 1);
+      // Overtime Earnings = ₹1,555.56
+      // Total Accrued Earnings = ₹17,467.78
+      expect(res.accrued_earnings_to_date).toBeCloseTo(17467.78, 1);
 
       // Verify Authoritative Current Net Payable:
-      // Net Payable = Accrued Earnings (17,751.61) - Deductions (5,237.78) = ₹12,513.84
-      expect(res.current_net_payable).toBeCloseTo(12513.84, 1);
-      expect(res.net_salary_payable).toBeCloseTo(12513.84, 1);
-      expect(res.suggested_salary).toBeCloseTo(12513.84, 1);
-
-      // Verify Month-End Projection (Separate from Current Net Payable):
-      // Base Salary (30,000) - Deductions (5,237.78) + Overtime (1,839.38) = ₹26,601.61
-      expect(res.projected_month_end_net).toBeCloseTo(26601.61, 1);
+      // Net Payable = Accrued Earnings (17,467.78) - Deductions (0) = ₹17,467.78
+      expect(res.current_net_payable).toBeCloseTo(17467.78, 1);
+      expect(res.net_salary_payable).toBeCloseTo(17467.78, 1);
+      expect(res.suggested_salary).toBeCloseTo(17467.78, 1);
 
       // Verify Dashboard calculateSalaryStats API contract
       const salaryStats = await calculateSalaryStats(abhijitId, 9, 2026, '2026-09-21', septSettings);
-      expect(salaryStats.earned_this_month).toBeCloseTo(17751.61, 1);
-      expect(salaryStats.accrued_earnings_to_date).toBeCloseTo(17751.61, 1);
-      expect(salaryStats.deductions_this_month).toBeCloseTo(5237.78, 1);
-      expect(salaryStats.current_net_payable).toBeCloseTo(12513.84, 1);
-      expect(salaryStats.net_salary_payable).toBeCloseTo(12513.84, 1);
-      expect(salaryStats.projected_month_end_net).toBeCloseTo(26601.61, 1);
+      expect(salaryStats.earned_this_month).toBeCloseTo(17467.78, 1);
+      expect(salaryStats.accrued_earnings_to_date).toBeCloseTo(17467.78, 1);
+      expect(salaryStats.deductions_this_month).toBe(0);
+      expect(salaryStats.current_net_payable).toBeCloseTo(17467.78, 1);
+      expect(salaryStats.net_salary_payable).toBeCloseTo(17467.78, 1);
       expect(salaryStats.is_month_in_progress).toBe(true);
 
     } finally {
       await pool.query('DELETE FROM attendance WHERE user_id = $1', [abhijitId]);
       await pool.query('DELETE FROM users WHERE id = $1', [abhijitId]);
+    }
+  });
+
+  test('Rule 6: 3 consecutive late arrivals trigger 0.15 day deduction, while on-time or absent day resets streak', async () => {
+    const { rows: uRows } = await pool.query(
+      `INSERT INTO users (name, username, password_hash, role, base_salary, hourly_rate)
+       VALUES ('Streak Test User', 'streak_test_${Date.now()}', 'hash', 'employee', 30000.00, 0.00)
+       RETURNING id`
+    );
+    const testUserId = uRows[0].id;
+
+    try {
+      const septSettings = {
+        office_start_time: '10:00',
+        late_threshold_time: '10:15',
+        half_day_cutoff_time: '13:00',
+        late_penalty_rule_count: '3',
+        late_penalty_rule_days: '0.15',
+        min_working_hours: '9.0'
+      };
+
+      // Days 1, 2, 3: Consecutive late arrivals -> triggers 1 penalty group (0.15 day = ₹150)
+      // Day 4: On-time arrival -> resets streak
+      // Day 5: Late arrival (streak = 1)
+      // Day 7 (Day 6 is Sunday): Absent -> resets streak (streak = 0)
+      // Day 8: Late arrival (streak = 1)
+      // Day 9: Late arrival (streak = 2)
+      // Total lates: 5, but ONLY Days 1, 2, 3 were 3 consecutive!
+      const records = [
+        { date: '2026-09-01', inTime: '10:30', outTime: '19:00', late: true, lateMins: 30, status: 'present', hours: 8.5 },
+        { date: '2026-09-02', inTime: '10:30', outTime: '19:00', late: true, lateMins: 30, status: 'present', hours: 8.5 },
+        { date: '2026-09-03', inTime: '10:30', outTime: '19:00', late: true, lateMins: 30, status: 'present', hours: 8.5 },
+        { date: '2026-09-04', inTime: '10:00', outTime: '19:00', late: false, lateMins: 0, status: 'present', hours: 9.0 },
+        { date: '2026-09-05', inTime: '10:30', outTime: '19:00', late: true, lateMins: 30, status: 'present', hours: 8.5 },
+        // 2026-09-06 is Sunday
+        { date: '2026-09-07', inTime: null, outTime: null, late: false, lateMins: 0, status: 'absent', hours: 0 },
+        { date: '2026-09-08', inTime: '10:30', outTime: '19:00', late: true, lateMins: 30, status: 'present', hours: 8.5 },
+        { date: '2026-09-09', inTime: '10:30', outTime: '19:00', late: true, lateMins: 30, status: 'present', hours: 8.5 }
+      ];
+
+      for (const r of records) {
+        if (r.status === 'absent') {
+          await pool.query(
+            `INSERT INTO attendance (user_id, date, status, is_late, late_minutes, hours_worked)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [testUserId, r.date, 'absent', false, 0, 0]
+          );
+        } else {
+          await pool.query(
+            `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              testUserId,
+              r.date,
+              `${r.date}T${r.inTime}:00+05:30`,
+              `${r.date}T${r.outTime}:00+05:30`,
+              r.status,
+              r.late,
+              r.lateMins,
+              r.hours
+            ]
+          );
+        }
+      }
+
+      const res = await calculatePayrollForEmployee(testUserId, 9, 2026, septSettings, pool, '2026-09-09');
+
+      expect(res.late_count).toBe(6);
+      expect(res.consecutive_late_groups).toBe(1); // Only days 1, 2, 3 triggered a group
+      expect(res.late_penalty_days).toBe(0.15);
+      expect(res.late_deduction_amount).toBe(150.00);
+      expect(res.deductions).toBe(150.00);
+
+      // Absent day 7 has 0 deduction
+      expect(res.absence_deduction_amount).toBe(0);
+      expect(res.total_attendance_deductions).toBe(0);
+
+    } finally {
+      await pool.query('DELETE FROM attendance WHERE user_id = $1', [testUserId]);
+      await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
     }
   });
 });

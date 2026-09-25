@@ -144,14 +144,14 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     const fullDayValue = 25000 / 30; // 833.333...
     const hourly = fullDayValue / 8.5; // 98.0392...
     const expectedPay = 5.0 * hourly;
-    const expectedDeduction = fullDayValue - expectedPay;
 
-    expect(stats.deduction).toBeCloseTo(expectedDeduction, 1);
+    // Rule 5: Half day earnings = actual hours worked * hourly rate, zero deduction/penalty
+    expect(stats.deduction).toBe(0);
     expect(stats.normal_earnings).toBeCloseTo(expectedPay, 1);
   });
 
-  // Rule 7: 1.5h attendance pays exactly 1.5 * hourlyRate and deducts shortfall
-  test('Rule 7: 1.5h attendance pays exactly 1.5 * hourly and deducts shortfall', () => {
+  // Rule 7: 1.5h attendance pays exactly 1.5 * hourlyRate and zero deduction
+  test('Rule 7: 1.5h attendance pays exactly 1.5 * hourly and zero deduction', () => {
     const stats = calculateDayAttendanceStats(
       { date: '2026-09-16', status: 'half_day', hours_worked: 1.5, batch_id: testBatchId },
       { baseSalary: 25000, batchMinHours: 8.5 }
@@ -159,9 +159,9 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     const fullDayValue = 25000 / 30;
     const hourly = fullDayValue / 8.5;
     const expectedPay = 1.5 * hourly;
-    const expectedDeduction = fullDayValue - expectedPay;
 
-    expect(stats.deduction).toBeCloseTo(expectedDeduction, 1);
+    // Rule 5: Half day pays actual hours worked, zero deduction
+    expect(stats.deduction).toBe(0);
     expect(stats.normal_earnings).toBeCloseTo(expectedPay, 1);
   });
 
@@ -189,7 +189,7 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
 
   // Rule 9: Late arrival and Overtime coexist independently on the same day
   test('Rule 9: Late arrival and Overtime coexist independently on the same day', () => {
-    // Check-in 10:30 (late), check-out 20:30 (1.5h after 7 PM)
+    // Check-in 10:30 (late), check-out 20:30 (1h 30m after 7 PM -> Rule 4: 1h completed multiple)
     const stats = calculateDayAttendanceStats(
       {
         date: '2026-09-18',
@@ -208,7 +208,8 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     );
 
     expect(stats.is_late).toBe(true);
-    expect(stats.overtime_hours).toBe(1.5);
+    // Rule 4: completed 1-hour multiples -> 1 hour
+    expect(stats.overtime_hours).toBe(1.0);
     expect(stats.overtime_earnings).toBeGreaterThan(0);
   });
 

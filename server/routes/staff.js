@@ -338,13 +338,14 @@ router.get('/:id', async (req, res) => {
                WHEN LOWER(a.status) IN ('present', 'completed', 'working') THEN 
                  COALESCE(NULLIF(u.base_salary, 0) / 30, (a.hours_worked * u.hourly_rate), 0)
                WHEN LOWER(a.status) = 'half_day' THEN 
-                 COALESCE((NULLIF(u.base_salary, 0) / 30) * 0.5, (a.hours_worked * u.hourly_rate), 0)
+                 COALESCE(a.hours_worked * (NULLIF(u.base_salary, 0) / (30 * COALESCE(b.min_working_hours, 9.0))), a.hours_worked * u.hourly_rate, 0)
                ELSE 0 
              END
            ), 0) as hist_earnings,
            0 as hist_deductions
          FROM attendance a
          JOIN users u ON u.id = a.user_id
+         LEFT JOIN attendance_batches b ON b.id = COALESCE(a.batch_id, u.batch_id)
          WHERE a.user_id = $1
            AND a.date < DATE_TRUNC('month', CURRENT_DATE)`,
         [id]

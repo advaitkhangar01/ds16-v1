@@ -3,7 +3,6 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { getISTDate, getISTTime } = require('../utils/date');
-const { autoCheckoutPendingRecords } = require('./attendance');
 const { calculatePayrollForEmployee } = require('../utils/payroll');
 
 async function calculateSalaryStats(userId, month, year, todayStr, settings) {
