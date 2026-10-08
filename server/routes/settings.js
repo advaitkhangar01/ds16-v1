@@ -25,6 +25,7 @@ router.get('/users', requireAdmin, async (req, res) => {
       `SELECT u.id, u.name, u.username, u.role, u.department, u.phone, u.base_salary, u.hourly_rate, u.batch_id, u.created_at, u.is_active, u.deactivated_at, b.name as batch_name 
        FROM users u
        LEFT JOIN attendance_batches b ON u.batch_id = b.id
+       WHERE u.is_active IS NOT FALSE
        ORDER BY u.name ASC`
     );
     res.json({ users: rows });
@@ -121,16 +122,47 @@ router.delete('/users/:id', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'You cannot delete your own account' });
     }
 
-    // Soft-delete user to protect historical payroll, attendance, and statutory records
-    const { rowCount } = await pool.query(
-      'UPDATE users SET is_active = FALSE, deactivated_at = NOW() WHERE id = $1',
-      [userId]
-    );
-    if (rowCount === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    // Soft-delete user to protect historical payroll, attendance, and statutory records,
+    // while clearing active operational responsibilities (open tasks, project assignments)
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    res.json({ message: 'User deactivated successfully' });
+      const { rowCount } = await client.query(
+        'UPDATE users SET is_active = FALSE, deactivated_at = NOW() WHERE id = $1',
+        [userId]
+      );
+      if (rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Remove from active project assignments
+      await client.query(
+        'DELETE FROM project_assignments WHERE user_id = $1',
+        [userId]
+      );
+
+      // Unassign open/active tasks so they do not remain assigned to a deactivated user
+      await client.query(
+        "UPDATE tasks SET assigned_to = NULL WHERE assigned_to = $1 AND status IN ('pending', 'in_progress', 'review')",
+        [userId]
+      );
+
+      // Remove from open task participants
+      await client.query(
+        "DELETE FROM task_participants WHERE user_id = $1 AND task_id IN (SELECT id FROM tasks WHERE status IN ('pending', 'in_progress', 'review'))",
+        [userId]
+      );
+
+      await client.query('COMMIT');
+      res.json({ message: 'User deleted successfully' });
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
   } catch (err) {
     console.error('Settings: delete user error:', err);
     res.status(500).json({ error: 'Failed to delete user' });

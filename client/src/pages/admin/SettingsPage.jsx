@@ -137,9 +137,10 @@ export default function SettingsPage() {
   // Memoized Filtered Users
   const filteredUsers = useMemo(() => {
     return users.filter(u => 
-      u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      u.is_active !== false &&
+      (u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
       u.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (u.department && u.department.toLowerCase().includes(searchQuery.toLowerCase()))
+      (u.department && u.department.toLowerCase().includes(searchQuery.toLowerCase())))
     );
   }, [users, searchQuery]);
 
@@ -176,7 +177,7 @@ export default function SettingsPage() {
       toast.success('User deleted');
       fetchData();
     } catch (err) {
-      toast.error('Failed to delete user');
+      toast.error(err.response?.data?.error || 'Failed to delete user');
     }
   };
 
