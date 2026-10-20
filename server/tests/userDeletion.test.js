@@ -98,6 +98,13 @@ describe('User Deletion Workflow & Historical Data Preservation Tests', () => {
        VALUES ($1, 9, 2026, 30000, 30000, 'paid')`,
       [targetUser.id]
     );
+
+    // 9. Create an approved leave request for targetUser
+    await pool.query(
+      `INSERT INTO leave_requests (user_id, type, start_date, end_date, reason, status)
+       VALUES ($1, 'paid', CURRENT_DATE, CURRENT_DATE + INTERVAL '2 days', 'Test Leave Target', 'approved')`,
+      [targetUser.id]
+    );
   });
 
   afterAll(async () => {
@@ -109,6 +116,7 @@ describe('User Deletion Workflow & Historical Data Preservation Tests', () => {
       await pool.query('DELETE FROM projects WHERE id = $1', [testProjectId]);
     }
     if (targetUser) {
+      await pool.query('DELETE FROM leave_requests WHERE user_id = $1', [targetUser.id]);
       await pool.query('DELETE FROM payroll WHERE user_id = $1', [targetUser.id]);
       await pool.query('DELETE FROM attendance WHERE user_id = $1', [targetUser.id]);
     }
@@ -222,5 +230,70 @@ describe('User Deletion Workflow & Historical Data Preservation Tests', () => {
 
     expect(res.statusCode).toBe(403);
     expect(res.body.error).toMatch(/deactivated/i);
+  });
+
+  it('13. GET /api/attendance/today (Dashboard team attendance) does NOT return the deleted user', async () => {
+    const res = await request(app)
+      .get('/api/attendance/today')
+      .set('Authorization', `Bearer ${adminUser.token}`);
+
+    expect(res.statusCode).toBe(200);
+    const found = (res.body.attendance || []).find(r => r.user_id === targetUser.id);
+    expect(found).toBeUndefined();
+  });
+
+  it('14. GET /api/tasks?view=kanban (Dashboard task board) does NOT create a column for deleted user', async () => {
+    const res = await request(app)
+      .get('/api/tasks?view=kanban')
+      .set('Authorization', `Bearer ${adminUser.token}`);
+
+    expect(res.statusCode).toBe(200);
+    const found = (res.body.kanban || []).find(col => col.user_id === targetUser.id);
+    expect(found).toBeUndefined();
+  });
+
+  it('15. GET /api/tasks?view=history (History view) DOES preserve the historical completed tasks of deleted user', async () => {
+    const res = await request(app)
+      .get('/api/tasks?view=history')
+      .set('Authorization', `Bearer ${adminUser.token}`);
+
+    expect(res.statusCode).toBe(200);
+    const userCol = (res.body.kanban || []).find(col => col.user_id === targetUser.id);
+    expect(userCol).toBeDefined();
+    const taskFound = (userCol.tasks || []).find(t => t.id === completedTaskId);
+    expect(taskFound).toBeDefined();
+  });
+
+  it('16. GET /api/dashboard/admin excludes deleted user from active/upcoming leaves and today tasks', async () => {
+    const res = await request(app)
+      .get('/api/dashboard/admin')
+      .set('Authorization', `Bearer ${adminUser.token}`);
+
+    expect(res.statusCode).toBe(200);
+    const foundActive = (res.body.active_team_leaves || []).find(l => l.user_id === targetUser.id);
+    expect(foundActive).toBeUndefined();
+    const foundUpcoming = (res.body.upcoming_team_leaves || []).find(l => l.user_id === targetUser.id);
+    expect(foundUpcoming).toBeUndefined();
+
+    // Check today's tasks
+    const allTodayTasks = (res.body.todays_tasks || []).flatMap(g => g.tasks || []);
+    const foundTask = allTodayTasks.find(t => t.assigned_to === targetUser.id);
+    expect(foundTask).toBeUndefined();
+  });
+
+  it('17. GET /api/leaves?view=kanban (Dashboard request kanban) excludes deleted user requests', async () => {
+    const res = await request(app)
+      .get('/api/leaves?view=kanban')
+      .set('Authorization', `Bearer ${adminUser.token}`);
+
+    expect(res.statusCode).toBe(200);
+    const kanban = res.body.kanban || {};
+    const allRequests = [
+      ...(kanban.pending || []),
+      ...(kanban.active_today || []),
+      ...(kanban.upcoming || [])
+    ];
+    const found = allRequests.find(r => r.user_id === targetUser.id);
+    expect(found).toBeUndefined();
   });
 });

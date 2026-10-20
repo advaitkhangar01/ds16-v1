@@ -557,7 +557,7 @@ router.get('/today', authenticate, async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT
-         u.id as user_id, u.name, u.role, u.department,
+         u.id as user_id, u.name, u.role, u.department, u.is_active,
          a.check_in, a.check_out, a.lat, a.lng, COALESCE(a.date, $1::date) AS date, a.is_late, a.late_minutes, a.hours_worked,
          a.checkin_zone, a.checkin_distance, a.checkin_accuracy,
          a.is_boundary_checkin, a.checkin_verified,
@@ -582,7 +582,7 @@ router.get('/today', authenticate, async (req, res) => {
          AND lr.type NOT IN ('advance', 'resignation')
          AND $1::date BETWEEN lr.start_date AND lr.end_date
        LEFT JOIN holidays h ON h.date = $1::date
-       WHERE (u.is_active IS NOT FALSE OR a.id IS NOT NULL)
+       WHERE u.is_active IS NOT FALSE
        ORDER BY a.check_in ASC NULLS LAST, u.name ASC`,
       [today, ATTENDANCE_STATUS.LEAVE, ATTENDANCE_STATUS.ABSENT, LEAVE_STATUS.APPROVED]
     );

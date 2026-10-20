@@ -1108,7 +1108,7 @@ export default function AdminDashboard() {
       
       setData({
         ...res,
-        team_attendance: att.attendance.map(mapAttendance),
+        team_attendance: (att.attendance || []).filter(r => r.is_active !== false).map(mapAttendance),
         my_attendance: mapAttendance(att.my_attendance)
       });
     } catch (err) {

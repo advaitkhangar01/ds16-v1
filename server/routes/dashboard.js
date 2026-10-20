@@ -119,7 +119,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
        JOIN projects p ON p.id = t.project_id
        JOIN users u ON u.id = t.assigned_to
        JOIN users au ON au.id = t.created_by
-       WHERE t.assigned_to IS NOT NULL
+       WHERE t.assigned_to IS NOT NULL AND u.is_active IS NOT FALSE
          AND DATE(t.created_at AT TIME ZONE 'Asia/Kolkata') = $1::date
          AND t.status != 'passed'
          AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE)
@@ -311,6 +311,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
        FROM leave_requests lr
        JOIN users u ON u.id = lr.user_id
        WHERE LOWER(lr.status) = 'approved'
+         AND u.is_active IS NOT FALSE
          AND lr.type NOT IN ('advance', 'resignation')
          AND $1::date BETWEEN lr.start_date AND lr.end_date
        ORDER BY u.name ASC`,
@@ -326,6 +327,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
        JOIN users u ON u.id = lr.user_id
        LEFT JOIN users r ON r.id = lr.reviewed_by
        WHERE LOWER(lr.status) = 'approved'
+         AND u.is_active IS NOT FALSE
          AND lr.type NOT IN ('advance', 'resignation')
          AND lr.start_date > $1::date
        ORDER BY lr.start_date ASC
@@ -825,6 +827,7 @@ router.get('/employee', authenticate, async (req, res) => {
        FROM leave_requests lr
        JOIN users u ON u.id = lr.user_id
        WHERE LOWER(lr.status) = 'approved'
+         AND u.is_active IS NOT FALSE
          AND lr.type NOT IN ('advance', 'resignation')
          AND $1::date BETWEEN lr.start_date AND lr.end_date
        ORDER BY u.name ASC`,
@@ -839,6 +842,7 @@ router.get('/employee', authenticate, async (req, res) => {
        FROM leave_requests lr
        JOIN users u ON u.id = lr.user_id
        WHERE LOWER(lr.status) = 'approved'
+         AND u.is_active IS NOT FALSE
          AND lr.type NOT IN ('advance', 'resignation')
          AND lr.start_date > $1::date
        ORDER BY lr.start_date ASC

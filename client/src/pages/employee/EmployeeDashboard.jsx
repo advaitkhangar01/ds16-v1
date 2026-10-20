@@ -875,7 +875,7 @@ export default function EmployeeDashboard() {
       setData({
         ...res,
         attendance: mapAttendance(res.attendance),
-        team_attendance: rawTeam.map(mapAttendance).filter(Boolean)
+        team_attendance: rawTeam.filter(r => r.is_active !== false).map(mapAttendance).filter(Boolean)
       });
     } catch (err) {
       console.error('[EmployeeDashboard] fetchData unexpected error:', err);

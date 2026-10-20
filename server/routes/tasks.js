@@ -99,12 +99,16 @@ router.get('/', authenticate, async (req, res) => {
       const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'accounts' || req.user.department === 'accounts' || req.user.role === 'back_office' || req.user.role === 'project_head';
 
       // Group by assigned_to
-      // We fetch all employees
-      const { rows: employees } = await pool.query(`
+      // We fetch all active employees (or all employees for history view to preserve historical records)
+      let empQuery = `
         SELECT id, name, username, role, department FROM users 
         WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head')
-        ORDER BY name ASC
-      `);
+      `;
+      if (view !== 'history') {
+        empQuery += ` AND is_active IS NOT FALSE `;
+      }
+      empQuery += ` ORDER BY name ASC `;
+      const { rows: employees } = await pool.query(empQuery);
 
       // Fetch tasks the user has access to
       let tasksQuery = `

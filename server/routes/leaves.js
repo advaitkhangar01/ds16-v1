@@ -36,9 +36,12 @@ router.get('/', authenticate, async (req, res) => {
       `;
       const kanbanParams = [];
 
+      // Exclude deactivated users from active dashboard request kanban
+      kanbanQuery += ` WHERE u.is_active IS NOT FALSE`;
+
       // Non-admins see only their own requests in kanban
       if (req.user.role !== USER_ROLES.ADMIN && req.user.role !== 'back_office' && req.user.role !== 'accounts') {
-        kanbanQuery += ` WHERE l.user_id = $1`;
+        kanbanQuery += ` AND l.user_id = $1`;
         kanbanParams.push(req.user.id);
       }
 
