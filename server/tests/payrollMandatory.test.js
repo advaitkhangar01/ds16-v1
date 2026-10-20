@@ -428,6 +428,64 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(stats.earnings).toBe(0);
     expect(stats.deduction).toBe(0);
   });
+
+  // Rule 20: Checkout after 7 PM under 60 mins does not deduct regular hours worked
+  test('Rule 20: Checkout after 7 PM under 60 mins does not deduct regular hours', () => {
+    const stats = calculateDayAttendanceStats(
+      {
+        date: '2026-10-14',
+        status: 'half_day',
+        check_in: '2026-10-14T10:55:00+05:30',
+        check_out: '2026-10-14T19:48:00+05:30',
+        hours_worked: 8.87,
+        batch_id: testBatchId
+      },
+      { baseSalary: 30000, batchMinHours: 9.0 }
+    );
+    expect(stats.overtime_hours).toBe(0);
+    expect(stats.hours_worked).toBe(8.87);
+    expect(stats.regular_hours).toBe(8.87);
+    expect(stats.earnings).toBeCloseTo(8.87 * (30000 / (30 * 9.0)), 2);
+  });
+
+  // Rule 21: Half-day with overtime after 7 PM preserves total hours worked
+  test('Rule 21: Half-day with overtime preserves total hours worked and pays regular + OT', () => {
+    const stats = calculateDayAttendanceStats(
+      {
+        date: '2026-10-16',
+        status: 'half_day',
+        check_in: '2026-10-16T12:11:00+05:30',
+        check_out: '2026-10-16T21:05:00+05:30',
+        hours_worked: 8.90,
+        batch_id: testBatchId
+      },
+      { baseSalary: 30000, batchMinHours: 9.0 }
+    );
+    expect(stats.overtime_hours).toBe(2.0);
+    expect(stats.hours_worked).toBe(8.90);
+    expect(stats.regular_hours).toBe(6.90);
+    expect(stats.earnings).toBeCloseTo(8.90 * (30000 / (30 * 9.0)), 2);
+  });
+
+  // Rule 22: Completed shift >= 9h with OT pays full day wage plus overtime
+  test('Rule 22: Completed shift >= 9h with OT pays full day wage plus overtime', () => {
+    const stats = calculateDayAttendanceStats(
+      {
+        date: '2026-10-12',
+        status: 'completed',
+        check_in: '2026-10-12T10:53:00+05:30',
+        check_out: '2026-10-12T20:15:00+05:30',
+        hours_worked: 9.36,
+        batch_id: testBatchId
+      },
+      { baseSalary: 30000, batchMinHours: 9.0 }
+    );
+    expect(stats.overtime_hours).toBe(1.0);
+    expect(stats.hours_worked).toBe(9.36);
+    expect(stats.normal_earnings).toBeCloseTo(1000.0, 2);
+    expect(stats.overtime_earnings).toBeCloseTo(111.11, 2);
+    expect(stats.earnings).toBeCloseTo(1111.11, 2);
+  });
 });
 
 function formatterIST(d) {

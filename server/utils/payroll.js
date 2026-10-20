@@ -50,6 +50,13 @@ function calculateDayAttendanceStats(att, options = {}) {
   let isLate = false;
   let lateMins = 0;
   let regularHours = parseFloat(att.hours_worked || 0);
+  if (!regularHours && att.check_in && att.check_out) {
+    const elapsed = (new Date(att.check_out) - new Date(att.check_in)) / (1000 * 60 * 60);
+    if (!isNaN(elapsed) && elapsed > 0) {
+      regularHours = parseFloat(elapsed.toFixed(2));
+    }
+  }
+  const totalWorkedHours = regularHours;
   let overtimeHours = 0;
 
   // Future and pending records cannot have worked hours, lateness, overtime, or deductions
@@ -83,7 +90,7 @@ function calculateDayAttendanceStats(att, options = {}) {
         // e.g. < 60 mins -> 0h; 8:30 PM (90 mins) -> 1h; 9:00 PM (120 mins) -> 2h
         const rawOtHours = otMs / (1000 * 60 * 60);
         overtimeHours = Math.floor(rawOtHours);
-        regularHours = Math.max(0, regularHours - rawOtHours);
+        regularHours = Math.max(0, totalWorkedHours - overtimeHours);
       }
     }
   }
@@ -135,7 +142,7 @@ function calculateDayAttendanceStats(att, options = {}) {
     } else if (dayStatus === 'half_day') {
       // Rule 5: Half day shall only be marked and not be counted as deduction/penalty
       // Paid for actual regular hours worked with zero deduction
-      dayEarnings = regularHours * effectiveHourlyRate;
+      dayEarnings = Math.min(fullDayValue, regularHours * effectiveHourlyRate);
       dayDeduction = 0;
     } else if (dayStatus === 'sunday' || dayStatus === 'holiday') {
       // Rule 9: Sundays and holidays are paid days
@@ -167,6 +174,7 @@ function calculateDayAttendanceStats(att, options = {}) {
 
   return {
     ...att,
+    hours_worked: Math.round(totalWorkedHours * 100) / 100,
     status: dayStatus,
     is_late: isLate,
     late_minutes: lateMins,
