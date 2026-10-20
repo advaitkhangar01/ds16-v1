@@ -41,15 +41,7 @@ npm install
 npm run dev        # Starts on port 5173
 ```
 
-Open: http://localhost:5173
 
-## Login Credentials
-| Username | Password | Role |
-|----------|----------|------|
-| abhijit | DS16_admin_secure | Admin |
-| chaitali | DS16_emp_001 | Employee |
-| rahul | DS16_emp_002 | Employee |
-| rohit | DS16_emp_003 | Employee |
 
 ## Production VPS Deployment
 
