@@ -94,9 +94,9 @@ router.post('/', authenticate, checkProjectAccess(), async (req, res) => {
 router.get('/', authenticate, async (req, res) => {
   try {
     const { view, project_id, status } = req.query;
+    const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'accounts' || req.user.department === 'accounts' || req.user.role === 'back_office' || req.user.role === 'project_head';
 
     if (view === 'kanban' || view === 'history' || view === 'scheduled') {
-      const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'accounts' || req.user.department === 'accounts' || req.user.role === 'back_office' || req.user.role === 'project_head';
 
       // Group by assigned_to
       // We fetch all active employees (or all employees for history view to preserve historical records)
