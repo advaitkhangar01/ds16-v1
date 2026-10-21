@@ -296,4 +296,46 @@ describe('User Deletion Workflow & Historical Data Preservation Tests', () => {
     const found = allRequests.find(r => r.user_id === targetUser.id);
     expect(found).toBeUndefined();
   });
+
+  it('18. GET /api/settings/users?status=deactivated lists deactivated users', async () => {
+    const res = await request(app)
+      .get('/api/settings/users?status=deactivated')
+      .set('Authorization', `Bearer ${adminUser.token}`);
+
+    expect(res.statusCode).toBe(200);
+    const deactivatedUser = (res.body.users || []).find(u => u.id === targetUser.id);
+    expect(deactivatedUser).toBeDefined();
+    expect(deactivatedUser.is_active).toBe(false);
+    expect(deactivatedUser.deactivated_at).toBeDefined();
+  });
+
+  it('19. PATCH /api/settings/users/:id/restore rejects non-admin users', async () => {
+    const res = await request(app)
+      .patch(`/api/settings/users/${targetUser.id}/restore`)
+      .set('Authorization', `Bearer ${nonAdminUser.token}`);
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('20. PATCH /api/settings/users/:id/restore successfully restores the deactivated user', async () => {
+    const res = await request(app)
+      .patch(`/api/settings/users/${targetUser.id}/restore`)
+      .set('Authorization', `Bearer ${adminUser.token}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.user).toBeDefined();
+    expect(res.body.user.is_active).toBe(true);
+    expect(res.body.user.deactivated_at).toBeNull();
+  });
+
+  it('21. Restored user is now returned in default active user list', async () => {
+    const res = await request(app)
+      .get('/api/settings/users')
+      .set('Authorization', `Bearer ${adminUser.token}`);
+
+    expect(res.statusCode).toBe(200);
+    const restoredUser = (res.body.users || []).find(u => u.id === targetUser.id);
+    expect(restoredUser).toBeDefined();
+    expect(restoredUser.is_active).toBe(true);
+  });
 });

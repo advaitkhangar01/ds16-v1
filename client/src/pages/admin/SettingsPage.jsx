@@ -22,6 +22,8 @@ import {
   Zap,
   Pencil,
   Layers,
+  Archive,
+  RotateCcw,
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -30,6 +32,7 @@ export default function SettingsPage() {
   
   // Users State
   const [users, setUsers] = useState([]);
+  const [userSubTab, setUserSubTab] = useState('active'); // 'active' | 'deactivated'
   const [searchQuery, setSearchQuery] = useState('');
   const [showUserModal, setShowUserModal] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', username: '', password: '', role: 'employee', department: '', phone: '', base_salary: '', hourly_rate: '', batch_id: '' });
@@ -91,13 +94,13 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchData();
-  }, [activeTab]);
+  }, [activeTab, userSubTab]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
       if (activeTab === 'users') {
-        const { data } = await api.get('/settings/users');
+        const { data } = await api.get(`/settings/users?status=${userSubTab}`);
         setUsers(data.users || []);
         // Fetch batches to populate selector in user modals
         const { data: batchData } = await api.get('/settings/batches');
@@ -136,13 +139,15 @@ export default function SettingsPage() {
 
   // Memoized Filtered Users
   const filteredUsers = useMemo(() => {
-    return users.filter(u => 
-      u.is_active !== false &&
-      (u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      u.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (u.department && u.department.toLowerCase().includes(searchQuery.toLowerCase())))
-    );
-  }, [users, searchQuery]);
+    return users.filter(u => {
+      const matchesSearch =
+        u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        u.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (u.department && u.department.toLowerCase().includes(searchQuery.toLowerCase()));
+      if (!matchesSearch) return false;
+      return userSubTab === 'deactivated' ? u.is_active === false : u.is_active !== false;
+    });
+  }, [users, searchQuery, userSubTab]);
 
   // User Handlers
   const handleCreateUser = async (e) => {
@@ -178,6 +183,17 @@ export default function SettingsPage() {
       fetchData();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to delete user');
+    }
+  };
+
+  const handleRestoreUser = async (u) => {
+    if (!window.confirm(`Are you sure you want to reactivate ${u.name}? They will regain login access and reappear in active operational lists.`)) return;
+    try {
+      await api.patch(`/settings/users/${u.id}/restore`);
+      toast.success(`${u.name} reactivated successfully`);
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to reactivate user');
     }
   };
 
@@ -419,16 +435,37 @@ export default function SettingsPage() {
           {activeTab === 'users' && (
             <div className="p-0">
               <div className="px-6 py-5 border-b border-gray-100 flex flex-wrap gap-4 justify-between items-center bg-gray-50/30">
-                <div className="flex items-center gap-6">
+                <div className="flex flex-wrap items-center gap-6">
                   <div>
                     <h2 className="text-lg font-bold text-gray-800">Users & Roles</h2>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Manage system access and permissions</p>
+                  </div>
+                  {/* Active vs Deactivated pill toggle */}
+                  <div className="flex bg-gray-200/60 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setUserSubTab('active')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                        userSubTab === 'active' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                      }`}
+                    >
+                      <Users size={14} /> Active Staff
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUserSubTab('deactivated')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                        userSubTab === 'deactivated' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                      }`}
+                    >
+                      <Archive size={14} /> Deactivated Archive
+                    </button>
                   </div>
                   <div className="relative group">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-primary transition-colors" size={16} />
                     <input 
                       type="text" 
-                      placeholder="Search users..."
+                      placeholder={userSubTab === 'active' ? "Search active users..." : "Search archived users..."}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-sm w-64 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all font-medium"
@@ -443,13 +480,20 @@ export default function SettingsPage() {
                     )}
                   </div>
                 </div>
-                <button 
-                  onClick={() => setShowUserModal(true)}
-                  className="btn-primary"
-                >
-                  <UserPlus size={18} /> 
-                  <span className="font-bold uppercase tracking-widest text-[10px]">Add User</span>
-                </button>
+                {userSubTab === 'active' ? (
+                  <button 
+                    onClick={() => setShowUserModal(true)}
+                    className="btn-primary"
+                  >
+                    <UserPlus size={18} /> 
+                    <span className="font-bold uppercase tracking-widest text-[10px]">Add User</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 border border-gray-200 rounded-xl text-xs font-bold text-gray-600">
+                    <Archive size={14} className="text-gray-400" />
+                    <span>{filteredUsers.length} Archived Account{filteredUsers.length !== 1 ? 's' : ''}</span>
+                  </div>
+                )}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
@@ -459,7 +503,11 @@ export default function SettingsPage() {
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Role</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Department</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Phone</th>
-                      <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Batch</th>
+                      {userSubTab === 'active' ? (
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Batch</th>
+                      ) : (
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Deactivated On</th>
+                      )}
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Salary / Hourly</th>
                       <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest text-center">Actions</th>
                     </tr>
@@ -469,11 +517,20 @@ export default function SettingsPage() {
                       <tr key={u.id} className="hover:bg-gray-50 transition-colors group">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
+                              u.is_active === false ? 'bg-gray-200 text-gray-600' : 'bg-primary/10 text-primary'
+                            }`}>
                               {u.name.charAt(0)}
                             </div>
                             <div>
-                              <div className="font-bold text-gray-900">{u.name}</div>
+                              <div className="font-bold text-gray-900 flex items-center gap-2">
+                                <span>{u.name}</span>
+                                {u.is_active === false && (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-gray-100 text-gray-500 border border-gray-200">
+                                    Deactivated
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-xs text-gray-500 font-medium">@{u.username}</div>
                             </div>
                           </div>
@@ -501,61 +558,79 @@ export default function SettingsPage() {
                         </td>
                         <td className="px-6 py-4 text-gray-600 font-medium">{u.department || '—'}</td>
                         <td className="px-6 py-4 text-gray-600 font-medium">{u.phone || '—'}</td>
-                        <td className="px-6 py-4 text-gray-600 font-medium">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            u.batch_name ? 'bg-orange-50 text-primary border border-orange-200' : 'bg-gray-100 text-gray-600'
-                          }`}>
-                            {u.batch_name || 'Global'}
-                          </span>
-                        </td>
+                        {userSubTab === 'active' ? (
+                          <td className="px-6 py-4 text-gray-600 font-medium">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              u.batch_name ? 'bg-orange-50 text-primary border border-orange-200' : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {u.batch_name || 'Global'}
+                            </span>
+                          </td>
+                        ) : (
+                          <td className="px-6 py-4 text-gray-500 font-medium text-xs">
+                            {u.deactivated_at ? new Date(u.deactivated_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                          </td>
+                        )}
                         <td className="px-6 py-4 text-gray-600">
                           <div className="font-bold">₹{Number(u.base_salary || 0).toLocaleString()}</div>
                           <div className="text-[10px] font-bold text-primary italic">₹{Number(u.hourly_rate || 0).toLocaleString()}/hr</div>
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button 
-                              onClick={() => {
-                                setEditingUser({
-                                  id: u.id,
-                                  name: u.name,
-                                  username: u.username,
-                                  role: u.role,
-                                  department: u.department || '',
-                                  phone: u.phone || '',
-                                  base_salary: u.base_salary || 0,
-                                  hourly_rate: u.hourly_rate || 0,
-                                  batch_id: u.batch_id || '',
-                                });
-                                setShowEditModal(true);
-                              }}
-                              className="p-1.5 text-gray-400 hover:text-primary hover:bg-orange-50 rounded-lg transition-all" 
-                              title="Edit User"
-                            >
-                              <Pencil size={16} />
-                            </button>
-                            <button 
-                              onClick={() => setResetModal({ show: true, userId: u.id, userName: u.name, newPassword: '' })}
-                              className="p-1.5 text-gray-400 hover:text-primary hover:bg-orange-50 rounded-lg transition-all" 
-                              title="Reset Password"
-                            >
-                              <RefreshCw size={16} />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteUser(u.id)} 
-                              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all" 
-                              title="Delete User"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
+                          {userSubTab === 'active' ? (
+                            <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button 
+                                onClick={() => {
+                                  setEditingUser({
+                                    id: u.id,
+                                    name: u.name,
+                                    username: u.username,
+                                    role: u.role,
+                                    department: u.department || '',
+                                    phone: u.phone || '',
+                                    base_salary: u.base_salary || 0,
+                                    hourly_rate: u.hourly_rate || 0,
+                                    batch_id: u.batch_id || '',
+                                  });
+                                  setShowEditModal(true);
+                                }}
+                                className="p-1.5 text-gray-400 hover:text-primary hover:bg-orange-50 rounded-lg transition-all" 
+                                title="Edit User"
+                              >
+                                <Pencil size={16} />
+                              </button>
+                              <button 
+                                onClick={() => setResetModal({ show: true, userId: u.id, userName: u.name, newPassword: '' })}
+                                className="p-1.5 text-gray-400 hover:text-primary hover:bg-orange-50 rounded-lg transition-all" 
+                                title="Reset Password"
+                              >
+                                <RefreshCw size={16} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteUser(u.id)} 
+                                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all" 
+                                title="Delete User"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center">
+                              <button 
+                                onClick={() => handleRestoreUser(u)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-all shadow-sm"
+                                title="Reactivate User"
+                              >
+                                <RotateCcw size={14} /> Reactivate
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}
                     {filteredUsers.length === 0 && (
                       <tr>
                         <td colSpan={7} className="py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">
-                          No users found
+                          {userSubTab === 'active' ? 'No active users found' : 'No deactivated users in archive'}
                         </td>
                       </tr>
                     )}

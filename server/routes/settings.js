@@ -21,11 +21,19 @@ router.use(authenticate);
 // ─── Admin: List all users ────────────────────────────────────────────────────
 router.get('/users', requireAdmin, async (req, res) => {
   try {
+    const status = req.query.status || 'active';
+    let filterClause = 'WHERE u.is_active IS NOT FALSE';
+    if (status === 'deactivated') {
+      filterClause = 'WHERE u.is_active IS FALSE';
+    } else if (status === 'all') {
+      filterClause = '';
+    }
+
     const { rows } = await pool.query(
       `SELECT u.id, u.name, u.username, u.role, u.department, u.phone, u.base_salary, u.hourly_rate, u.batch_id, u.created_at, u.is_active, u.deactivated_at, b.name as batch_name 
        FROM users u
        LEFT JOIN attendance_batches b ON u.batch_id = b.id
-       WHERE u.is_active IS NOT FALSE
+       ${filterClause}
        ORDER BY u.name ASC`
     );
     res.json({ users: rows });
@@ -166,6 +174,28 @@ router.delete('/users/:id', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('Settings: delete user error:', err);
     res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// ─── Admin: Reactivate/Restore user ──────────────────────────────────────────
+router.patch('/users/:id/restore', requireAdmin, async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE users
+       SET is_active = TRUE,
+           deactivated_at = NULL
+       WHERE id = $1
+       RETURNING id, name, username, role, department, phone, base_salary, hourly_rate, is_active, deactivated_at`,
+      [userId]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({ message: 'User reactivated successfully', user: rows[0] });
+  } catch (err) {
+    console.error('Settings: restore user error:', err);
+    res.status(500).json({ error: 'Failed to reactivate user' });
   }
 });
 
