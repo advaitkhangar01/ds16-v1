@@ -429,8 +429,8 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(stats.deduction).toBe(0);
   });
 
-  // Rule 20: Checkout after 7 PM under 60 mins does not deduct regular hours worked
-  test('Rule 20: Checkout after 7 PM under 60 mins does not deduct regular hours', () => {
+  // Rule 20: Full shift completion (>= 8.0h) earns full day wage
+  test('Rule 20: Full shift completion (>= 8.0h) earns full day wage', () => {
     const stats = calculateDayAttendanceStats(
       {
         date: '2026-10-14',
@@ -442,14 +442,14 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
       },
       { baseSalary: 30000, batchMinHours: 9.0 }
     );
+    expect(stats.status).toBe('completed');
     expect(stats.overtime_hours).toBe(0);
     expect(stats.hours_worked).toBe(8.87);
-    expect(stats.regular_hours).toBe(8.87);
-    expect(stats.earnings).toBeCloseTo(8.87 * (30000 / (30 * 9.0)), 2);
+    expect(stats.earnings).toBeCloseTo(1000.0, 2);
   });
 
-  // Rule 21: Half-day with overtime after 7 PM preserves total hours worked
-  test('Rule 21: Half-day with overtime preserves total hours worked and pays regular + OT', () => {
+  // Rule 21: Full shift (>= 8.0h) with overtime after 7 PM earns full day wage + OT
+  test('Rule 21: Full shift with overtime earns full day wage + OT', () => {
     const stats = calculateDayAttendanceStats(
       {
         date: '2026-10-16',
@@ -461,10 +461,30 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
       },
       { baseSalary: 30000, batchMinHours: 9.0 }
     );
+    expect(stats.status).toBe('completed');
     expect(stats.overtime_hours).toBe(2.0);
     expect(stats.hours_worked).toBe(8.90);
-    expect(stats.regular_hours).toBe(6.90);
-    expect(stats.earnings).toBeCloseTo(8.90 * (30000 / (30 * 9.0)), 2);
+    expect(stats.normal_earnings).toBeCloseTo(1000.0, 2);
+    expect(stats.overtime_earnings).toBeCloseTo(222.22, 2);
+    expect(stats.earnings).toBeCloseTo(1222.22, 2);
+  });
+
+  // Rule 21b: True short day (< 8.0h) remains half_day and earns actual hours worked
+  test('Rule 21b: True short day (< 8.0h) remains half_day and earns actual hours worked', () => {
+    const stats = calculateDayAttendanceStats(
+      {
+        date: '2026-10-03',
+        status: 'half_day',
+        check_in: '2026-10-03T10:40:00+05:30',
+        check_out: '2026-10-03T17:33:00+05:30',
+        hours_worked: 6.88,
+        batch_id: testBatchId
+      },
+      { baseSalary: 30000, batchMinHours: 9.0 }
+    );
+    expect(stats.status).toBe('half_day');
+    expect(stats.hours_worked).toBe(6.88);
+    expect(stats.earnings).toBeCloseTo(6.88 * (30000 / (30 * 9.0)), 2);
   });
 
   // Rule 22: Completed shift >= 9h with OT pays full day wage plus overtime

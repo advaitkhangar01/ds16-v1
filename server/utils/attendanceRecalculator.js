@@ -214,10 +214,12 @@ async function recalculateAttendanceForUser(userId, options = {}) {
       if (isNaN(hoursWorked) || hoursWorked < 0) hoursWorked = 0;
       hoursWorked = parseFloat(hoursWorked.toFixed(2));
 
+      const fullDayThreshold = recMinHours >= 8.0 ? 8.0 : recMinHours;
+
       if (status === ATTENDANCE_STATUS.HALF_DAY) {
         // Keep half_day if check-in was after halfDayCutoff
         isLate = false;
-      } else if (hoursWorked < recMinHours) {
+      } else if (hoursWorked < fullDayThreshold) {
         status = ATTENDANCE_STATUS.HALF_DAY;
         isLate = false;
       } else {

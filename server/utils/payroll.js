@@ -59,6 +59,21 @@ function calculateDayAttendanceStats(att, options = {}) {
   const totalWorkedHours = regularHours;
   let overtimeHours = 0;
 
+  // If record was stored as half_day simply because batch min hours was set to 9.0,
+  // but employee arrived before half-day cutoff and completed a full workday (>= 8.0 hours),
+  // recognize the day as completed!
+  const fullDayThreshold = batchMinHours >= 8.0 ? 8.0 : batchMinHours;
+  if (dayStatus === 'half_day' && totalWorkedHours >= fullDayThreshold) {
+    let checkInAfterCutoff = false;
+    if (att.check_in && halfDayCutoffTimeStr) {
+      const checkInTimeStr = getISTTime(att.check_in);
+      checkInAfterCutoff = timeToMinutes(checkInTimeStr) > timeToMinutes(halfDayCutoffTimeStr);
+    }
+    if (!checkInAfterCutoff) {
+      dayStatus = 'completed';
+    }
+  }
+
   // Future and pending records cannot have worked hours, lateness, overtime, or deductions
   if (dayStatus === 'upcoming' || dayStatus === 'today_pending') {
     return {
