@@ -46,7 +46,7 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       await pool.query(
         `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [testUserId, d, `${d}T10:20:00+05:30`, `${d}T19:00:00+05:30`, 'working', true, 20, 8.67]
+        [testUserId, d, `${d}T10:20:00+05:30`, `${d}T19:20:00+05:30`, 'working', true, 20, 9.00]
       );
     }
 
@@ -63,7 +63,7 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       await pool.query(
         `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [testUserId, d, `${d}T10:20:00+05:30`, `${d}T19:00:00+05:30`, 'working', true, 20, 8.67]
+        [testUserId, d, `${d}T10:20:00+05:30`, `${d}T19:20:00+05:30`, 'working', true, 20, 9.00]
       );
     }
 
@@ -78,7 +78,7 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       await pool.query(
         `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [testUserId, d, `${d}T10:20:00+05:30`, `${d}T19:00:00+05:30`, 'working', true, 20, 8.67]
+        [testUserId, d, `${d}T10:20:00+05:30`, `${d}T19:20:00+05:30`, 'working', true, 20, 9.00]
       );
     }
 
@@ -93,7 +93,7 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       await pool.query(
         `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [testUserId, d, `${d}T10:20:00+05:30`, `${d}T19:00:00+05:30`, 'working', true, 20, 8.67]
+        [testUserId, d, `${d}T10:20:00+05:30`, `${d}T19:20:00+05:30`, 'working', true, 20, 9.00]
       );
     }
 
@@ -108,7 +108,7 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       await pool.query(
         `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [testUserId, d, `${d}T10:20:00+05:30`, `${d}T19:00:00+05:30`, 'working', true, 20, 8.67]
+        [testUserId, d, `${d}T10:20:00+05:30`, `${d}T19:20:00+05:30`, 'working', true, 20, 9.00]
       );
     }
 
@@ -124,7 +124,7 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       await pool.query(
         `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [testUserId, d, `${d}T10:20:00+05:30`, `${d}T19:00:00+05:30`, 'working', true, 20, 8.67]
+        [testUserId, d, `${d}T10:20:00+05:30`, `${d}T19:20:00+05:30`, 'working', true, 20, 9.00]
       );
     }
 
@@ -315,15 +315,15 @@ describe('Payroll Late-Arrival & Deduction Logic Tests', () => {
       // Day 9: Late arrival (streak = 2)
       // Total lates: 5, but ONLY Days 1, 2, 3 were 3 consecutive!
       const records = [
-        { date: '2026-09-01', inTime: '10:30', outTime: '19:00', late: true, lateMins: 30, status: 'present', hours: 8.5 },
-        { date: '2026-09-02', inTime: '10:30', outTime: '19:00', late: true, lateMins: 30, status: 'present', hours: 8.5 },
-        { date: '2026-09-03', inTime: '10:30', outTime: '19:00', late: true, lateMins: 30, status: 'present', hours: 8.5 },
+        { date: '2026-09-01', inTime: '10:30', outTime: '19:30', late: true, lateMins: 30, status: 'present', hours: 9.0 },
+        { date: '2026-09-02', inTime: '10:30', outTime: '19:30', late: true, lateMins: 30, status: 'present', hours: 9.0 },
+        { date: '2026-09-03', inTime: '10:30', outTime: '19:30', late: true, lateMins: 30, status: 'present', hours: 9.0 },
         { date: '2026-09-04', inTime: '10:00', outTime: '19:00', late: false, lateMins: 0, status: 'present', hours: 9.0 },
-        { date: '2026-09-05', inTime: '10:30', outTime: '19:00', late: true, lateMins: 30, status: 'present', hours: 8.5 },
+        { date: '2026-09-05', inTime: '10:30', outTime: '19:30', late: true, lateMins: 30, status: 'present', hours: 9.0 },
         // 2026-09-06 is Sunday
         { date: '2026-09-07', inTime: null, outTime: null, late: false, lateMins: 0, status: 'absent', hours: 0 },
-        { date: '2026-09-08', inTime: '10:30', outTime: '19:00', late: true, lateMins: 30, status: 'present', hours: 8.5 },
-        { date: '2026-09-09', inTime: '10:30', outTime: '19:00', late: true, lateMins: 30, status: 'present', hours: 8.5 }
+        { date: '2026-09-08', inTime: '10:30', outTime: '19:30', late: true, lateMins: 30, status: 'present', hours: 9.0 },
+        { date: '2026-09-09', inTime: '10:30', outTime: '19:30', late: true, lateMins: 30, status: 'present', hours: 9.0 }
       ];
 
       for (const r of records) {

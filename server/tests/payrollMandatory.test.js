@@ -409,10 +409,10 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(stats.deduction).toBe(0);
   });
 
-  // Rule 18: Completed salaried day has zero deduction
+  // Rule 18: Completed salaried day (>= batchMinHours) has zero deduction
   test('Rule 18: Completed salaried day has zero deduction', () => {
     const stats = calculateDayAttendanceStats(
-      { date: '2026-09-22', status: 'completed', check_in: '2026-09-22T10:00:00+05:30', check_out: '2026-09-22T18:00:00+05:30', hours_worked: 8.0, batch_id: testBatchId },
+      { date: '2026-09-22', status: 'completed', check_in: '2026-09-22T10:00:00+05:30', check_out: '2026-09-22T18:30:00+05:30', hours_worked: 8.5, batch_id: testBatchId },
       { baseSalary: 25000, batchMinHours: 8.5 }
     );
     expect(stats.earnings).toBeCloseTo(25000 / 30, 2);
@@ -429,8 +429,8 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(stats.deduction).toBe(0);
   });
 
-  // Rule 20: Full shift completion (>= 8.0h) earns full day wage
-  test('Rule 20: Full shift completion (>= 8.0h) earns full day wage', () => {
+  // Rule 20: Mandatory 9-hour rule: Day under 9.0h is strictly half_day and earns actual hours worked
+  test('Rule 20: Mandatory 9-hour rule: Day under 9.0h is strictly half_day with 0 OT', () => {
     const stats = calculateDayAttendanceStats(
       {
         date: '2026-10-14',
@@ -442,14 +442,14 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
       },
       { baseSalary: 30000, batchMinHours: 9.0 }
     );
-    expect(stats.status).toBe('completed');
+    expect(stats.status).toBe('half_day');
     expect(stats.overtime_hours).toBe(0);
     expect(stats.hours_worked).toBe(8.87);
-    expect(stats.earnings).toBeCloseTo(1000.0, 2);
+    expect(stats.earnings).toBeCloseTo(8.87 * (30000 / (30 * 9.0)), 2); // 985.56
   });
 
-  // Rule 21: Full shift (>= 8.0h) with overtime after 7 PM earns full day wage + OT
-  test('Rule 21: Full shift with overtime earns full day wage + OT', () => {
+  // Rule 21: Work under 9.0h cannot accrue overtime even if checkout is after 7 PM
+  test('Rule 21: Work under 9.0h cannot accrue overtime even after 7 PM', () => {
     const stats = calculateDayAttendanceStats(
       {
         date: '2026-10-16',
@@ -461,16 +461,16 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
       },
       { baseSalary: 30000, batchMinHours: 9.0 }
     );
-    expect(stats.status).toBe('completed');
-    expect(stats.overtime_hours).toBe(2.0);
+    expect(stats.status).toBe('half_day');
+    expect(stats.overtime_hours).toBe(0);
     expect(stats.hours_worked).toBe(8.90);
-    expect(stats.normal_earnings).toBeCloseTo(1000.0, 2);
-    expect(stats.overtime_earnings).toBeCloseTo(222.22, 2);
-    expect(stats.earnings).toBeCloseTo(1222.22, 2);
+    expect(stats.normal_earnings).toBeCloseTo(8.90 * (30000 / (30 * 9.0)), 2); // 988.89
+    expect(stats.overtime_earnings).toBe(0);
+    expect(stats.earnings).toBeCloseTo(8.90 * (30000 / (30 * 9.0)), 2); // 988.89
   });
 
-  // Rule 21b: True short day (< 8.0h) remains half_day and earns actual hours worked
-  test('Rule 21b: True short day (< 8.0h) remains half_day and earns actual hours worked', () => {
+  // Rule 21b: Short day (< 9.0h) remains half_day and earns actual hours worked
+  test('Rule 21b: Short day (< 9.0h) remains half_day and earns actual hours worked', () => {
     const stats = calculateDayAttendanceStats(
       {
         date: '2026-10-03',
@@ -483,8 +483,28 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
       { baseSalary: 30000, batchMinHours: 9.0 }
     );
     expect(stats.status).toBe('half_day');
+    expect(stats.overtime_hours).toBe(0);
     expect(stats.hours_worked).toBe(6.88);
-    expect(stats.earnings).toBeCloseTo(6.88 * (30000 / (30 * 9.0)), 2);
+    expect(stats.earnings).toBeCloseTo(6.88 * (30000 / (30 * 9.0)), 2); // 764.44
+  });
+
+  // Rule 21c: Historical record stored as completed with < 9.0h evaluates to half_day
+  test('Rule 21c: Historical record stored as completed with < 9.0h evaluates to half_day', () => {
+    const stats = calculateDayAttendanceStats(
+      {
+        date: '2026-09-30',
+        status: 'completed',
+        check_in: '2026-09-30T10:39:00+05:30',
+        check_out: '2026-09-30T19:31:00+05:30',
+        hours_worked: 8.87,
+        batch_id: null
+      },
+      { baseSalary: 30000, batchMinHours: 9.0 }
+    );
+    expect(stats.status).toBe('half_day');
+    expect(stats.overtime_hours).toBe(0);
+    expect(stats.hours_worked).toBe(8.87);
+    expect(stats.earnings).toBeCloseTo(8.87 * (30000 / (30 * 9.0)), 2); // 985.56
   });
 
   // Rule 22: Completed shift >= 9h with OT pays full day wage plus overtime

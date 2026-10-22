@@ -119,8 +119,7 @@ async function autoCheckoutPendingRecords() {
       
       let newStatus = r.status ? r.status.toLowerCase() : 'completed';
       let isLate = r.is_late;
-      const fullDayThreshold = minWorkingHours >= 8.0 ? 8.0 : minWorkingHours;
-      if (newStatus === 'half_day' || hoursWorked < fullDayThreshold) {
+      if (newStatus === 'half_day' || hoursWorked < minWorkingHours) {
         newStatus = 'half_day';
         isLate = false;
       } else {
@@ -479,11 +478,10 @@ router.post('/checkout', authenticate, async (req, res) => {
     const currentStatusLower = newStatus;
 
     let minWorkingHours = parseFloat(userBatch.min_working_hours || settings.min_working_hours || 4.0);
-    const fullDayThreshold = minWorkingHours >= 8.0 ? 8.0 : minWorkingHours;
 
     if (currentStatusLower === ATTENDANCE_STATUS.HALF_DAY) {
       newStatus = ATTENDANCE_STATUS.HALF_DAY; // checked in after cutoff
-    } else if (hoursWorked < fullDayThreshold) {
+    } else if (hoursWorked < minWorkingHours) {
       newStatus = ATTENDANCE_STATUS.HALF_DAY;
     } else {
       newStatus = ATTENDANCE_STATUS.COMPLETED;

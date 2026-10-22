@@ -59,18 +59,12 @@ function calculateDayAttendanceStats(att, options = {}) {
   const totalWorkedHours = regularHours;
   let overtimeHours = 0;
 
-  // If record was stored as half_day simply because batch min hours was set to 9.0,
-  // but employee arrived before half-day cutoff and completed a full workday (>= 8.0 hours),
-  // recognize the day as completed!
-  const fullDayThreshold = batchMinHours >= 8.0 ? 8.0 : batchMinHours;
-  if (dayStatus === 'half_day' && totalWorkedHours >= fullDayThreshold) {
-    let checkInAfterCutoff = false;
-    if (att.check_in && halfDayCutoffTimeStr) {
-      const checkInTimeStr = getISTTime(att.check_in);
-      checkInAfterCutoff = timeToMinutes(checkInTimeStr) > timeToMinutes(halfDayCutoffTimeStr);
-    }
-    if (!checkInAfterCutoff) {
-      dayStatus = 'completed';
+  // Mandatory 9-hour rule (batchMinHours):
+  // If employee has checked out, and total hours worked is less than mandatory batch minimum hours (e.g. 9.0h),
+  // they cannot be marked completed or earn full day wage. The day is strictly half_day.
+  if (att.check_out && totalWorkedHours < batchMinHours) {
+    if (dayStatus === 'completed' || dayStatus === 'present' || dayStatus === 'working') {
+      dayStatus = 'half_day';
     }
   }
 
@@ -91,7 +85,9 @@ function calculateDayAttendanceStats(att, options = {}) {
   }
 
   // Overtime logic: check-out > 7:00 PM IST (19:00) on the date of check-out
-  if (att.check_in && att.check_out) {
+  // Overtime can ONLY accrue if employee has completed the mandatory full day (totalWorkedHours >= batchMinHours)
+  // and is paid strictly in completed 1-hour multiples after 19:00 IST.
+  if (att.check_in && att.check_out && totalWorkedHours >= batchMinHours && dayStatus !== 'half_day') {
     const ci = new Date(att.check_in);
     const co = new Date(att.check_out);
     const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
