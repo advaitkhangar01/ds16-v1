@@ -84,25 +84,29 @@ function calculateDayAttendanceStats(att, options = {}) {
     };
   }
 
-  // Overtime logic: check-out > 7:00 PM IST (19:00) on the date of check-out
-  // Overtime can ONLY accrue if employee has completed the mandatory full day (totalWorkedHours >= batchMinHours)
-  // and is paid strictly in completed 1-hour multiples after 19:00 IST.
+  // Overtime logic:
+  // Overtime can ONLY accrue if:
+  // 1. Shift has completed the mandatory minimum hours (totalWorkedHours >= batchMinHours) and is not a half day.
+  // 2. The employee has completed at least 1 full additional hour beyond the mandatory shift
+  //    (e.g., for a 9h shift: 9.0h - 9.99h -> 0 OT; 10.0h - 10.99h -> 1 OT; 11.0h -> 2 OT).
+  // 3. Check-out is after 7:00 PM IST (19:00), paid only in completed 1-hour rounds after 19:00 IST.
   if (att.check_in && att.check_out && totalWorkedHours >= batchMinHours && dayStatus !== 'half_day') {
     const ci = new Date(att.check_in);
     const co = new Date(att.check_out);
     const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
     const checkOutDateStr = formatter.format(co);
     const cutoff = new Date(`${checkOutDateStr}T19:00:00+05:30`);
-    if (co > cutoff) {
+
+    const extraHoursBeyondShift = Math.floor(Math.max(0, totalWorkedHours - batchMinHours));
+
+    if (co > cutoff && extraHoursBeyondShift >= 1) {
       const startForOt = ci > cutoff ? ci : cutoff;
       const otMs = co.getTime() - startForOt.getTime();
-      if (otMs > 0) {
-        // Rule 4: Overtime is only paid in completed 1-hour multiples after 19:00 IST
-        // e.g. < 60 mins -> 0h; 8:30 PM (90 mins) -> 1h; 9:00 PM (120 mins) -> 2h
-        const rawOtHours = otMs / (1000 * 60 * 60);
-        overtimeHours = Math.floor(rawOtHours);
-        regularHours = Math.max(0, totalWorkedHours - overtimeHours);
-      }
+      const completedHoursPast7PM = Math.floor(Math.max(0, otMs / (1000 * 60 * 60)));
+
+      // Must complete both: full 1-hour blocks beyond mandatory shift AND full 1-hour blocks past 7 PM
+      overtimeHours = Math.min(extraHoursBeyondShift, completedHoursPast7PM);
+      regularHours = Math.max(0, totalWorkedHours - overtimeHours);
     }
   }
 

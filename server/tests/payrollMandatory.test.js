@@ -187,6 +187,79 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(stats.normal_earnings).toBeCloseTo(fullDayValue, 1);
   });
 
+  // User Business Rule: 9h shift mandatory; overtime requires full 1h round completion beyond 9h (10h, 11h)
+  test('User Rule: 9.36h and 9.5h shift pays exactly ₹1000 (0 OT); 10h & 10.8h pays ₹1111.11 (1h OT)', () => {
+    // Case 1: 9.36h (10:53 am to 8:15 pm) -> completed 9h, but < 10h -> 0 OT
+    const stats936 = calculateDayAttendanceStats(
+      {
+        date: '2026-10-12',
+        check_in: '2026-10-12T10:53:00+05:30',
+        check_out: '2026-10-12T20:15:00+05:30',
+        hours_worked: 9.36,
+        status: 'completed'
+      },
+      { baseSalary: 30000, batchMinHours: 9.0 }
+    );
+    expect(stats936.overtime_hours).toBe(0);
+    expect(stats936.earnings).toBe(1000);
+
+    // Case 2: 9.5h shift -> 0 OT, pays ₹1000
+    const stats95 = calculateDayAttendanceStats(
+      {
+        date: '2026-10-13',
+        check_in: '2026-10-13T10:00:00+05:30',
+        check_out: '2026-10-13T19:30:00+05:30',
+        hours_worked: 9.5,
+        status: 'completed'
+      },
+      { baseSalary: 30000, batchMinHours: 9.0 }
+    );
+    expect(stats95.overtime_hours).toBe(0);
+    expect(stats95.earnings).toBe(1000);
+
+    // Case 3: 10.0h shift (10:00 am to 8:00 pm) -> 1h OT, pays ₹1111.11
+    const stats100 = calculateDayAttendanceStats(
+      {
+        date: '2026-10-14',
+        check_in: '2026-10-14T10:00:00+05:30',
+        check_out: '2026-10-14T20:00:00+05:30',
+        hours_worked: 10.0,
+        status: 'completed'
+      },
+      { baseSalary: 30000, batchMinHours: 9.0 }
+    );
+    expect(stats100.overtime_hours).toBe(1);
+    expect(stats100.earnings).toBe(1111.11);
+
+    // Case 4: 10.8h shift (10:00 am to 8:48 pm) -> 1h OT, pays ₹1111.11
+    const stats108 = calculateDayAttendanceStats(
+      {
+        date: '2026-10-15',
+        check_in: '2026-10-15T10:00:00+05:30',
+        check_out: '2026-10-15T20:48:00+05:30',
+        hours_worked: 10.8,
+        status: 'completed'
+      },
+      { baseSalary: 30000, batchMinHours: 9.0 }
+    );
+    expect(stats108.overtime_hours).toBe(1);
+    expect(stats108.earnings).toBe(1111.11);
+
+    // Case 5: 11.0h shift (10:00 am to 9:00 pm) -> 2h OT, pays ₹1222.22
+    const stats110 = calculateDayAttendanceStats(
+      {
+        date: '2026-10-16',
+        check_in: '2026-10-16T10:00:00+05:30',
+        check_out: '2026-10-16T21:00:00+05:30',
+        hours_worked: 11.0,
+        status: 'completed'
+      },
+      { baseSalary: 30000, batchMinHours: 9.0 }
+    );
+    expect(stats110.overtime_hours).toBe(2);
+    expect(stats110.earnings).toBe(1222.22);
+  });
+
   // Rule 9: Late arrival and Overtime coexist independently on the same day
   test('Rule 9: Late arrival and Overtime coexist independently on the same day', () => {
     // Check-in 10:30 (late), check-out 20:30 (1h 30m after 7 PM -> Rule 4: 1h completed multiple)
@@ -507,9 +580,10 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(stats.earnings).toBeCloseTo(8.87 * (30000 / (30 * 9.0)), 2); // 985.56
   });
 
-  // Rule 22: Completed shift >= 9h with OT pays full day wage plus overtime
-  test('Rule 22: Completed shift >= 9h with OT pays full day wage plus overtime', () => {
-    const stats = calculateDayAttendanceStats(
+  // Rule 22: Completed shift of 9.36h (< 10h) pays ₹1000 (0 OT); 10.36h (>= 10h) pays ₹1111.11 (1h OT)
+  test('Rule 22: Completed shift of 9.36h (< 10h) pays ₹1000 (0 OT); 10.36h pays ₹1111.11 (1h OT)', () => {
+    // 9.36h: completed 9h shift, but additional hour not completed (< 10h) -> 0 OT, ₹1000
+    const stats936 = calculateDayAttendanceStats(
       {
         date: '2026-10-12',
         status: 'completed',
@@ -520,11 +594,29 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
       },
       { baseSalary: 30000, batchMinHours: 9.0 }
     );
-    expect(stats.overtime_hours).toBe(1.0);
-    expect(stats.hours_worked).toBe(9.36);
-    expect(stats.normal_earnings).toBeCloseTo(1000.0, 2);
-    expect(stats.overtime_earnings).toBeCloseTo(111.11, 2);
-    expect(stats.earnings).toBeCloseTo(1111.11, 2);
+    expect(stats936.overtime_hours).toBe(0);
+    expect(stats936.hours_worked).toBe(9.36);
+    expect(stats936.normal_earnings).toBe(1000);
+    expect(stats936.overtime_earnings).toBe(0);
+    expect(stats936.earnings).toBe(1000);
+
+    // 10.36h: completed 9h + 1 full hour (> 10h) and checkout past 7 PM -> 1h OT, ₹1111.11
+    const stats1036 = calculateDayAttendanceStats(
+      {
+        date: '2026-10-12',
+        status: 'completed',
+        check_in: '2026-10-12T09:53:00+05:30',
+        check_out: '2026-10-12T20:15:00+05:30',
+        hours_worked: 10.36,
+        batch_id: testBatchId
+      },
+      { baseSalary: 30000, batchMinHours: 9.0 }
+    );
+    expect(stats1036.overtime_hours).toBe(1);
+    expect(stats1036.hours_worked).toBe(10.36);
+    expect(stats1036.normal_earnings).toBe(1000);
+    expect(stats1036.overtime_earnings).toBeCloseTo(111.11, 2);
+    expect(stats1036.earnings).toBeCloseTo(1111.11, 2);
   });
 });
 
