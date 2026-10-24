@@ -142,8 +142,17 @@ async function runAudit() {
     report.totalIssuesFound += (invoiceTxnMismatches.length + stageDocMismatches.length + falsePaidInvoices.length);
 
     console.log(`  - Invoice vs Transaction balance discrepancies: ${invoiceTxnMismatches.length}`);
+    if (invoiceTxnMismatches.length > 0) {
+      invoiceTxnMismatches.forEach(inv => console.log(`     ⚠️ Invoice ${inv.invoice_no} | Billed: ₹${inv.amount} | Recorded Received: ₹${inv.received_amount} | Actual Txns: ₹${inv.txn_total} | Diff: ₹${inv.diff}`));
+    }
     console.log(`  - Payment stage vs Document amount discrepancies: ${stageDocMismatches.length}`);
+    if (stageDocMismatches.length > 0) {
+      stageDocMismatches.slice(0, 5).forEach(m => console.log(`     ⚠️ Project ${m.project_id} [${m.document_type}] | Stage: ₹${m.stage_amount || 0} | Doc: ₹${m.doc_amount || 0} | Diff: ₹${m.diff}`));
+    }
     console.log(`  - Invoices marked 'paid' with outstanding balance: ${falsePaidInvoices.length}`);
+    if (falsePaidInvoices.length > 0) {
+      falsePaidInvoices.forEach(inv => console.log(`     ⚠️ Invoice ${inv.invoice_no} | Total: ₹${inv.amount} | Received: ₹${inv.received_amount || 0} | Unpaid: ₹${inv.amount - (inv.received_amount || 0)}`));
+    }
 
 
     // ── 3. LEAVE LEDGER & ATTENDANCE INTEGRITY ──────────────────────────────
