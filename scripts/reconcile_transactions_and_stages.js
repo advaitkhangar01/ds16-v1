@@ -72,8 +72,7 @@ async function reconcile() {
         pda.document_type,
         pda.document_type AS name,
         pda.amount,
-        'pending' AS status,
-        COALESCE(pda.created_at, NOW()) AS created_at
+        'pending' AS status
       FROM project_document_amounts pda
       LEFT JOIN project_payment_stages pps
         ON pps.project_id = pda.project_id AND pps.document_type = pda.document_type
@@ -98,7 +97,7 @@ async function reconcile() {
           pda.document_type AS name,
           pda.amount,
           'pending' AS status,
-          COALESCE(pda.created_at, NOW()),
+          NOW(),
           NOW()
         FROM project_document_amounts pda
         LEFT JOIN project_payment_stages pps

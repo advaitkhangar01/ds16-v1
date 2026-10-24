@@ -122,7 +122,9 @@ async function runAudit() {
 
     // 2B. Payment stages vs Document amounts discrepancy
     const { rows: stageDocMismatches } = await client.query(`
-      SELECT pps.project_id, pps.document_type, pps.amount AS stage_amount, pda.amount AS doc_amount,
+      SELECT COALESCE(pps.project_id, pda.project_id) AS project_id, 
+             COALESCE(pps.document_type, pda.document_type) AS document_type, 
+             pps.amount AS stage_amount, pda.amount AS doc_amount,
              ABS(COALESCE(pps.amount, 0) - COALESCE(pda.amount, 0)) AS diff
       FROM project_payment_stages pps
       FULL OUTER JOIN project_document_amounts pda
