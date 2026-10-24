@@ -372,8 +372,8 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(checkRows[0].is_late).toBe(false);
   });
 
-  // Rule 14: Auto-checkout closes recent open attendance at exactly 7:00 PM IST
-  test('Rule 14: Auto-checkout closes pending recent records at exactly 7:00 PM IST', async () => {
+  // Rule 14: Auto-checkout closes recent open attendance at exactly 4:00 PM IST
+  test('Rule 14: Auto-checkout closes pending recent records at exactly 4:00 PM IST', async () => {
     // Insert open attendance record for yesterday
     const now = new Date();
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -401,7 +401,7 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(pending.length).toBe(1);
 
     const r = pending[0];
-    const checkoutTimeISO = `${yStr}T19:00:00+05:30`;
+    const checkoutTimeISO = `${yStr}T16:00:00+05:30`;
     const checkOutTime = new Date(checkoutTimeISO);
     const checkInTime = new Date(r.check_in);
     const hoursWorked = parseFloat(((checkOutTime - checkInTime) / (1000 * 60 * 60)).toFixed(2));
@@ -414,8 +414,8 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
 
     const { rows: verified } = await pool.query('SELECT check_out, status, hours_worked FROM attendance WHERE id = $1', [recId]);
     expect(new Date(verified[0].check_out).toISOString()).toBe(checkOutTime.toISOString());
-    expect(parseFloat(verified[0].hours_worked)).toBe(9.0);
-    expect(verified[0].status).toBe('completed');
+    expect(parseFloat(verified[0].hours_worked)).toBe(6.0);
+    expect(verified[0].status).toBe('half_day');
   });
 
   // Rule 15: Ancient abandoned open records remain untouched

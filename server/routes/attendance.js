@@ -100,8 +100,8 @@ async function autoCheckoutPendingRecords() {
         minWorkingHours = parseFloat(r.batch_min_hours);
       }
 
-      // Business rule: End-of-day / recovery process sets checkout strictly to 7:00 PM IST of that attendance date
-      const checkoutTimeISO = `${dateStr}T19:00:00+05:30`;
+      // Business rule: End-of-day / recovery process sets default checkout strictly to 4:00 PM IST (16:00) for all batches
+      const checkoutTimeISO = `${dateStr}T16:00:00+05:30`;
       let checkOutTime = new Date(checkoutTimeISO);
       
       const checkInTime = new Date(r.check_in);
