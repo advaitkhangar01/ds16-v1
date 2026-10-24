@@ -70,14 +70,14 @@ async function reconcile() {
       SELECT 
         pda.project_id,
         pda.document_type,
-        pda.document_type AS name,
-        pda.amount,
-        'pending' AS status
+        COALESCE(pda.amount, 0) AS amount,
+        'payment initiated' AS status
       FROM project_document_amounts pda
       LEFT JOIN project_payment_stages pps
         ON pps.project_id = pda.project_id AND pps.document_type = pda.document_type
       WHERE pps.id IS NULL
-        AND pda.project_id IS NOT NULL;
+        AND pda.project_id IS NOT NULL
+        AND pda.project_id IN (SELECT id FROM projects);
     `);
 
     console.log(`  - Found ${missingStages.length} document amounts missing from project_payment_stages.`);
@@ -90,20 +90,21 @@ async function reconcile() {
 
     if (isApply && missingStages.length > 0) {
       const { rowCount: insertedStages } = await client.query(`
-        INSERT INTO project_payment_stages (project_id, document_type, name, amount, status, created_at, updated_at)
+        INSERT INTO project_payment_stages (project_id, document_type, amount, status, created_at, updated_at)
         SELECT 
           pda.project_id,
           pda.document_type,
-          pda.document_type AS name,
-          pda.amount,
-          'pending' AS status,
+          COALESCE(pda.amount, 0),
+          'payment initiated' AS status,
           NOW(),
           NOW()
         FROM project_document_amounts pda
         LEFT JOIN project_payment_stages pps
           ON pps.project_id = pda.project_id AND pps.document_type = pda.document_type
         WHERE pps.id IS NULL
-          AND pda.project_id IS NOT NULL;
+          AND pda.project_id IS NOT NULL
+          AND pda.project_id IN (SELECT id FROM projects)
+        ON CONFLICT (project_id, document_type) DO NOTHING;
       `);
       console.log(`  ✅ Successfully created ${insertedStages} missing payment stages.`);
     }
@@ -130,7 +131,7 @@ async function reconcile() {
     if (isApply && valueMismatches.length > 0) {
       const { rowCount: updatedMismatches } = await client.query(`
         UPDATE project_payment_stages pps
-        SET amount = pda.amount, updated_at = NOW()
+        SET amount = COALESCE(pda.amount, 0), updated_at = NOW()
         FROM project_document_amounts pda
         WHERE pda.project_id = pps.project_id 
           AND pda.document_type = pps.document_type
