@@ -12,6 +12,7 @@ describe('Leaves & All Requests Kanban Subsystem Tests', () => {
 
   beforeAll(async () => {
     // 0. Pre-cleanup in case of prior abrupt termination
+    await pool.query("DELETE FROM attendance WHERE user_id IN (SELECT id FROM users WHERE username IN ('test_kadmin', 'test_kemp'))");
     await pool.query("DELETE FROM leave_requests WHERE reason LIKE 'TEST_JEST:%'");
     await pool.query("DELETE FROM users WHERE username IN ('test_kadmin', 'test_kemp')");
 
@@ -81,6 +82,8 @@ describe('Leaves & All Requests Kanban Subsystem Tests', () => {
       await pool.query('DELETE FROM leave_requests WHERE id = ANY($1)', [testIds]);
     }
     await pool.query("DELETE FROM leave_requests WHERE reason LIKE 'TEST_JEST:%'");
+    if (employeeUser.id) await pool.query('DELETE FROM attendance WHERE user_id = $1', [employeeUser.id]);
+    if (adminUser.id) await pool.query('DELETE FROM attendance WHERE user_id = $1', [adminUser.id]);
     if (adminUser.id) await pool.query('DELETE FROM users WHERE id = $1', [adminUser.id]);
     if (employeeUser.id) await pool.query('DELETE FROM users WHERE id = $1', [employeeUser.id]);
   });

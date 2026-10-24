@@ -77,7 +77,7 @@ async function autoCheckoutPendingRecords() {
     // Fetch required settings for default checkout time calculation
     const settings = await getSettings(['office_start_time', 'min_working_hours']);
     let defaultOfficeStartTime = settings.office_start_time || '10:00';
-    let defaultMinWorkingHours = parseFloat(settings.min_working_hours || '4');
+    let defaultMinWorkingHours = parseFloat(settings.min_working_hours || '9');
 
     // Validate defaultOfficeStartTime format (HH:mm)
     if (!/^\d{2}:\d{2}$/.test(defaultOfficeStartTime)) {
@@ -87,8 +87,8 @@ async function autoCheckoutPendingRecords() {
 
     // Validate defaultMinWorkingHours
     if (isNaN(defaultMinWorkingHours) || defaultMinWorkingHours < 0 || defaultMinWorkingHours > 24) {
-      console.warn(`[Auto-Checkout] Invalid min_working_hours: "${settings.min_working_hours}". Falling back to 4.`);
-      defaultMinWorkingHours = 4.0;
+      console.warn(`[Auto-Checkout] Invalid min_working_hours: "${settings.min_working_hours}". Falling back to 9.`);
+      defaultMinWorkingHours = 9.0;
     }
 
     console.log(`[Auto-Checkout] Found ${rows.length} pending records from previous days to automatically check out. Using default office_start_time=${defaultOfficeStartTime}, min_working_hours=${defaultMinWorkingHours}`);
@@ -477,7 +477,7 @@ router.post('/checkout', authenticate, async (req, res) => {
     let newStatus = (existing[0].status || ATTENDANCE_STATUS.WORKING).toLowerCase();
     const currentStatusLower = newStatus;
 
-    let minWorkingHours = parseFloat(userBatch.min_working_hours || settings.min_working_hours || 4.0);
+    let minWorkingHours = parseFloat(userBatch.min_working_hours || settings.min_working_hours || 9.0);
 
     if (currentStatusLower === ATTENDANCE_STATUS.HALF_DAY) {
       newStatus = ATTENDANCE_STATUS.HALF_DAY; // checked in after cutoff

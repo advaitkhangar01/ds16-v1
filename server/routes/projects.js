@@ -13,6 +13,7 @@ const DEFAULT_STAGES = ['Proposal', 'Design', 'Submission', 'Working', 'Executio
 // POST /api/projects
 router.post('/', authenticate, async (req, res) => {
   const client = await pool.connect();
+  let inTxn = false;
   try {
     const { name, client_id, type, location, area_sq_ft, structural_engineer, status, stages: customStages, start_date } = req.body;
 
@@ -25,6 +26,7 @@ router.post('/', authenticate, async (req, res) => {
     if (!clientExists) return res.status(400).json({ error: 'Selected client does not exist' });
 
     await client.query('BEGIN');
+    inTxn = true;
 
     // Create project
     const { rows } = await client.query(
@@ -45,6 +47,7 @@ router.post('/', authenticate, async (req, res) => {
     }
 
     await client.query('COMMIT');
+    inTxn = false;
 
     // Return full project with stages
     const { rows: stageRows } = await pool.query(
@@ -54,7 +57,7 @@ router.post('/', authenticate, async (req, res) => {
 
     res.status(201).json({ project: { ...project, stages: stageRows } });
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (inTxn) { try { await client.query('ROLLBACK'); } catch (_) {} }
     console.error('Create project error:', err);
     res.status(500).json({ error: 'Server error' });
   } finally {

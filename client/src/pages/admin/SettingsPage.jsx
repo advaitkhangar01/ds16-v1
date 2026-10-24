@@ -46,7 +46,7 @@ export default function SettingsPage() {
   const [batches, setBatches] = useState([]);
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showEditBatchModal, setShowEditBatchModal] = useState(false);
-  const [newBatch, setNewBatch] = useState({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '4' });
+  const [newBatch, setNewBatch] = useState({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '9' });
   const [editingBatch, setEditingBatch] = useState({ id: null, name: '', office_start_time: '', late_threshold_time: '', half_day_cutoff_time: '', min_working_hours: '' });
   const [recalculating, setRecalculating] = useState(false);
 
@@ -57,7 +57,7 @@ export default function SettingsPage() {
     late_penalty_rule_count: '3',
     late_penalty_rule_days: '0.5',
     half_day_cutoff_time: '13:00',
-    min_working_hours: '4',
+    min_working_hours: '9',
     // legacy fields
     late_threshold_mins: '15',
     late_penalty_amount: '50',
@@ -305,7 +305,7 @@ export default function SettingsPage() {
       await api.post('/settings/batches', newBatch);
       toast.success('Attendance batch created successfully');
       setShowBatchModal(false);
-      setNewBatch({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '4' });
+      setNewBatch({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '9' });
       fetchData();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to create batch');
@@ -1118,7 +1118,7 @@ export default function SettingsPage() {
                     </button>
                     <button 
                       onClick={() => {
-                        setNewBatch({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '4' });
+                        setNewBatch({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '9' });
                         setShowBatchModal(true);
                       }}
                       className="btn-primary"

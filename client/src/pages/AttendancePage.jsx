@@ -14,7 +14,7 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
   const lateThresholdTimeStr = settings?.late_threshold_time;
   const lateThresholdMins = parseInt(settings?.late_threshold_mins || 15);
   // Prefer half_day_threshold_hours; fall back to min_working_hours only if the former is absent
-  const halfDayThresholdHours = parseFloat(settings?.half_day_threshold_hours || settings?.min_working_hours || 4);
+  const halfDayThresholdHours = parseFloat(settings?.half_day_threshold_hours || settings?.min_working_hours || 9);
 
   let isLate = propIsLate;
   if (isLate === undefined && checkIn) {

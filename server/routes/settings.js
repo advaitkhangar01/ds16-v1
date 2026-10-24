@@ -529,7 +529,7 @@ router.post('/batches', requireAdmin, async (req, res) => {
       `INSERT INTO attendance_batches (name, office_start_time, late_threshold_time, half_day_cutoff_time, min_working_hours)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [name.trim(), office_start_time, late_threshold_time, half_day_cutoff_time, parseFloat(min_working_hours) || 4.00]
+      [name.trim(), office_start_time, late_threshold_time, half_day_cutoff_time, parseFloat(min_working_hours) || 9.00]
     );
 
     res.status(201).json(rows[0]);
@@ -561,7 +561,7 @@ router.put('/batches/:id', requireAdmin, async (req, res) => {
        SET name = $1, office_start_time = $2, late_threshold_time = $3, half_day_cutoff_time = $4, min_working_hours = $5
        WHERE id = $6
        RETURNING *`,
-      [name.trim(), office_start_time, late_threshold_time, half_day_cutoff_time, parseFloat(min_working_hours) || 4.00, batchId]
+      [name.trim(), office_start_time, late_threshold_time, half_day_cutoff_time, parseFloat(min_working_hours) || 9.00, batchId]
     );
 
     if (rows.length === 0) {

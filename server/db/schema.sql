@@ -375,7 +375,7 @@ CREATE TABLE IF NOT EXISTS attendance_batches (
   office_start_time TIME NOT NULL,
   late_threshold_time TIME NOT NULL,
   half_day_cutoff_time TIME NOT NULL,
-  min_working_hours DECIMAL(4, 2) NOT NULL DEFAULT 4.00,
+  min_working_hours DECIMAL(4, 2) NOT NULL DEFAULT 9.00,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

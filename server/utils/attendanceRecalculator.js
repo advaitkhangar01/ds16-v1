@@ -83,7 +83,7 @@ async function recalculateAttendanceForUser(userId, options = {}) {
   let officeStartTime = globalSettings.office_start_time || '10:00';
   let lateThresholdTime = globalSettings.late_threshold_time;
   let halfDayCutoff = globalSettings.half_day_cutoff_time || '13:00';
-  let minWorkingHours = parseFloat(globalSettings.min_working_hours || '4.00');
+  let minWorkingHours = parseFloat(globalSettings.min_working_hours || '9.00');
 
   if (user.batch_start) {
     officeStartTime = formatTimeString(user.batch_start, '10:00');

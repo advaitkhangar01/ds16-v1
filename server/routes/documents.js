@@ -146,6 +146,7 @@ router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
   });
 }, async (req, res) => {
   const client = await pool.connect();
+  let inTxn = false;
   try {
     const project_id = req.query.project_id || req.body.project_id;
     const { remark, category = 'document', document_type } = req.body;
@@ -199,6 +200,7 @@ router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
     const typeSlug = getDocumentTypeSlug(document_type);
 
     await client.query('BEGIN');
+    inTxn = true;
 
     const insertedDocs = [];
     for (const file of files) {
@@ -244,9 +246,10 @@ router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
     }
 
     await client.query('COMMIT');
+    inTxn = false;
     res.status(201).json({ documents: insertedDocs });
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (inTxn) { try { await client.query('ROLLBACK'); } catch (_) {} }
     // Clean up any uploaded files on transaction failure
     if (req.files) {
       for (const file of req.files) {
