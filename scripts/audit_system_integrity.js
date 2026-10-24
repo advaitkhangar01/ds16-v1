@@ -43,7 +43,9 @@ async function runAudit() {
       LIMIT 50
     `);
 
-    // 1B. Overtime granted to short shifts (< min working hours)
+    // 1B. Overtime mistakenly granted to short shifts (< min working hours)
+    // Note: Half-day or absent shifts are properly blocked from overtime in payroll/recalculator.
+    // This check catches any shift marked as completed/working despite insufficient hours.
     const { rows: otOnShortShifts } = await client.query(`
       SELECT a.id, a.user_id, u.name, a.date, a.check_in, a.check_out, a.hours_worked,
              ROUND((EXTRACT(EPOCH FROM (a.check_out - (a.date || ' 19:00:00+05:30')::timestamptz)) / 3600)::numeric, 2) AS raw_ot_hours
@@ -52,6 +54,7 @@ async function runAudit() {
       LEFT JOIN attendance_batches b ON b.id = COALESCE(a.batch_id, u.batch_id)
       WHERE a.check_out > (a.date || ' 19:00:00+05:30')::timestamptz
         AND a.hours_worked < COALESCE(b.min_working_hours, 9.0)
+        AND LOWER(COALESCE(a.status, '')) IN ('completed', 'working', 'present')
       ORDER BY a.date DESC
       LIMIT 50
     `);
@@ -127,11 +130,14 @@ async function runAudit() {
       WHERE ABS(COALESCE(pps.amount, 0) - COALESCE(pda.amount, 0)) > 0.01
     `);
 
-    // 2C. Invoices marked 'paid' with unreceived balances
+    // 2C. Invoices marked 'paid' with unreceived balances (accounting for statutory TDS)
     const { rows: falsePaidInvoices } = await client.query(`
-      SELECT id, invoice_no, amount, received_amount, status
+      SELECT id, invoice_no, amount, received_amount, status,
+             COALESCE((tax_details->>'tdsAmount')::numeric, 0) AS tds_amount,
+             (amount - COALESCE((tax_details->>'tdsAmount')::numeric, 0) - COALESCE(received_amount, 0)) AS unpaid_balance
       FROM invoices
-      WHERE LOWER(status) = 'paid' AND (amount - COALESCE(received_amount, 0)) > 0.01
+      WHERE LOWER(status) = 'paid'
+        AND (amount - COALESCE((tax_details->>'tdsAmount')::numeric, 0) - COALESCE(received_amount, 0)) > 0.01
     `);
 
     report.domains.finances = {
