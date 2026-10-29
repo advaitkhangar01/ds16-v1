@@ -5,7 +5,7 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
-  timeout: 10000,
+  timeout: 60000,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -26,9 +26,12 @@ api.interceptors.response.use(
   (res) => res,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('ds16_token');
-      localStorage.removeItem('ds16_user');
-      window.location.href = '/login';
+      const isLoginRequest = error.config?.url?.includes('/auth/login') || error.config?.url?.includes('/login');
+      if (!isLoginRequest && !window.location.pathname.includes('/login')) {
+        localStorage.removeItem('ds16_token');
+        localStorage.removeItem('ds16_user');
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

@@ -1,6 +1,7 @@
 // server/utils/payroll.js
 const pool = require('../db');
 const { getISTDate, getISTTime } = require('./date');
+const { calculateHourlyRate, calculateLatePenalty, calculateUnifiedNet } = require('./salaryEngine');
 
 function timeToMinutes(timeStr) {
   if (!timeStr) return 0;
@@ -10,16 +11,7 @@ function timeToMinutes(timeStr) {
   return hours * 60 + minutes;
 }
 
-/**
- * Calculates hourly rate strictly based on the business rule:
- * Hourly Rate = Base Salary / (30 * Batch Minimum Hours)
- */
-function calculateHourlyRate(baseSalary, minWorkingHours) {
-  const base = parseFloat(baseSalary) || 0;
-  const hours = parseFloat(minWorkingHours) || 9.0;
-  if (base <= 0 || hours <= 0) return 0;
-  return Math.round((base / (30 * hours)) * 100) / 100;
-}
+// (calculateHourlyRate imported from ./salaryEngine)
 
 /**
  * Single source of truth to calculate daily attendance stats, regular & overtime hours,
@@ -142,6 +134,7 @@ function calculateDayAttendanceStats(att, options = {}) {
   // Business rule: Half-Day and Absent must NOT count as a late arrival
   if (dayStatus === 'half_day' || dayStatus === 'absent') {
     isLate = false;
+    lateMins = 0;
   }
 
   // Earnings & Deductions (Salaried monthly model)
@@ -263,14 +256,23 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
 
   // 5. Fetch or calculate Unpaid Leaves count
   let unpaidLeaves = 0;
-  const { rows: leaveSummaryRows } = await dbPool.query(
-    `SELECT unpaid_leaves FROM employee_leave_summary 
+  const { rows: leaveBalRows } = await dbPool.query(
+    `SELECT unpaid_leaves FROM employee_leave_balance 
      WHERE user_id = $1 AND month = $2 AND year = $3`,
     [userId, month, year]
   );
-  if (leaveSummaryRows.length > 0) {
-    unpaidLeaves = parseFloat(leaveSummaryRows[0].unpaid_leaves || 0);
+  if (leaveBalRows.length > 0) {
+    unpaidLeaves = parseFloat(leaveBalRows[0].unpaid_leaves || 0);
   } else {
+    // Fallback to employee_leave_summary if present
+    const { rows: leaveSummaryRows } = await dbPool.query(
+      `SELECT unpaid_leaves FROM employee_leave_summary 
+       WHERE user_id = $1 AND month = $2 AND year = $3`,
+      [userId, month, year]
+    );
+    if (leaveSummaryRows.length > 0) {
+      unpaidLeaves = parseFloat(leaveSummaryRows[0].unpaid_leaves || 0);
+    } else {
     // Month is not closed yet; calculate unpaid leaves on the fly
     const prevMonth = month === 1 ? 12 : month - 1;
     const prevYear = month === 1 ? year - 1 : year;
@@ -294,6 +296,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       }
     }
     unpaidLeaves = Math.max(0, leavesTaken - (prevClosingBalance + 1.50));
+    }
   }
 
   // Settings & rules
@@ -478,9 +481,10 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
   }
 
   // Cumulative Late Penalty (Standard): Every 3 late marks accumulated in the month = 0.15 day deduction
-  const completedLateGroups = Math.floor(lateCount / latePenaltyRuleCount);
-  const latePenaltyDays = Math.round(completedLateGroups * latePenaltyRuleDays * 100) / 100;
-  const latePenaltyAmount = latePenaltyDays * perDaySalary;
+  const lateRes = calculateLatePenalty(lateCount, perDaySalary, latePenaltyRuleCount, latePenaltyRuleDays);
+  const completedLateGroups = lateRes.groups;
+  const latePenaltyDays = lateRes.latePenaltyDays;
+  const latePenaltyAmount = lateRes.latePenaltyAmount;
   const lateDeductionAmount = latePenaltyAmount;
 
   // Rules 5, 6, 7: No other type of deduction or penalty exists
@@ -509,25 +513,33 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
 
   const isMonthInProgress = !isPeriodClosed && unworkedFutureWorkingDays > 0;
 
-  const accruedEarningsToDate = Math.max(0, Math.round((totalNormalEarnings + totalOvertimeEarnings) * 100) / 100);
+  const absenceDeduction = (unmarkedAbsentCount + unpaidLeaves) * perDaySalary;
+  const halfDayShortfallDeduction = dailyRecords
+    .filter(r => r.status === 'half_day')
+    .reduce((sum, r) => sum + Math.max(0, perDaySalary - (r.normal_earnings || 0)), 0);
+
+  const unified = calculateUnifiedNet({
+    baseSalary,
+    unmarkedAbsentCount,
+    unpaidLeaves,
+    halfDaysWorked,
+    halfDayShortfalls: halfDayShortfallDeduction,
+    totalDeductions,
+    totalOvertimeEarnings,
+    totalNormalEarnings,
+    isMonthInProgress
+  });
+
+  const accruedEarningsToDate = unified.accruedEarningsToDate;
   const accruedSalary = accruedEarningsToDate;
-
-  // Projected month-end net:
-  // Base Salary - (unmarked absences * perDaySalary) - total deductions (consecutive late penalty) + overtime
-  const projectedMonthEndNet = Math.max(0, Math.round((baseSalary - (unmarkedAbsentCount * perDaySalary) - totalDeductions + totalOvertimeEarnings) * 100) / 100);
-
-  // Authoritative Current Net Payable:
-  // For an in-progress month: Net Payable = Total Accrued Earnings - Total Deductions
-  // For a closed / completed month: Net Payable = projectedMonthEndNet
-  const currentNetPayable = isMonthInProgress
-    ? Math.max(0, Math.round((accruedEarningsToDate - totalDeductions) * 100) / 100)
-    : projectedMonthEndNet;
+  const projectedMonthEndNet = unified.projectedMonthEndNet;
+  const currentNetPayable = unified.currentNetPayable;
 
   const netSalaryPayable = currentNetPayable;
   const suggestedSalary = currentNetPayable;
   const totalEarnings = isMonthInProgress
     ? accruedEarningsToDate
-    : Math.round((baseSalary - (unmarkedAbsentCount * perDaySalary) + totalOvertimeEarnings) * 100) / 100;
+    : Math.round((baseSalary - absenceDeduction - halfDayShortfallDeduction + totalOvertimeEarnings) * 100) / 100;
 
   if (baseSalary <= 0 && hourlyRate > 0) {
     const hourlySuggested = (totalRegularHours + totalOvertimeHours) * hourlyRate;

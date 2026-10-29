@@ -155,7 +155,7 @@ router.get('/', authenticate, async (req, res) => {
   } catch (err) {
     console.error('[Leaves Error] GET /:', err.message);
     console.error(err.stack);
-    res.status(500).json({ error: 'Server error', details: err.message });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -219,7 +219,7 @@ router.post('/', authenticate, async (req, res) => {
     res.status(201).json({ message: 'Request submitted successfully', leave: newLeave });
   } catch (err) {
     console.error('[Leaves Error] POST /:', err.message);
-    res.status(500).json({ error: 'Server error', details: err.message });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -232,6 +232,28 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
 
     if (![LEAVE_STATUS.APPROVED, LEAVE_STATUS.REJECTED].includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    const { rows: existingLeave } = await pool.query(
+      'SELECT start_date, end_date FROM leave_requests WHERE id = $1',
+      [id]
+    );
+
+    if (existingLeave.length === 0) {
+      return res.status(404).json({ error: 'Leave request not found' });
+    }
+
+    const leaveDateStr = getISTDate(existingLeave[0].start_date);
+    const dateParts = leaveDateStr.split('-');
+    const lMonth = parseInt(dateParts[1], 10);
+    const lYear = parseInt(dateParts[0], 10);
+
+    const { rows: closed } = await pool.query(
+      'SELECT id FROM monthly_closing_log WHERE month = $1 AND year = $2',
+      [lMonth, lYear]
+    );
+    if (closed.length > 0) {
+      return res.status(403).json({ error: 'Cannot modify leaves for a closed accounting period' });
     }
 
     const { rows } = await pool.query(
@@ -292,7 +314,7 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
     res.json({ message: `Leave request ${status}`, leave: updatedLeave });
   } catch (err) {
     console.error('[Leaves Error] PATCH /:id:', err.message);
-    res.status(500).json({ error: 'Server error', details: err.message });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

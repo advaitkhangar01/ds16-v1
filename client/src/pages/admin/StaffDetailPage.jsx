@@ -182,13 +182,24 @@ export default function StaffDetailPage() {
 
   if (!data) return null;
 
-  const { employee, projects, tasks, attendanceStats, financialStats, attendance, leaveStats, leaves, leaveBalances = [], payroll, currentMonthPayroll } = data;
+  const { employee, projects, tasks, attendanceStats, financialStats, periodStats, leaveEstimate, attendance, leaveStats, leaves, leaveBalances = [], payroll, currentMonthPayroll } = data;
 
   // Calculate earnings and deduction stats from attendance records & payroll history
   const calculateAttendanceMetrics = () => {
     const isFiltered = Boolean(startDate || endDate);
 
     if (isFiltered) {
+      if (periodStats) {
+        return {
+          totalEarnings: periodStats.period_earnings,
+          totalDeduction: periodStats.period_deductions,
+          periodAttendanceDeduction: 0,
+          periodLatePenalty: periodStats.period_late_penalty,
+          netPayable: periodStats.period_net_payable,
+          earningsThisMonth: 0,
+          deductionsThisMonth: 0
+        };
+      }
       let periodEarnings = 0;
       let periodLateCount = 0;
       if (attendance && attendance.length > 0) {
@@ -209,9 +220,9 @@ export default function StaffDetailPage() {
       const latePenaltyAmount = lateGroups * 0.15 * perDaySalary;
       const totalPeriodDeductions = latePenaltyAmount;
 
-      const roundedEarnings = Math.round(periodEarnings);
+      const roundedEarnings = Math.round(periodEarnings * 100) / 100;
       const roundedDeductions = Math.round(totalPeriodDeductions * 100) / 100;
-      const periodNetPayable = Math.max(0, Math.round(roundedEarnings - roundedDeductions));
+      const periodNetPayable = Math.max(0, Math.round((roundedEarnings - roundedDeductions) * 100) / 100);
       return {
         totalEarnings: roundedEarnings,
         totalDeduction: roundedDeductions,
@@ -258,10 +269,10 @@ export default function StaffDetailPage() {
     const totalDeduction = allTimePayrollDeductions + deductionsThisMonth;
 
     return {
-      totalEarnings: Math.round(totalEarnings),
-      totalDeduction: Math.round(totalDeduction),
-      earningsThisMonth: Math.round(earningsThisMonth),
-      deductionsThisMonth: Math.round(deductionsThisMonth),
+      totalEarnings: Math.round(totalEarnings * 100) / 100,
+      totalDeduction: Math.round(totalDeduction * 100) / 100,
+      earningsThisMonth: Math.round(earningsThisMonth * 100) / 100,
+      deductionsThisMonth: Math.round(deductionsThisMonth * 100) / 100,
       netPayable
     };
   };
@@ -293,11 +304,11 @@ export default function StaffDetailPage() {
     return days;
   };
 
-  const currentMonthLeavesTaken = calculateCurrentMonthLeavesTaken();
+  const currentMonthLeavesTaken = leaveEstimate ? leaveEstimate.leaves_taken : calculateCurrentMonthLeavesTaken();
   const latestClosedBalance = leaveBalances.length > 0 ? parseFloat(leaveBalances[0].closing_balance) : 0.0;
   const currentMonthEarned = 1.5;
-  const estCurrentMonthClosing = Math.max(0, latestClosedBalance + currentMonthEarned - currentMonthLeavesTaken);
-  const estCurrentMonthUnpaid = Math.max(0, currentMonthLeavesTaken - (latestClosedBalance + currentMonthEarned));
+  const estCurrentMonthClosing = leaveEstimate ? leaveEstimate.closing_balance : Math.max(0, latestClosedBalance + currentMonthEarned - currentMonthLeavesTaken);
+  const estCurrentMonthUnpaid = leaveEstimate ? leaveEstimate.unpaid_leaves : Math.max(0, currentMonthLeavesTaken - (latestClosedBalance + currentMonthEarned));
 
   const today = new Date();
   const currentMonthNum = today.getMonth() + 1;

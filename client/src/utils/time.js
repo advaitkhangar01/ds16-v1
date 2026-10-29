@@ -86,11 +86,11 @@ export function parseMentions(text) {
 }
 
 /**
- * Calculates the number of days a task is overdue based on start_date.
- * If the task is completed (status is passed or done) or start_date is not set, returns 0.
+ * Calculates the number of days a task is overdue.
+ * If the task is completed/in review ('passed', 'done', 'review') or dates are missing, returns 0.
  */
 export function getTaskOverdueDays(task) {
-  if (!task || ['passed', 'done'].includes(task.status)) return 0;
+  if (!task || ['passed', 'done', 'review'].includes(task.status)) return 0;
   try {
     const todayStr = getISODateIST();
     const todayDate = new Date(todayStr);
@@ -108,7 +108,8 @@ export function getTaskOverdueDays(task) {
       const startDate = new Date(startStr);
       const diffTime = todayDate.getTime() - startDate.getTime();
       const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-      return diffDays > 0 ? diffDays : 0;
+      // Overdue after 7-day allocation; return days past threshold
+      return diffDays > 7 ? (diffDays - 7) : 0;
     }
     
     return 0;
@@ -123,9 +124,5 @@ export function getTaskOverdueDays(task) {
  */
 export function isTaskOverdue(task) {
   if (!task) return false;
-  const overdueDays = getTaskOverdueDays(task);
-  if (task.due_date) {
-    return overdueDays > 0;
-  }
-  return overdueDays > 7;
+  return getTaskOverdueDays(task) > 0;
 }

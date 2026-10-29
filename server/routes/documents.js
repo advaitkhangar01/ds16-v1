@@ -570,8 +570,15 @@ router.delete('/:id', authenticate, checkProjectAccess({ idIsResource: 'document
   const client = await pool.connect();
   try {
     const { id } = req.params;
-    const { rows } = await client.query('SELECT file_path FROM documents WHERE id = $1', [id]);
+    const { rows } = await client.query('SELECT file_path, uploaded_by FROM documents WHERE id = $1', [id]);
     if (!rows.length) return res.status(404).json({ error: 'Document not found' });
+
+    // Authorization: only the uploader or admin/heads can delete documents
+    const isOwner = rows[0].uploaded_by === req.user.id;
+    const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'project_head';
+    if (!isOwner && !isPrivileged) {
+      return res.status(403).json({ error: 'Unauthorized: you can only delete documents uploaded by yourself' });
+    }
 
     const filePath = rows[0].file_path;
     const absolutePath = path.join(__dirname, '..', filePath);

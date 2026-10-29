@@ -12,6 +12,7 @@ const {
   recalculateAttendanceForAll
 } = require('../utils/attendanceRecalculator');
 const { calculateHourlyRate } = require('../utils/payroll');
+const { logAudit } = require('../utils/auditLogger');
 
 const confirmCodes = new Map(); // userId -> { code, expires }
 
@@ -107,6 +108,7 @@ router.post('/users', requireAdmin, async (req, res) => {
       }
 
       await client.query('COMMIT');
+      logAudit({ userId: req.user.id, action: 'USER_CREATE', entityType: 'users', entityId: rows[0].id, ipAddress: req.ip });
       res.status(201).json(rows[0]);
     } catch (txErr) {
       await client.query('ROLLBACK');
@@ -164,6 +166,7 @@ router.delete('/users/:id', requireAdmin, async (req, res) => {
       );
 
       await client.query('COMMIT');
+      logAudit({ userId: req.user.id, action: 'USER_DEACTIVATE', entityType: 'users', entityId: userId, ipAddress: req.ip });
       res.json({ message: 'User deleted successfully' });
     } catch (txErr) {
       await client.query('ROLLBACK');
@@ -192,6 +195,7 @@ router.patch('/users/:id/restore', requireAdmin, async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
+    logAudit({ userId: req.user.id, action: 'USER_RESTORE', entityType: 'users', entityId: userId, ipAddress: req.ip });
     res.json({ message: 'User reactivated successfully', user: rows[0] });
   } catch (err) {
     console.error('Settings: restore user error:', err);
@@ -298,6 +302,7 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
 
       await recalculateAttendanceForUser(userId, { dbClient: client });
       await client.query('COMMIT');
+      logAudit({ userId: req.user.id, action: 'USER_UPDATE', entityType: 'users', entityId: userId, newValue: rows[0], ipAddress: req.ip });
       res.json({ ...rows[0], recalculated: true });
     } catch (txErr) {
       await client.query('ROLLBACK');
@@ -495,6 +500,7 @@ router.delete('/factory-reset', requireAdmin, async (req, res) => {
     
     // Clear code after successful use
     confirmCodes.delete(req.user.id);
+    logAudit({ userId: req.user.id, action: 'FACTORY_RESET', entityType: 'system', newValue: summary, ipAddress: req.ip });
 
     res.json({ success: true, summary });
   } catch (err) {

@@ -70,6 +70,7 @@ export default function ProjectDetail() {
 
   // New task creation state
   const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDescription, setNewTaskDescription] = useState('');
   const [newTaskAssignedTo, setNewTaskAssignedTo] = useState('');
   const newTaskStage = 'general';
   const [newTaskStartDate, setNewTaskStartDate] = useState(getISODateIST());
@@ -106,6 +107,7 @@ export default function ProjectDetail() {
         project_id: id,
         stage: newTaskStage,
         title: newTaskTitle.trim(),
+        description: newTaskDescription.trim() || null,
         assigned_to: newTaskAssignedTo ? parseInt(newTaskAssignedTo) : null,
         participants: newTaskAssignedTo ? [parseInt(newTaskAssignedTo)] : [],
         start_date: newTaskStartDate,
@@ -113,6 +115,7 @@ export default function ProjectDetail() {
         due_date: newTaskDueDate || null
       });
       setNewTaskTitle('');
+      setNewTaskDescription('');
       setNewTaskAssignedTo('');
       setNewTaskStartDate(getISODateIST());
       setNewTaskPriority('medium');
@@ -467,6 +470,17 @@ export default function ProjectDetail() {
                       placeholder="What needs to be done?"
                       value={newTaskTitle}
                       onChange={(e) => setNewTaskTitle(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-muted uppercase">Scope / Description (Optional)</label>
+                    <input 
+                      type="text" 
+                      className="input mt-1" 
+                      placeholder="Brief context or instructions..."
+                      value={newTaskDescription}
+                      onChange={(e) => setNewTaskDescription(e.target.value)}
                     />
                   </div>
 

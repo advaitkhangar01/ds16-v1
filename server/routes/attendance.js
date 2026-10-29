@@ -2,6 +2,8 @@
 const router = require('express').Router();
 const pool = require('../db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
+const { checkPeriodLock } = require('../middleware/periodLock');
+const { logAudit } = require('../utils/auditLogger');
 const { getISTDate } = require('../utils/date');
 const { ATTENDANCE_STATUS, LEAVE_STATUS } = require('../utils/constants');
 const { validateLocation, getDistance } = require('../utils/geofence');
@@ -698,8 +700,16 @@ router.get('/all', authenticate, async (req, res) => {
     // Mask GPS for non-admins
     const sanitizedRows = rows.map(r => {
       if (req.user.role === 'admin' || req.user.role === 'back_office' || req.user.role === 'accounts' || r.user_id === req.user.id) return r;
-      const { lat, lng, checkin_distance, checkin_zone, checkin_accuracy, ...rest } = r;
-      return { ...rest, lat: null, lng: null, checkin_distance: null, checkin_zone: null, checkin_accuracy: null };
+      const { 
+        lat, lng, checkin_distance, checkin_zone, checkin_accuracy,
+        checkout_lat, checkout_lng, checkout_distance, checkout_accuracy, checkout_zone,
+        ...rest 
+      } = r;
+      return { 
+        ...rest, 
+        lat: null, lng: null, checkin_distance: null, checkin_zone: null, checkin_accuracy: null,
+        checkout_lat: null, checkout_lng: null, checkout_distance: null, checkout_accuracy: null, checkout_zone: null
+      };
     });
 
     res.json({ attendance: sanitizedRows, page: parseInt(page), limit: limit ? parseInt(limit) : parsedLimit });
@@ -711,7 +721,7 @@ router.get('/all', authenticate, async (req, res) => {
 });
 
 // ─── POST /api/attendance/manual — Admin mark attendance ──────────────────────
-router.post('/manual', authenticate, requireAdmin, async (req, res) => {
+router.post('/manual', authenticate, requireAdmin, checkPeriodLock, async (req, res) => {
   try {
     const { user_id, date, check_in, check_out, status, is_late, late_minutes } = req.body;
 
@@ -720,6 +730,15 @@ router.post('/manual', authenticate, requireAdmin, async (req, res) => {
     }
 
     const statusLower = status.toLowerCase();
+    let finalIsLate = !!is_late;
+    let finalLateMinutes = parseInt(late_minutes || 0, 10);
+    if (isNaN(finalLateMinutes) || finalLateMinutes < 0) finalLateMinutes = 0;
+
+    // Enforce business rule: Half-Day and Absent must NEVER carry late markers
+    if (statusLower === 'half_day' || statusLower === 'absent') {
+      finalIsLate = false;
+      finalLateMinutes = 0;
+    }
 
     const { rows: existing } = await pool.query(
       'SELECT id FROM attendance WHERE user_id = $1 AND date = $2::date',
@@ -740,7 +759,7 @@ router.post('/manual', authenticate, requireAdmin, async (req, res) => {
            is_late = $4, late_minutes = $5, hours_worked = $6
          WHERE id = $7
          RETURNING *`,
-        [check_in, check_out, statusLower, is_late, late_minutes, hours_worked, existing[0].id]
+        [check_in, check_out, statusLower, finalIsLate, finalLateMinutes, hours_worked, existing[0].id]
       );
       row = rows[0];
     } else {
@@ -748,10 +767,20 @@ router.post('/manual', authenticate, requireAdmin, async (req, res) => {
         `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *`,
-        [user_id, date, check_in, check_out, statusLower, is_late, late_minutes, hours_worked]
+        [user_id, date, check_in, check_out, statusLower, finalIsLate, finalLateMinutes, hours_worked]
       );
       row = rows[0];
     }
+
+    // Structured audit logging for manual attendance changes
+    logAudit({
+      userId: req.user.id,
+      action: 'ATTENDANCE_MANUAL_MARK',
+      entityType: 'attendance',
+      entityId: row.id,
+      newValue: { user_id, date, status: statusLower, is_late: finalIsLate, late_minutes: finalLateMinutes, hours_worked },
+      ipAddress: req.ip
+    });
 
     res.json({ message: 'Attendance record updated', attendance: row });
   } catch (err) {

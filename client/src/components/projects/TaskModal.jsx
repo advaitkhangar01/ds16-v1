@@ -11,21 +11,40 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
   const [task, setTask] = useState(null);
   const [participants, setParticipants] = useState([]);
   const [messages, setMessages] = useState([]);
+  const [usersList, setUsersList] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState('');
   const messagesEndRef = useRef(null);
+
+  const isPrivileged = user?.role === 'admin' || user?.role === 'design_head' || user?.role === 'accounts' || user?.role === 'back_office' || user?.role === 'project_head';
+  const isCreatorOrAdmin = user?.role === 'admin' || (task && task.created_by === user?.id);
 
   const fetchThread = useCallback(async () => {
     if (!taskId) return;
     try {
       setLoading(true);
-      const { data } = await api.get(`/tasks/${taskId}`);
-      setTask(data.task);
-      setParticipants(data.participants);
-      setMessages(data.messages);
-    } catch (err) {
-      toast.error('Failed to load task discussion');
+      const [threadRes, usersRes] = await Promise.allSettled([
+        api.get(`/tasks/${taskId}`),
+        api.get('/auth/users')
+      ]);
+
+      if (threadRes.status === 'fulfilled') {
+        setTask(threadRes.value.data.task);
+        setParticipants(threadRes.value.data.participants || []);
+        setMessages(threadRes.value.data.messages || []);
+        setDescDraft(threadRes.value.data.task?.description || '');
+      } else {
+        toast.error('Failed to load task discussion');
+      }
+
+      if (usersRes.status === 'fulfilled') {
+        setUsersList(usersRes.value.data.users || []);
+      }
+    } catch {
+      toast.error('Failed to load task details');
     } finally {
       setLoading(false);
     }
@@ -37,11 +56,41 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
     }
   }, [isOpen, taskId, fetchThread]);
 
+  // Background polling for new chat messages while modal is open (every 8s)
+  useEffect(() => {
+    if (!isOpen || !taskId) return;
+    const interval = setInterval(async () => {
+      try {
+        const { data } = await api.get(`/tasks/${taskId}`);
+        if (data?.messages) setMessages(data.messages);
+        if (data?.participants) setParticipants(data.participants);
+        if (data?.task) {
+          setTask(prev => ({
+            ...prev,
+            status: data.task.status,
+            priority: data.task.priority,
+            start_date: data.task.start_date,
+            due_date: data.task.due_date,
+            assigned_to: data.task.assigned_to,
+            assigned_to_name: data.task.assigned_to_name,
+            completed_at: data.task.completed_at,
+            reassigned_at: data.task.reassigned_at
+          }));
+        }
+      } catch {
+        // Silent poll error
+      }
+    }, 8000);
+
+    return () => clearInterval(interval);
+  }, [isOpen, taskId]);
+
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
+      setEditingDesc(false);
     }
     return () => {
       document.body.style.overflow = '';
@@ -63,10 +112,10 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
     const tempId = Date.now();
     const optimisticMsg = {
       id: tempId,
-      sender_id: user.id,
-      sender_name: user.name,
-      sender_username: user.username,
-      sender_role: user.role,
+      sender_id: user?.id,
+      sender_name: user?.name,
+      sender_username: user?.username,
+      sender_role: user?.role,
       message: msgText,
       created_at: new Date().toISOString(),
       is_optimistic: true
@@ -81,11 +130,11 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
       setMessages((prev) => prev.map((m) => (m.id === tempId ? data.message : m)));
       
       // Update participants list dynamically if user was added
-      const isParticipant = participants.some(p => p.user_id === user.id);
-      if (!isParticipant) {
+      const isParticipant = participants.some(p => p.user_id === user?.id);
+      if (!isParticipant && user) {
         setParticipants(prev => [...prev, { user_id: user.id, name: user.name, username: user.username, role: user.role }]);
       }
-    } catch (err) {
+    } catch {
       // Rollback
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setNewMessage(msgText); // Restore text
@@ -98,10 +147,31 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
   async function handleStatusChange(newStatus) {
     try {
       const { data } = await api.patch(`/tasks/${taskId}`, { status: newStatus });
-      setTask(prev => ({ ...prev, status: data.task.status }));
+      setTask(prev => ({ 
+        ...prev, 
+        status: data.task.status,
+        completed_at: data.task.completed_at,
+        reassigned_at: data.task.reassigned_at
+      }));
       toast.success('Task status updated');
-    } catch {
-      toast.error('Failed to update status');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update status');
+    }
+  }
+
+  async function handleAssigneeChange(newAssignee) {
+    try {
+      const val = newAssignee ? parseInt(newAssignee, 10) : null;
+      const { data } = await api.patch(`/tasks/${taskId}`, { assigned_to: val });
+      const foundUser = usersList.find(u => u.id === val);
+      setTask(prev => ({ 
+        ...prev, 
+        assigned_to: data.task.assigned_to,
+        assigned_to_name: foundUser ? foundUser.name : 'Unassigned'
+      }));
+      toast.success('Task reassigned');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to reassign task');
     }
   }
 
@@ -135,6 +205,17 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
     }
   }
 
+  async function handleSaveDescription() {
+    try {
+      const { data } = await api.patch(`/tasks/${taskId}`, { description: descDraft });
+      setTask(prev => ({ ...prev, description: data.task.description }));
+      setEditingDesc(false);
+      toast.success('Description saved');
+    } catch {
+      toast.error('Failed to save description');
+    }
+  }
+
   async function handleDeleteTask() {
     if (!window.confirm(`Are you sure you want to delete this task?`)) return;
     try {
@@ -142,17 +223,31 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
       toast.success('Task deleted successfully');
       onClose();
     } catch (err) {
-      toast.error('Failed to delete task');
+      toast.error(err.response?.data?.error || 'Failed to delete task');
     }
   }
 
-  // Removed handleStageChange as stage is being deprecated from tasks UI
+  // Safe formatting of message with @mentions
+  function renderMessageContent(text) {
+    if (!text) return null;
+    const parts = text.split(/(@\w+)/g);
+    return parts.map((part, index) => {
+      if (part.startsWith('@')) {
+        return (
+          <span key={index} className="font-bold underline decoration-[#E05A1E]/40 text-[#E05A1E]">
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  }
 
   if (!isOpen) return null;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col w-full max-w-2xl h-[80vh] overflow-hidden transition-all transform scale-100">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col w-full max-w-2xl h-[85vh] overflow-hidden transition-all transform scale-100">
         
         {/* Header */}
         {loading ? (
@@ -166,18 +261,18 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
         ) : (
           <div className="p-6 border-b border-slate-100/80 bg-slate-50/50 flex flex-col gap-3">
             <div className="flex items-start justify-between gap-4">
-              <div>
+              <div className="min-w-0 flex-1">
                 <h2 className="text-xl font-black text-[#1A1A1A] tracking-tight">{task?.title}</h2>
                 <div className="flex flex-col gap-0.5 mt-1">
-                  <p className="text-xs text-muted font-medium">Project: {task?.project_name}</p>
+                  <p className="text-xs text-muted font-medium">Project: <span className="font-bold text-slate-700">{task?.project_name}</span></p>
                   <p className="text-[10px] text-muted font-medium flex items-center gap-1.5">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    Assigned on {formatIST(task?.created_at)}
+                    Created on {formatIST(task?.created_at)}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {(user?.role === 'admin' || task?.created_by === user?.id) && (
+                {isCreatorOrAdmin && (
                   <button 
                     onClick={handleDeleteTask}
                     className="w-8 h-8 rounded-full bg-red-50 border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-100 hover:shadow-md transition-all flex items-center justify-center text-xs"
@@ -197,11 +292,30 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
               </div>
             </div>
             
-            <div className="flex items-center gap-3 flex-wrap mt-2">
-              {/* Removed Stage Select as requested */}
+            <div className="flex items-center gap-2.5 flex-wrap mt-2">
+              {/* Assignee Control */}
+              <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-muted font-bold uppercase tracking-tight">Assignee:</span>
+                {isCreatorOrAdmin ? (
+                  <select
+                    className="bg-transparent text-xs font-bold text-[#1A1A1A] focus:outline-none border-none p-0 max-w-[130px] truncate"
+                    value={task?.assigned_to || ''}
+                    onChange={(e) => handleAssigneeChange(e.target.value)}
+                  >
+                    <option value="">Unassigned</option>
+                    {usersList.map((u) => (
+                      <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-xs font-bold text-[#1A1A1A]">
+                    {task?.assigned_to_name || 'Unassigned'}
+                  </span>
+                )}
+              </div>
 
               {/* Status Select/Badge */}
-              <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200">
+              <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
                 <span className="text-[10px] text-muted font-bold uppercase tracking-tight">Status:</span>
                 <select
                   className="bg-transparent text-xs font-bold text-[#1A1A1A] focus:outline-none disabled:opacity-50"
@@ -212,19 +326,18 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
                   <option value="pending">Pending</option>
                   <option value="in_progress">In Progress</option>
                   <option value="review">Review</option>
-                  {/* "done" is being phased out, but kept for legacy support if needed */}
                   {task?.status === 'done' && <option value="done">Done</option>}
                   {task?.status === 'passed' && <option value="passed">Passed</option>}
                 </select>
               </div>
 
               {/* Start Date Control */}
-              <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-muted font-bold uppercase tracking-tight">Start Date:</span>
-                {user?.role === 'admin' || task?.created_by === user?.id ? (
+              <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-muted font-bold uppercase tracking-tight">Start:</span>
+                {isCreatorOrAdmin ? (
                   <input
                     type="date"
-                    className="bg-transparent text-xs font-bold text-[#1A1A1A] focus:outline-none border-none p-0 w-[110px]"
+                    className="bg-transparent text-xs font-bold text-[#1A1A1A] focus:outline-none border-none p-0 w-[105px]"
                     value={task?.start_date ? task.start_date.substring(0, 10) : ''}
                     onChange={(e) => handleStartDateChange(e.target.value)}
                   />
@@ -236,30 +349,30 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
               </div>
 
               {/* Due Date Control */}
-              <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-muted font-bold uppercase tracking-tight">Due Date:</span>
-                {user?.role === 'admin' || task?.created_by === user?.id ? (
+              <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-muted font-bold uppercase tracking-tight">Due:</span>
+                {isCreatorOrAdmin ? (
                   <input
                     type="date"
-                    className="bg-transparent text-xs font-bold text-[#1A1A1A] focus:outline-none border-none p-0 w-[110px]"
+                    className="bg-transparent text-xs font-bold text-[#1A1A1A] focus:outline-none border-none p-0 w-[105px]"
                     value={task?.due_date ? task.due_date.substring(0, 10) : ''}
                     onChange={(e) => handleDueDateChange(e.target.value)}
                   />
                 ) : (
                   <span className="text-xs font-bold text-[#1A1A1A]">
-                    {task?.due_date ? formatDateIST(task.due_date) : 'No deadline'}
+                    {task?.due_date ? formatDateIST(task.due_date) : 'None'}
                   </span>
                 )}
               </div>
 
               {/* Priority Control */}
-              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${
                 task?.priority === 'high' ? 'bg-red-50 border-red-200 text-red-700' :
                 task?.priority === 'medium' ? 'bg-amber-50 border-amber-200 text-amber-700' :
                 'bg-blue-50 border-blue-200 text-blue-700'
               }`}>
                 <span className="text-[10px] font-bold uppercase tracking-tight">Priority:</span>
-                {user?.role === 'admin' || task?.created_by === user?.id ? (
+                {isCreatorOrAdmin ? (
                   <select
                     className="bg-transparent text-xs font-bold focus:outline-none border-none p-0 pr-4"
                     value={task?.priority || 'medium'}
@@ -276,30 +389,20 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
                 )}
               </div>
 
-              {/* Completed Timestamp */}
-              {task?.completed_at && (
-                <div className="flex items-center gap-1.5 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
-                  <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-tight">Completed:</span>
-                  <span className="text-xs font-bold text-emerald-600">
-                    {formatIST(task.completed_at)}
-                  </span>
-                </div>
-              )}
-
-              {/* Reassigned Timestamp */}
-              {task?.reassigned_at && (
-                <div className="flex items-center gap-1.5 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200">
-                  <span className="text-[10px] text-amber-700 font-bold uppercase tracking-tight">Reassigned:</span>
-                  <span className="text-xs font-bold text-amber-600">
-                    {formatIST(task.reassigned_at)}
-                  </span>
-                </div>
-              )}
-
               {/* Overdue Warning */}
               {isTaskOverdue(task) && (
                 <div className="flex items-center gap-1.5 bg-red-50 px-2 py-1 rounded-lg border border-red-200">
                   <span className="text-[10px] text-red-700 font-bold uppercase tracking-tight">⚠️ {getTaskOverdueDays(task)} Days Overdue</span>
+                </div>
+              )}
+
+              {/* Completed Timestamp */}
+              {task?.completed_at && (
+                <div className="flex items-center gap-1.5 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
+                  <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-tight">Passed:</span>
+                  <span className="text-xs font-bold text-emerald-600">
+                    {formatIST(task.completed_at)}
+                  </span>
                 </div>
               )}
 
@@ -321,6 +424,56 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Task Description & Scope */}
+        {!loading && (
+          <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-100 flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black text-muted uppercase tracking-wider">Task Scope / Description</span>
+              {isCreatorOrAdmin && !editingDesc && (
+                <button 
+                  onClick={() => { setDescDraft(task?.description || ''); setEditingDesc(true); }}
+                  className="text-[10px] font-bold text-[#E05A1E] hover:underline"
+                >
+                  {task?.description ? '✎ Edit Scope' : '+ Add Description'}
+                </button>
+              )}
+            </div>
+            {editingDesc ? (
+              <div className="space-y-2 mt-1">
+                <textarea
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#E05A1E] bg-white leading-relaxed"
+                  rows={2}
+                  value={descDraft}
+                  onChange={(e) => setDescDraft(e.target.value)}
+                  placeholder="Enter detailed task instructions or requirements..."
+                />
+                <div className="flex justify-end gap-2">
+                  <button 
+                    type="button" 
+                    onClick={() => setEditingDesc(false)} 
+                    className="text-[10px] font-bold text-slate-400 hover:text-slate-600 px-2 py-0.5"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={handleSaveDescription} 
+                    className="text-[10px] font-bold bg-[#E05A1E] text-white px-3 py-1 rounded-lg shadow-sm hover:bg-[#C94E16]"
+                  >
+                    Save Scope
+                  </button>
+                </div>
+              </div>
+            ) : (
+              task?.description ? (
+                <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed max-h-24 overflow-y-auto">{task.description}</p>
+              ) : (
+                <p className="text-[11px] text-slate-400 italic">No description provided for this task.</p>
+              )
+            )}
           </div>
         )}
 
@@ -364,12 +517,12 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border ${
                     isMe ? 'bg-[rgba(224,90,30,0.1)] border-[rgba(224,90,30,0.2)] text-[#E05A1E]' : 'bg-slate-100 border-slate-200 text-slate-600'
                   } font-bold text-xs`}>
-                    {msg.sender_name?.charAt(0)}
+                    {msg.sender_name?.charAt(0) || '?'}
                   </div>
                   
                   <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[70%]`}>
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className="text-xs font-semibold text-[#1A1A1A]">{msg.sender_name}</span>
+                      <span className="text-xs font-semibold text-[#1A1A1A]">{msg.sender_name || 'User'}</span>
                       <span className="text-[10px] text-muted opacity-60">{timeAgo(msg.created_at)}</span>
                     </div>
                     
@@ -377,8 +530,8 @@ export default function TaskModal({ taskId, isOpen, onClose }) {
                       isMe 
                         ? 'bg-gradient-to-br from-[#E05A1E] to-[#C94E16] text-white shadow-md rounded-tr-none' 
                         : 'bg-white border border-slate-200/80 text-slate-800 shadow-sm rounded-tl-none'
-                    } ${msg.is_optimistic ? 'opacity-70 animate-pulse' : ''} leading-relaxed`}>
-                      {msg.message}
+                    } ${msg.is_optimistic ? 'opacity-70 animate-pulse' : ''} leading-relaxed break-words`}>
+                      {renderMessageContent(msg.message)}
                     </div>
                   </div>
                 </div>

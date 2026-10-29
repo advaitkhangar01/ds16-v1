@@ -717,7 +717,7 @@ router.get('/employee', authenticate, async (req, res) => {
            WHEN lr.id IS NOT NULL THEN 'leave'
            WHEN EXTRACT(DOW FROM $2::date) = 0 THEN 'sunday'
            WHEN h.date IS NOT NULL THEN 'holiday'
-           ELSE 'absent'
+           ELSE 'today_pending'
          END AS status
        FROM users u
        LEFT JOIN attendance a ON a.user_id = u.id AND a.date = $2::date

@@ -618,6 +618,97 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(stats1036.overtime_earnings).toBeCloseTo(111.11, 2);
     expect(stats1036.earnings).toBeCloseTo(1111.11, 2);
   });
+
+  // Rule 23: Half-day and Absent must strictly return is_late = false and late_minutes = 0
+  test('Rule 23: Half-day and Absent force is_late = false and late_minutes = 0', () => {
+    // Case A: Checked in at 10:30 (late threshold exceeded) but marked half_day
+    const halfDayStats = calculateDayAttendanceStats(
+      {
+        date: '2026-10-14',
+        status: 'half_day',
+        check_in: '2026-10-14T10:30:00+05:30',
+        check_out: '2026-10-14T15:30:00+05:30',
+        hours_worked: 5.0,
+        batch_id: testBatchId
+      },
+      { baseSalary: 25000, batchMinHours: 8.5 }
+    );
+    expect(halfDayStats.is_late).toBe(false);
+    expect(halfDayStats.late_minutes).toBe(0);
+
+    // Case B: Absent status
+    const absentStats = calculateDayAttendanceStats(
+      {
+        date: '2026-10-15',
+        status: 'absent',
+        check_in: '2026-10-15T10:45:00+05:30',
+        batch_id: testBatchId
+      },
+      { baseSalary: 25000, batchMinHours: 8.5 }
+    );
+    expect(absentStats.is_late).toBe(false);
+    expect(absentStats.late_minutes).toBe(0);
+  });
+
+  // Rule 24: Recalculator zeroes late_minutes when downgrading a shift to half_day
+  test('Rule 24: Recalculator zeroes late_minutes when downgrading a shift to half_day', async () => {
+    const dStr = '2026-09-22';
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked, batch_id)
+       VALUES ($1, $2, $3, $4, 'working', true, 20, 5.0, $5)
+       RETURNING id`,
+      [testUserId, dStr, `${dStr}T10:20:00+05:30`, `${dStr}T15:20:00+05:30`, testBatchId]
+    );
+    const recId = inserted[0].id;
+
+    await recalculateAttendanceForUser(testUserId, { dbClient: pool });
+
+    const { rows: verified } = await pool.query('SELECT status, is_late, late_minutes FROM attendance WHERE id = $1', [recId]);
+    expect(verified[0].status).toBe('half_day');
+    expect(verified[0].is_late).toBe(false);
+    expect(verified[0].late_minutes).toBe(0);
+  });
+
+  // Rule 25: Projected month-end net properly deducts unpaid leaves
+  test('Rule 25: Projected month-end net properly deducts unpaid leaves without double-penalty', async () => {
+    // Insert summary with 2 unpaid leaves for Sept 2026
+    await pool.query(
+      `INSERT INTO employee_leave_summary (user_id, month, year, unpaid_leaves)
+       VALUES ($1, 9, 2026, 2.0)
+       ON CONFLICT (user_id, month, year) DO UPDATE SET unpaid_leaves = 2.0`,
+      [testUserId]
+    );
+
+    const res = await calculatePayrollForEmployee(testUserId, 9, 2026, defaultSettings, pool, '2026-09-30');
+    // Base salary 25,000 / 30 = 833.33/day. 2 unpaid leaves = 1666.67 deduction.
+    expect(res.unpaid_leaves).toBe(2.0);
+    // Unmarked absences = 22 (since we did not insert attendance records for Sept working days)
+    // Deduction for unworked = (22 + 2) * (25000 / 30) = 24 * 833.33 = 20000. Net = 5000.
+    const expectedDeduction = (res.unmarked_absent_count + 2.0) * (25000 / 30);
+    expect(res.projected_month_end_net).toBeCloseTo(25000 - expectedDeduction, 0);
+
+    // Clean up summary
+    await pool.query('DELETE FROM employee_leave_summary WHERE user_id = $1 AND month = 9 AND year = 2026', [testUserId]);
+  });
+
+  // Rule 26: DB constraint rejects inserting half_day with is_late = true or late_minutes > 0
+  test('Rule 26: DB constraint chk_attendance_half_day_absent_no_late rejects illegal state', async () => {
+    await expect(
+      pool.query(
+        `INSERT INTO attendance (user_id, date, status, is_late, late_minutes)
+         VALUES ($1, '2026-12-01', 'half_day', true, 15)`,
+        [testUserId]
+      )
+    ).rejects.toThrow();
+
+    await expect(
+      pool.query(
+        `INSERT INTO attendance (user_id, date, status, is_late, late_minutes)
+         VALUES ($1, '2026-12-02', 'absent', false, 15)`,
+        [testUserId]
+      )
+    ).rejects.toThrow();
+  });
 });
 
 function formatterIST(d) {

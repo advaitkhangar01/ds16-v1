@@ -70,6 +70,9 @@ async function checkPeriodLock(req, res, next) {
               month = rows[0].month;
               year = rows[0].year;
             }
+          } else if (req.originalUrl.includes('invoices')) {
+            const { rows } = await pool.query('SELECT date FROM invoices WHERE id = $1', [id]);
+            if (rows[0]) dateStr = rows[0].date;
           }
         }
       }
@@ -130,3 +133,4 @@ async function checkPeriodLock(req, res, next) {
 }
 
 module.exports = checkPeriodLock;
+module.exports.checkPeriodLock = checkPeriodLock;

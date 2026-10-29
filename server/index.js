@@ -38,6 +38,9 @@ const { cleanupOldNotifications } = require('./utils/notifier');
 
 const app = express();
 
+// Trust reverse proxy (Nginx on VPS) for accurate IP rate limiting and geo checks
+app.set('trust proxy', 1);
+
 // Security headers
 app.use(helmet());
 

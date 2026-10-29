@@ -49,6 +49,7 @@ export default function SettingsPage() {
   const [newBatch, setNewBatch] = useState({ name: '', office_start_time: '10:00', late_threshold_time: '10:15', half_day_cutoff_time: '13:00', min_working_hours: '9' });
   const [editingBatch, setEditingBatch] = useState({ id: null, name: '', office_start_time: '', late_threshold_time: '', half_day_cutoff_time: '', min_working_hours: '' });
   const [recalculating, setRecalculating] = useState(false);
+  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
 
   // Payroll Rules State
   const [payrollSettings, setPayrollSettings] = useState({
@@ -152,6 +153,8 @@ export default function SettingsPage() {
   // User Handlers
   const handleCreateUser = async (e) => {
     e.preventDefault();
+    if (isSubmittingUser) return;
+    setIsSubmittingUser(true);
     try {
       await api.post('/settings/users', newUser);
       toast.success('User created successfully');
@@ -160,11 +163,15 @@ export default function SettingsPage() {
       fetchData();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to create user');
+    } finally {
+      setIsSubmittingUser(false);
     }
   };
 
   const handleUpdateUser = async (e) => {
     e.preventDefault();
+    if (isSubmittingUser) return;
+    setIsSubmittingUser(true);
     try {
       await api.patch(`/settings/users/${editingUser.id}`, editingUser);
       toast.success('User updated successfully');
@@ -1519,7 +1526,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
                   <button type="button" onClick={() => setShowUserModal(false)} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
-                  <button type="submit" className="btn-primary px-8 py-2.5">Create User</button>
+                  <button type="submit" disabled={isSubmittingUser} className="btn-primary px-8 py-2.5 disabled:opacity-50">{isSubmittingUser ? 'Creating...' : 'Create User'}</button>
                 </div>
               </form>
             </div>
@@ -1641,7 +1648,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
                   <button type="button" onClick={() => setShowEditModal(false)} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
-                  <button type="submit" className="btn-primary px-8 py-2.5">Save Changes</button>
+                  <button type="submit" disabled={isSubmittingUser} className="btn-primary px-8 py-2.5 disabled:opacity-50">{isSubmittingUser ? 'Saving...' : 'Save Changes'}</button>
                 </div>
               </form>
             </div>

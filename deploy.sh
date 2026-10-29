@@ -39,6 +39,8 @@ if command -v pg_dump > /dev/null 2>&1; then
     fi
     if [ -s "$BACKUP_FILE" ]; then
         echo "✅ Pre-deploy DB snapshot saved to: ${BACKUP_FILE}"
+        # Prune snapshots older than 30 days to prevent disk exhaustion
+        find "$BACKUP_DIR" -type f -name "ds16_pre_deploy_*.sql" -mtime +30 -delete 2>/dev/null || true
     else
         echo "⚠️ Warning: Snapshot file empty or skipped, continuing carefully..."
     fi
@@ -71,6 +73,7 @@ node --check routes/accounting.js
 node --check routes/reports.js
 node --check routes/settings.js
 node --check routes/staff.js
+node --check routes/tasks.js
 node --check routes/dailyReports.js
 echo "✓ All server files syntax-OK"
 
@@ -84,7 +87,7 @@ echo "✓ Frontend build complete"
 
 # 5. Zero-Downtime PM2 Reload
 echo "🔄 Step 5/6: Reloading PM2 processes (zero downtime)..."
-pm2 reload ecosystem.config.js --update-env 2>/dev/null || pm2 reload all --update-env 2>/dev/null || pm2 restart all
+pm2 reload "${APP_DIR}/server/ecosystem.config.js" --update-env 2>/dev/null || pm2 reload ecosystem.config.js --update-env 2>/dev/null || pm2 reload all --update-env 2>/dev/null || pm2 restart all
 echo "✓ PM2 reloaded"
 
 # 6. Health Probe Verification (Resilient IPv4 Retry Loop)
@@ -119,8 +122,9 @@ if [ "$HEALTH_STATUS" = "OK" ]; then
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 else
     echo "❌ HEALTH PROBE WARNING: Could not connect to http://127.0.0.1:${TARGET_PORT}/api/health"
-    echo "⚠️ Check PM2 logs with: pm2 logs ds16-final --lines 30"
+    echo "⚠️ Check PM2 logs with: pm2 logs ds16-api --lines 30"
     if [ -f "$BACKUP_FILE" ]; then
         echo "ℹ️ Pre-deploy backup available at: ${BACKUP_FILE}"
     fi
+    exit 1
 fi

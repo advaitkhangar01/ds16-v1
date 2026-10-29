@@ -10,6 +10,8 @@ async function runMigrations() {
   const client = await pool.connect();
 
   try {
+    await client.query('SELECT pg_advisory_lock(987654321)');
+
     // 1. Ensure migration tracking table exists
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -68,6 +70,9 @@ async function runMigrations() {
     }
 
   } finally {
+    try {
+      await client.query('SELECT pg_advisory_unlock(987654321)');
+    } catch (_) {}
     client.release();
   }
 }

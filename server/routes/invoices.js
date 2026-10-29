@@ -2,6 +2,7 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
+const { checkPeriodLock } = require('../middleware/periodLock');
 const { getISTDate } = require('../utils/date');
 const { createNotification, getAdminAndAccountsUserIds } = require('../utils/notifier');
 
@@ -57,10 +58,21 @@ router.get('/', authenticate, requireAccounting, async (req, res) => {
       const amt = parseFloat(inv.amount || 0);
       const received = parseFloat(inv.received_amount || 0);
       const tds = parseFloat(inv.tax_details?.tdsAmount || 0);
+      const gstRate = parseFloat(inv.tax_details?.gstRate || inv.tax_details?.gst_rate || 0);
+      const gstAmount = parseFloat(inv.tax_details?.gstAmount || inv.tax_details?.gst_amount || 0);
+      const subtotal = parseFloat(inv.tax_details?.subtotal || (amt - gstAmount));
+      const taxBreakdown = {
+        subtotal: isNaN(subtotal) ? amt : Math.round(subtotal * 100) / 100,
+        gst_rate: isNaN(gstRate) ? 0 : gstRate,
+        gst_amount: isNaN(gstAmount) ? 0 : Math.round(gstAmount * 100) / 100,
+        tds_amount: isNaN(tds) ? 0 : Math.round(tds * 100) / 100,
+        total: Math.round(amt * 100) / 100
+      };
       return {
         ...inv,
         received_amount: received,
         pending_amount: isCancelled ? 0 : Math.max(0, amt - received - tds),
+        tax_breakdown: taxBreakdown,
         is_payment_stage: false
       };
     });
@@ -242,7 +254,21 @@ router.get('/:id', authenticate, requireAccounting, checkProjectAccess({ idIsRes
       return res.status(404).json({ error: 'Invoice not found' });
     }
     
-    res.json({ invoice: rows[0] });
+    const inv = rows[0];
+    const amt = parseFloat(inv.amount || 0);
+    const gstRate = parseFloat(inv.tax_details?.gstRate || inv.tax_details?.gst_rate || 0);
+    const gstAmount = parseFloat(inv.tax_details?.gstAmount || inv.tax_details?.gst_amount || 0);
+    const subtotal = parseFloat(inv.tax_details?.subtotal || (amt - gstAmount));
+    const tds = parseFloat(inv.tax_details?.tdsAmount || 0);
+    inv.tax_breakdown = {
+      subtotal: isNaN(subtotal) ? amt : Math.round(subtotal * 100) / 100,
+      gst_rate: isNaN(gstRate) ? 0 : gstRate,
+      gst_amount: isNaN(gstAmount) ? 0 : Math.round(gstAmount * 100) / 100,
+      tds_amount: isNaN(tds) ? 0 : Math.round(tds * 100) / 100,
+      total: Math.round(amt * 100) / 100
+    };
+
+    res.json({ invoice: inv });
   } catch (err) {
     console.error('Get invoice error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -251,7 +277,7 @@ router.get('/:id', authenticate, requireAccounting, checkProjectAccess({ idIsRes
 
 // POST /api/invoices - Strictly CREATE a new invoice (no silent overwrites)
 // Returns 409 Conflict if the invoice_no already exists
-router.post('/', authenticate, requireAccounting, async (req, res) => {
+router.post('/', authenticate, requireAccounting, checkPeriodLock, async (req, res) => {
   const client = await pool.connect();
   try {
     const { 
@@ -443,7 +469,7 @@ router.post('/', authenticate, requireAccounting, async (req, res) => {
 });
 
 // PATCH /api/invoices/:id/status - Update invoice status and/or signature only
-router.patch('/:id/status', authenticate, requireAccounting, async (req, res) => {
+router.patch('/:id/status', authenticate, requireAccounting, checkPeriodLock, async (req, res) => {
   const client = await pool.connect();
   try {
     const { status, signature_data } = req.body;
@@ -604,7 +630,7 @@ router.patch('/:id/status', authenticate, requireAccounting, async (req, res) =>
 
 // POST /api/invoices/:id/mark-paid — Atomic: records finance transaction + marks invoice paid
 // Wrapped in a single DB transaction. If either step fails, both are rolled back.
-router.post('/:id/mark-paid', authenticate, requireAccounting, async (req, res) => {
+router.post('/:id/mark-paid', authenticate, requireAccounting, checkPeriodLock, async (req, res) => {
   const client = await pool.connect();
   try {
     const { id } = req.params;
@@ -700,7 +726,7 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, async (req, res) 
 });
 
 // POST /api/invoices/:id/record-payment — Atomic: records custom partial payment
-router.post('/:id/record-payment', authenticate, requireAccounting, async (req, res) => {
+router.post('/:id/record-payment', authenticate, requireAccounting, checkPeriodLock, async (req, res) => {
   const client = await pool.connect();
   try {
     const { id } = req.params;
@@ -813,7 +839,7 @@ router.post('/:id/record-payment', authenticate, requireAccounting, async (req, 
 });
 
 // DELETE /api/invoices/:id
-router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
+router.delete('/:id', authenticate, requireAdmin, checkPeriodLock, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

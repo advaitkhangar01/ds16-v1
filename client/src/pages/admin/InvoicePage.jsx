@@ -618,16 +618,30 @@ export default function InvoicePage() {
     generateInvoiceNumber(1);
   };
 
+  const getCoordinates = (e, rect) => {
+    if (e.touches && e.touches.length > 0) {
+      return {
+        x: e.touches[0].clientX - rect.left,
+        y: e.touches[0].clientY - rect.top
+      };
+    }
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+  };
+
   const startDrawing = (e) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
+    const coords = getCoordinates(e, rect);
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
     ctx.strokeStyle = '#0D0D0D';
     ctx.beginPath();
-    ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+    ctx.moveTo(coords.x, coords.y);
     canvas.isDrawing = true;
   };
 
@@ -636,7 +650,8 @@ export default function InvoicePage() {
     if (!canvas || !canvas.isDrawing) return;
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
-    ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+    const coords = getCoordinates(e, rect);
+    ctx.lineTo(coords.x, coords.y);
     ctx.stroke();
   };
 
@@ -1069,7 +1084,10 @@ export default function InvoicePage() {
                     ref={canvasRef}
                     width={300} height={100}
                     onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing}
-                    className="cursor-crosshair w-full h-24"
+                    onTouchStart={(e) => { e.preventDefault(); startDrawing(e); }}
+                    onTouchMove={(e) => { e.preventDefault(); draw(e); }}
+                    onTouchEnd={stopDrawing}
+                    className="cursor-crosshair w-full h-24 touch-none"
                   />
                   <button onClick={() => {
                     const canvas = canvasRef.current;

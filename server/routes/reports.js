@@ -29,6 +29,7 @@ router.get('/attendance', authenticate, requireAccounting, async (req, res) => {
          SELECT id, name, role, department 
          FROM users 
          WHERE ($3::integer IS NULL OR id = $3)
+           AND (is_active IS NOT FALSE)
        ),
        user_dates AS (
          SELECT u.id AS user_id, u.name AS employee_name, u.role, u.department, d.date
@@ -51,13 +52,15 @@ router.get('/attendance', authenticate, requireAccounting, async (req, res) => {
          ud.role,
          ud.department,
           CASE
-            WHEN a.id IS NOT NULL THEN
+            WHEN a.check_in IS NOT NULL THEN
               CASE 
-                WHEN LOWER(COALESCE(a.status, '')) = 'present' THEN 
+                WHEN LOWER(COALESCE(a.status, '')) IN ('present', 'working') THEN 
                   CASE WHEN a.check_out IS NULL THEN 'working' ELSE 'completed' END
                 ELSE LOWER(COALESCE(a.status, 'working'))
               END
-            WHEN ud.date > $4::date THEN 'future'
+            WHEN a.id IS NOT NULL AND LOWER(COALESCE(a.status, '')) IN ('leave', 'half_day', 'absent') THEN LOWER(a.status)
+            WHEN ud.date > $4::date THEN 'upcoming'
+            WHEN ud.date = $4::date AND a.id IS NULL THEN 'today_pending'
             WHEN lr.id IS NOT NULL THEN 'leave'
             WHEN EXTRACT(DOW FROM ud.date) = 0 THEN 'sunday'
             WHEN h.date IS NOT NULL THEN 'holiday'

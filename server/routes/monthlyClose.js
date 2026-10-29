@@ -515,14 +515,15 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
         }
 
         const finalOvertime = parseFloat(payrollData.overtime_earnings || 0);
+        const finalOvertimeHours = parseFloat(payrollData.total_overtime_hours || 0);
         let finalNetPaid = Math.max(0, parseFloat(payrollData.net_salary_payable || 0) + finalBonus + finalIncentives);
         if (isOverride && existingPayroll.length > 0) {
           finalNetPaid = parseFloat(existingPayroll[0].net_paid || finalNetPaid);
         }
 
         await client.query(
-          `INSERT INTO payroll (user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status, is_manual_override)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          `INSERT INTO payroll (user_id, base_salary, bonus, incentives, deductions, net_paid, overtime_pay, overtime_hours, month, year, payment_date, status, is_manual_override)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
            ON CONFLICT (user_id, month, year) 
            DO UPDATE SET 
              base_salary = EXCLUDED.base_salary,
@@ -530,10 +531,12 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
              incentives = EXCLUDED.incentives,
              deductions = EXCLUDED.deductions,
              net_paid = EXCLUDED.net_paid,
+             overtime_pay = EXCLUDED.overtime_pay,
+             overtime_hours = EXCLUDED.overtime_hours,
              payment_date = EXCLUDED.payment_date,
              status = EXCLUDED.status,
              is_manual_override = EXCLUDED.is_manual_override`,
-          [emp.id, finalBaseSalary, finalBonus, finalIncentives, finalDeductions, finalNetPaid, month, year, finalPaymentDate, finalStatus, isOverride]
+          [emp.id, finalBaseSalary, finalBonus, finalIncentives, finalDeductions, finalNetPaid, finalOvertime, finalOvertimeHours, month, year, finalPaymentDate, finalStatus, isOverride]
         );
       }
     }

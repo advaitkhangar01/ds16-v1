@@ -3,6 +3,17 @@
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- 0. Attendance Batches
+CREATE TABLE IF NOT EXISTS attendance_batches (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) UNIQUE NOT NULL,
+  office_start_time TIME NOT NULL,
+  late_threshold_time TIME NOT NULL,
+  half_day_cutoff_time TIME NOT NULL,
+  min_working_hours DECIMAL(4, 2) NOT NULL DEFAULT 9.00,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- 1. Users table
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
@@ -15,6 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
   base_salary DECIMAL(15, 2) DEFAULT 0,
   hourly_rate DECIMAL(15, 2) DEFAULT 0,
   batch_id INTEGER REFERENCES attendance_batches(id) ON DELETE SET NULL,
+  is_active BOOLEAN DEFAULT TRUE,
+  deactivated_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -87,7 +100,7 @@ CREATE TABLE IF NOT EXISTS projects (
 -- 4. Attendance table (with Geo-fencing & Late minutes)
 CREATE TABLE IF NOT EXISTS attendance (
   id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   check_in TIMESTAMPTZ,
   check_out TIMESTAMPTZ,
   lat DECIMAL(10, 8),
@@ -300,16 +313,19 @@ CREATE TABLE IF NOT EXISTS expense_audits (
 -- 20. Payroll table
 CREATE TABLE IF NOT EXISTS payroll (
   id SERIAL PRIMARY KEY,
-  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
   month INTEGER NOT NULL,
   year INTEGER NOT NULL,
   base_salary DECIMAL(15, 2) NOT NULL,
   bonus DECIMAL(15, 2) DEFAULT 0,
   incentives DECIMAL(15, 2) DEFAULT 0,
   deductions DECIMAL(15, 2) DEFAULT 0,
+  overtime_pay DECIMAL(15, 2) DEFAULT 0,
+  overtime_hours DECIMAL(8, 2) DEFAULT 0,
   net_paid DECIMAL(15, 2) NOT NULL,
   payment_date DATE DEFAULT CURRENT_DATE,
   status VARCHAR(20) DEFAULT 'paid',
+  is_manual_override BOOLEAN DEFAULT FALSE,
   UNIQUE(user_id, month, year)
 );
 
@@ -368,14 +384,63 @@ CREATE INDEX IF NOT EXISTS idx_comments_project ON comments(project_id);
 CREATE INDEX IF NOT EXISTS idx_leaves_user ON leave_requests(user_id);
 CREATE INDEX IF NOT EXISTS idx_leaves_date ON leave_requests(start_date, end_date);
 
--- 26. Attendance Batches
-CREATE TABLE IF NOT EXISTS attendance_batches (
+-- 26. Monthly Closing Log
+CREATE TABLE IF NOT EXISTS monthly_closing_log (
   id SERIAL PRIMARY KEY,
-  name VARCHAR(100) UNIQUE NOT NULL,
-  office_start_time TIME NOT NULL,
-  late_threshold_time TIME NOT NULL,
-  half_day_cutoff_time TIME NOT NULL,
-  min_working_hours DECIMAL(4, 2) NOT NULL DEFAULT 9.00,
+  month INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+  year INTEGER NOT NULL CHECK (year >= 2020),
+  closed_by INT REFERENCES users(id) ON DELETE SET NULL,
+  closed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  notes TEXT,
+  financial_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  verified_by INT REFERENCES users(id) ON DELETE SET NULL,
+  verified_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_monthly_closing UNIQUE (month, year)
+);
+
+-- 27. Period Unlock Log
+CREATE TABLE IF NOT EXISTS period_unlock_log (
+  id SERIAL PRIMARY KEY,
+  month INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+  year INTEGER NOT NULL CHECK (year >= 2020),
+  unlocked_by INT REFERENCES users(id) ON DELETE SET NULL,
+  unlocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reason TEXT NOT NULL,
+  relocked_at TIMESTAMPTZ,
+  relocked_by INT REFERENCES users(id) ON DELETE SET NULL,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 28. Audit Logs
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  action VARCHAR(100) NOT NULL,
+  entity_type VARCHAR(100) NOT NULL,
+  entity_id VARCHAR(100),
+  old_value JSONB,
+  new_value JSONB,
+  ip_address VARCHAR(45),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 29. Notifications
+CREATE TABLE IF NOT EXISTS notifications (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sender_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  section VARCHAR(100) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  message TEXT NOT NULL,
+  entity_type VARCHAR(50),
+  entity_id INTEGER,
+  action_url VARCHAR(255),
+  is_read BOOLEAN DEFAULT FALSE,
+  read_at TIMESTAMPTZ,
+  tenant_id INTEGER,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

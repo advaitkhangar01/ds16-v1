@@ -34,7 +34,16 @@ if (process.env.NODE_ENV !== 'test') {
     
     // Auto-Migration: Ensure schema is correct for user deletion and missing columns
     const runMigrations = async () => {
+      let lockClient;
       try {
+        if (pool.ending) return;
+        lockClient = await pool.connect();
+        const { rows } = await lockClient.query('SELECT pg_try_advisory_lock(987654322) as locked');
+        if (!rows[0] || !rows[0].locked) {
+          console.log('ℹ️ Another process is running schema migrations. Skipping.');
+          return;
+        }
+
         // Set IST timezone for the database role to ensure CURRENT_DATE, NOW(), and timestamps 
         // are always interpreted in Asia/Kolkata (IST = UTC+5:30), preventing the 
         // UTC vs IST date mismatch that causes attendance bugs between 00:00–05:30 IST.
@@ -734,12 +743,21 @@ if (process.env.NODE_ENV !== 'test') {
 
         console.log('✅ DB Schema migrations completed');
       } catch (mErr) {
-        console.error('❌ Migration failed:', mErr.message);
+        if (!mErr.message || !mErr.message.includes('after calling end')) {
+          console.error('❌ Migration failed:', mErr.message);
+        }
+      } finally {
+        if (lockClient) {
+          try { await lockClient.query('SELECT pg_advisory_unlock(987654322)'); } catch (_) {}
+          lockClient.release();
+        }
       }
     };
 
     const isPrimaryInstance = process.env.NODE_APP_INSTANCE === undefined || process.env.NODE_APP_INSTANCE === '0';
-    if (isPrimaryInstance) {
+    if (process.env.SKIP_STARTUP_MIGRATIONS === 'true') {
+      console.log('ℹ️ SKIP_STARTUP_MIGRATIONS set: skipping startup schema migrations');
+    } else if (isPrimaryInstance) {
       runMigrations();
     } else {
       console.log('ℹ️ Secondary cluster instance: skipping startup schema migrations');

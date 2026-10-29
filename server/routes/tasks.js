@@ -21,6 +21,11 @@ async function parseMentions(message) {
 // 1. Create Task
 // POST /api/tasks
 router.post('/', authenticate, checkProjectAccess(), async (req, res) => {
+  const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'accounts' || req.user.department === 'accounts' || req.user.role === 'back_office' || req.user.role === 'project_head';
+  if (!isPrivileged) {
+    return res.status(403).json({ error: 'Only authorized roles can create tasks' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -36,14 +41,15 @@ router.post('/', authenticate, checkProjectAccess(), async (req, res) => {
       INSERT INTO tasks (project_id, stage, title, description, assigned_to, created_by, status, created_at, updated_at, start_date, priority, due_date)
       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), NOW(), COALESCE($7, CURRENT_DATE), $8, $9)
       RETURNING *
-    `, [project_id, stage || 'general', title.trim(), description || null, assigned_to || null, req.user.id, start_date || null, finalPriority, due_date || null]);
+    `, [project_id, stage || 'general', title.trim(), description || null, assigned_to ? parseInt(assigned_to, 10) : null, req.user.id, start_date || null, finalPriority, due_date || null]);
 
     // Ensure assigned_to and creator are participants
-    const uniqueParticipants = new Set(participants || []);
+    const uniqueParticipants = new Set(participants ? participants.map(p => parseInt(p, 10)) : []);
     uniqueParticipants.add(req.user.id);
-    if (assigned_to) uniqueParticipants.add(assigned_to);
+    if (assigned_to) uniqueParticipants.add(parseInt(assigned_to, 10));
 
     for (const userId of uniqueParticipants) {
+      if (!userId || isNaN(userId)) continue;
       await client.query(`
         INSERT INTO task_participants (task_id, user_id, added_by)
         VALUES ($1, $2, $3)
@@ -64,19 +70,21 @@ router.post('/', authenticate, checkProjectAccess(), async (req, res) => {
 
     const createdTask = fullTask[0];
 
-    // Trigger notification to assignee & participants asynchronously
+    // Trigger notification to assignee & participants asynchronously (excluding sender)
     if (createdTask) {
-      const recipientIds = Array.from(uniqueParticipants);
-      createNotification({
-        recipientIds,
-        senderId: req.user.id,
-        section: 'tasks',
-        title: '📌 New Task Assigned',
-        message: `${req.user.name} assigned you to task "${createdTask.title}" in project "${createdTask.project_name || 'General'}"`,
-        entityType: 'task',
-        entityId: createdTask.id,
-        actionUrl: `/tasks`,
-      });
+      const recipientIds = Array.from(uniqueParticipants).filter(id => id !== req.user.id);
+      if (recipientIds.length > 0) {
+        createNotification({
+          recipientIds,
+          senderId: req.user.id,
+          section: 'tasks',
+          title: '📌 New Task Assigned',
+          message: `${req.user.name} assigned you to task "${createdTask.title}" in project "${createdTask.project_name || 'General'}"`,
+          entityType: 'task',
+          entityId: createdTask.id,
+          actionUrl: `/tasks?taskId=${createdTask.id}`,
+        });
+      }
     }
 
     res.status(201).json({ task: createdTask });
@@ -222,13 +230,23 @@ router.get('/', authenticate, async (req, res) => {
       LEFT JOIN users part_u ON part_u.id = tp.user_id
     `;
     const params = [];
+    const whereClauses = [];
 
     if (view === 'history') {
-      query += ` WHERE t.status = 'passed' `;
+      whereClauses.push(`t.status = 'passed'`);
     } else if (view === 'scheduled') {
-      query += ` WHERE t.status != 'passed' AND t.start_date > CURRENT_DATE `;
+      whereClauses.push(`t.status != 'passed' AND t.start_date > CURRENT_DATE`);
     } else {
-      query += ` WHERE t.status != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE) `;
+      whereClauses.push(`t.status != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE)`);
+    }
+
+    if (!isPrivileged) {
+      params.push(req.user.id);
+      whereClauses.push(`(t.assigned_to = $${params.length} OR tp.user_id = $${params.length})`);
+    }
+
+    if (whereClauses.length > 0) {
+      query += ` WHERE ` + whereClauses.join(' AND ');
     }
 
     query += ` GROUP BY t.id, u.name ORDER BY t.created_at DESC`;
@@ -237,6 +255,55 @@ router.get('/', authenticate, async (req, res) => {
     res.json({ tasks });
   } catch (err) {
     console.error('Fetch tasks error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// 2.5 Export Tasks Report Data (Date-filtered for PDF generation)
+// GET /api/tasks/export/report
+router.get('/export/report', authenticate, async (req, res) => {
+  try {
+    const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'accounts' || req.user.department === 'accounts' || req.user.role === 'project_head';
+    if (!isPrivileged) {
+      return res.status(403).json({ error: 'Only authorized roles can export task reports' });
+    }
+
+    const { from_date, to_date, status } = req.query;
+    let query = `
+      SELECT t.*, p.name as project_name, u.name as assigned_to_name, creator.name as created_by_name
+      FROM tasks t
+      JOIN projects p ON p.id = t.project_id
+      LEFT JOIN users u ON u.id = t.assigned_to
+      LEFT JOIN users creator ON creator.id = t.created_by
+    `;
+    const params = [];
+    const whereClauses = [];
+
+    if (status && status !== 'all') {
+      params.push(status);
+      whereClauses.push(`t.status = $${params.length}`);
+    }
+
+    if (from_date) {
+      params.push(from_date);
+      whereClauses.push(`COALESCE(t.completed_at::date, t.start_date, t.created_at::date) >= $${params.length}::date`);
+    }
+
+    if (to_date) {
+      params.push(to_date);
+      whereClauses.push(`COALESCE(t.completed_at::date, t.start_date, t.created_at::date) <= $${params.length}::date`);
+    }
+
+    if (whereClauses.length > 0) {
+      query += ` WHERE ` + whereClauses.join(' AND ');
+    }
+
+    query += ` ORDER BY COALESCE(t.completed_at, t.start_date, t.created_at) DESC`;
+
+    const { rows: tasks } = await pool.query(query, params);
+    res.json({ tasks });
+  } catch (err) {
+    console.error('Export task report error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -343,23 +410,24 @@ router.post('/:task_id/messages', authenticate, checkProjectAccess({ idIsResourc
     const msgObj = fullMsg[0];
 
     if (msgObj) {
-      // 1. Send mention notification if user was tagged
-      if (mentionedUserIds.length > 0) {
+      // 1. Send mention notification if user was tagged (excluding sender)
+      const validMentionedIds = mentionedUserIds.filter(id => id !== req.user.id);
+      if (validMentionedIds.length > 0) {
         createNotification({
-          recipientIds: mentionedUserIds,
+          recipientIds: validMentionedIds,
           senderId: req.user.id,
           section: 'tasks',
           title: '💬 Tagged in Task Chat',
           message: `${req.user.name} mentioned you in task "${msgObj.task_title}": "${msgObj.message}"`,
           entityType: 'task',
           entityId: parseInt(task_id, 10),
-          actionUrl: `/tasks`,
+          actionUrl: `/tasks?taskId=${task_id}`,
         });
       }
 
-      // 2. Send task message notification to task participants
+      // 2. Send task message notification to task participants (excluding sender and mentioned users)
       const { rows: partRows } = await pool.query('SELECT user_id FROM task_participants WHERE task_id = $1', [task_id]);
-      const participantIds = partRows.map(p => p.user_id).filter(id => !mentionedUserIds.includes(id));
+      const participantIds = partRows.map(p => p.user_id).filter(id => !validMentionedIds.includes(id) && id !== req.user.id);
       if (participantIds.length > 0) {
         createNotification({
           recipientIds: participantIds,
@@ -369,7 +437,7 @@ router.post('/:task_id/messages', authenticate, checkProjectAccess({ idIsResourc
           message: `${req.user.name} commented on task "${msgObj.task_title}"`,
           entityType: 'task',
           entityId: parseInt(task_id, 10),
-          actionUrl: `/tasks`,
+          actionUrl: `/tasks?taskId=${task_id}`,
         });
       }
     }
@@ -384,21 +452,44 @@ router.post('/:task_id/messages', authenticate, checkProjectAccess({ idIsResourc
   }
 });
 
-// 5. Update Task Status/Stage
+// 5. Update Task Status/Stage/Details
 // PATCH /api/tasks/:task_id
 router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task' }), async (req, res) => {
   try {
     const { task_id } = req.params;
-    const { status, stage, assigned_to, priority, due_date } = req.body;
+    const { status, stage, assigned_to, priority, due_date, title, description } = req.body;
 
-    const { rows: [currentTask] } = await pool.query('SELECT status, assigned_to FROM tasks WHERE id = $1', [task_id]);
+    const { rows: [currentTask] } = await pool.query('SELECT status, assigned_to, created_by, project_id FROM tasks WHERE id = $1', [task_id]);
     if (!currentTask) return res.status(404).json({ error: 'Task not found' });
+
+    const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'accounts' || req.user.department === 'accounts' || req.user.role === 'back_office' || req.user.role === 'project_head';
+    const isCreator = currentTask.created_by === req.user.id;
+    const canEditMetadata = isPrivileged || isCreator;
+
+    // Check if client is trying to modify metadata fields
+    const isAttemptingMetadataChange = assigned_to !== undefined || req.body.start_date !== undefined || priority !== undefined || due_date !== undefined || title !== undefined || description !== undefined;
+    if (isAttemptingMetadataChange && !canEditMetadata) {
+      return res.status(403).json({ error: 'Only task creator or Admin can modify task details' });
+    }
 
     const updates = [];
     const params = [];
     let count = 1;
     let isStatusPassing = false;
     let isReassigning = false;
+
+    if (title !== undefined) {
+      if (!title?.trim()) {
+        return res.status(400).json({ error: 'Title cannot be empty' });
+      }
+      updates.push(`title = $${count++}`);
+      params.push(title.trim());
+    }
+
+    if (description !== undefined) {
+      updates.push(`description = $${count++}`);
+      params.push(description ? description.trim() : null);
+    }
 
     if (status) {
       if (!['pending', 'in_progress', 'review', 'done', 'passed'].includes(status)) {
@@ -427,7 +518,7 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
 
     if (assigned_to !== undefined) {
       updates.push(`assigned_to = $${count++}`);
-      const newAssignee = assigned_to ? parseInt(assigned_to) : null;
+      const newAssignee = assigned_to ? parseInt(assigned_to, 10) : null;
       params.push(newAssignee);
       
       // If assignment changes, it counts as reassignment
@@ -485,28 +576,31 @@ router.patch('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task
         INSERT INTO task_participants (task_id, user_id, added_by)
         VALUES ($1, $2, $3)
         ON CONFLICT (task_id, user_id) DO NOTHING
-      `, [task_id, assigned_to, req.user.id]);
+      `, [task_id, parseInt(assigned_to, 10), req.user.id]);
     }
 
     const updatedTask = rows[0];
 
-    // Trigger notification to task creator & assignee on status change
+    // Trigger notification to task creator & assignee on status/assignment change
     if (updatedTask) {
       const { rows: partRows } = await pool.query('SELECT user_id FROM task_participants WHERE task_id = $1', [task_id]);
-      const recipientIds = partRows.map(p => p.user_id);
-      if (updatedTask.assigned_to) recipientIds.push(updatedTask.assigned_to);
-      if (updatedTask.created_by) recipientIds.push(updatedTask.created_by);
+      const rawRecipients = partRows.map(p => p.user_id);
+      if (updatedTask.assigned_to) rawRecipients.push(updatedTask.assigned_to);
+      if (updatedTask.created_by) rawRecipients.push(updatedTask.created_by);
 
-      createNotification({
-        recipientIds,
-        senderId: req.user.id,
-        section: 'tasks',
-        title: status ? `📌 Task Status: ${status.toUpperCase()}` : '📌 Task Updated',
-        message: `${req.user.name} updated task "${updatedTask.title}"${status ? ` (Status: ${status})` : ''}`,
-        entityType: 'task',
-        entityId: updatedTask.id,
-        actionUrl: `/tasks`,
-      });
+      const recipientIds = [...new Set(rawRecipients)].filter(id => id !== req.user.id);
+      if (recipientIds.length > 0) {
+        createNotification({
+          recipientIds,
+          senderId: req.user.id,
+          section: 'tasks',
+          title: status ? `📌 Task Status: ${status.toUpperCase()}` : '📌 Task Updated',
+          message: `${req.user.name} updated task "${updatedTask.title}"${status ? ` (Status: ${status})` : ''}`,
+          entityType: 'task',
+          entityId: updatedTask.id,
+          actionUrl: `/tasks?taskId=${updatedTask.id}`,
+        });
+      }
     }
 
     res.json({ task: updatedTask });
@@ -540,13 +634,13 @@ router.delete('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'tas
   }
 });
 
-// 6. Cleanup old passed tasks (90 days)
+// 6. Cleanup old passed tasks (90 days based on completion date)
 async function cleanupOldTasks() {
   try {
     const { rowCount } = await pool.query(`
       DELETE FROM tasks 
       WHERE status = 'passed' 
-      AND created_at < NOW() - INTERVAL '90 days'
+      AND COALESCE(completed_at, updated_at) < NOW() - INTERVAL '90 days'
     `);
     if (rowCount > 0) {
       console.log(`🧹 Cleaned up ${rowCount} old passed tasks.`);
