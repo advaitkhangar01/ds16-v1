@@ -59,12 +59,12 @@ async function runAudit() {
       LIMIT 50
     `);
 
-    // 1C. Half-day or absent records marked as late
+    // 1C. Absent or leave records mistakenly marked as late (Policy A allows half_day to preserve late flags)
     const { rows: invalidLates } = await client.query(`
       SELECT id, user_id, date, status, is_late, late_minutes
       FROM attendance
-      WHERE is_late = true
-        AND LOWER(COALESCE(status, '')) IN ('half_day', 'absent', 'leave')
+      WHERE (is_late = true OR late_minutes > 0)
+        AND LOWER(COALESCE(status, '')) IN ('absent', 'leave')
       ORDER BY date DESC
     `);
 
@@ -93,7 +93,7 @@ async function runAudit() {
     if (otOnShortShifts.length > 0) {
       otOnShortShifts.slice(0, 5).forEach(s => console.log(`     ⚠️ ID ${s.id} | ${s.name} | ${s.date?.toISOString ? s.date.toISOString().slice(0,10) : s.date} | ${s.hours_worked}h | raw OT: ${s.raw_ot_hours}h`));
     }
-    console.log(`  - Half-Day/Absent records marked as late: ${invalidLates.length}`);
+    console.log(`  - Absent/Leave records marked as late: ${invalidLates.length}`);
     if (invalidLates.length > 0) {
       invalidLates.slice(0, 5).forEach(s => console.log(`     ⚠️ ID ${s.id} | User ${s.user_id} | ${s.date?.toISOString ? s.date.toISOString().slice(0,10) : s.date} | status: ${s.status} | late_minutes: ${s.late_minutes}`));
     }
