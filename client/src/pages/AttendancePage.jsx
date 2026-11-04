@@ -45,7 +45,12 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
   const isHalfDay = normStatus === 'half_day';
 
   if (isHalfDay) {
-    return <span className="badge bg-sky-50 text-sky-600 border-sky-200 font-bold">◑ Half Day</span>;
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span className="badge bg-sky-50 text-sky-600 border-sky-200 font-bold">◑ Half Day</span>
+        {isLate && <span className="badge bg-red-50 text-red-600 border-red-200 font-bold">Late</span>}
+      </span>
+    );
   }
   if (normStatus === 'working' || normStatus === 'completed' || normStatus === 'present' || checkIn) {
     return (
@@ -706,9 +711,12 @@ export default function AttendancePage() {
 
                         // Use server-stored flags — avoids re-deriving with different settings keys
                         const cellIsHalfDay = recStatus === ATTENDANCE_STATUS.HALF_DAY;
-                        const cellIsLate    = !!record?.is_late && !cellIsHalfDay;
+                        const cellIsLate    = !!record?.is_late;
 
-                        if (cellIsHalfDay) {
+                        if (cellIsHalfDay && cellIsLate) {
+                          statusText = 'Half Day (Late)';
+                          styleClass = 'bg-sky-50 text-sky-700 border-amber-500 hover:bg-sky-100 hover:scale-105';
+                        } else if (cellIsHalfDay) {
                           statusText = 'Half Day';
                           styleClass = 'bg-sky-50 text-sky-700 border-sky-500 hover:bg-sky-100 hover:scale-105';
                         } else if (isPresent && cellIsLate) {

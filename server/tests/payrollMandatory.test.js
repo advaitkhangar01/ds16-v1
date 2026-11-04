@@ -619,8 +619,8 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(stats1036.earnings).toBeCloseTo(1111.11, 2);
   });
 
-  // Rule 23: Half-day and Absent must strictly return is_late = false and late_minutes = 0
-  test('Rule 23: Half-day and Absent force is_late = false and late_minutes = 0', () => {
+  // Policy A: Half-day preserves is_late = true and late_minutes for tracking, but absent clears them
+  test('Policy A: Half-day preserves is_late and late_minutes; absent zeroes them', () => {
     // Case A: Checked in at 10:30 (late threshold exceeded) but marked half_day
     const halfDayStats = calculateDayAttendanceStats(
       {
@@ -631,10 +631,10 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
         hours_worked: 5.0,
         batch_id: testBatchId
       },
-      { baseSalary: 25000, batchMinHours: 8.5 }
+      { baseSalary: 25000, batchMinHours: 8.5, officeStartTimeStr: '10:00', lateThresholdTimeStr: '10:15' }
     );
-    expect(halfDayStats.is_late).toBe(false);
-    expect(halfDayStats.late_minutes).toBe(0);
+    expect(halfDayStats.is_late).toBe(true);
+    expect(halfDayStats.late_minutes).toBe(30);
 
     // Case B: Absent status
     const absentStats = calculateDayAttendanceStats(
@@ -650,8 +650,8 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     expect(absentStats.late_minutes).toBe(0);
   });
 
-  // Rule 24: Recalculator zeroes late_minutes when downgrading a shift to half_day
-  test('Rule 24: Recalculator zeroes late_minutes when downgrading a shift to half_day', async () => {
+  // Rule 24: Recalculator preserves late_minutes when shift is half_day
+  test('Rule 24: Recalculator preserves late_minutes when shift is half_day under Policy A', async () => {
     const dStr = '2026-09-22';
     const { rows: inserted } = await pool.query(
       `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked, batch_id)
@@ -665,8 +665,8 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
 
     const { rows: verified } = await pool.query('SELECT status, is_late, late_minutes FROM attendance WHERE id = $1', [recId]);
     expect(verified[0].status).toBe('half_day');
-    expect(verified[0].is_late).toBe(false);
-    expect(verified[0].late_minutes).toBe(0);
+    expect(verified[0].is_late).toBe(true);
+    expect(verified[0].late_minutes).toBe(20);
   });
 
   // Rule 25: Projected month-end net properly deducts unpaid leaves
@@ -691,16 +691,27 @@ describe('DS16 CRM — Mandatory 16 Business Rules Test Suite', () => {
     await pool.query('DELETE FROM employee_leave_summary WHERE user_id = $1 AND month = 9 AND year = 2026', [testUserId]);
   });
 
-  // Rule 26: DB constraint rejects inserting half_day with is_late = true or late_minutes > 0
-  test('Rule 26: DB constraint chk_attendance_half_day_absent_no_late rejects illegal state', async () => {
-    await expect(
-      pool.query(
-        `INSERT INTO attendance (user_id, date, status, is_late, late_minutes)
-         VALUES ($1, '2026-12-01', 'half_day', true, 15)`,
-        [testUserId]
-      )
-    ).rejects.toThrow();
+  // Rule 26: DB constraint chk_attendance_absent_leave_no_late rejects illegal absent state
+  test('Rule 26: DB constraint rejects inserting absent with is_late = true or late_minutes > 0', async () => {
+    // Drop old constraint if present in test DB so test runs cleanly
+    try { await pool.query('ALTER TABLE attendance DROP CONSTRAINT IF EXISTS chk_attendance_half_day_absent_no_late'); } catch (_) {}
+    try {
+      await pool.query(`
+        ALTER TABLE attendance ADD CONSTRAINT chk_attendance_absent_leave_no_late
+          CHECK (NOT (LOWER(COALESCE(status, '')) IN ('absent', 'leave') AND (is_late = TRUE OR late_minutes > 0))) NOT VALID;
+      `);
+    } catch (_) {}
 
+    // Half day with is_late = true is ALLOWED under Policy A
+    const res = await pool.query(
+      `INSERT INTO attendance (user_id, date, status, is_late, late_minutes)
+       VALUES ($1, '2026-12-01', 'half_day', true, 15)
+       RETURNING id, is_late`,
+      [testUserId]
+    );
+    expect(res.rows[0].is_late).toBe(true);
+
+    // Absent with is_late = true is REJECTED
     await expect(
       pool.query(
         `INSERT INTO attendance (user_id, date, status, is_late, late_minutes)

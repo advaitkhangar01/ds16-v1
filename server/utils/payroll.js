@@ -114,25 +114,32 @@ function calculateDayAttendanceStats(att, options = {}) {
     const checkInMins = timeToMinutes(checkInTimeStr);
     const startMins = timeToMinutes(officeStartTimeStr);
     const diffMins = checkInMins - startMins;
+    const halfDayCutoffMins = timeToMinutes(halfDayCutoffTimeStr);
 
-    let isLateThresholdMet = false;
-    if (lateThresholdTimeStr) {
-      isLateThresholdMet = checkInMins > timeToMinutes(lateThresholdTimeStr);
+    if (halfDayCutoffMins > 0 && checkInMins > halfDayCutoffMins) {
+      // Check-in after half-day cutoff is half-day arrival and not a morning late mark
+      isLate = false;
+      lateMins = 0;
     } else {
-      isLateThresholdMet = diffMins > lateThresholdMins;
-    }
+      let isLateThresholdMet = false;
+      if (lateThresholdTimeStr) {
+        isLateThresholdMet = checkInMins > timeToMinutes(lateThresholdTimeStr);
+      } else {
+        isLateThresholdMet = diffMins > lateThresholdMins;
+      }
 
-    if (diffMins > 0) {
-      lateMins = diffMins;
-    }
+      if (diffMins > 0) {
+        lateMins = diffMins;
+      }
 
-    if (isLateThresholdMet) {
-      isLate = true;
+      if (isLateThresholdMet) {
+        isLate = true;
+      }
     }
   }
 
-  // Business rule: Half-Day and Absent must NOT count as a late arrival
-  if (dayStatus === 'half_day' || dayStatus === 'absent') {
+  // Business rule: Absent must NOT count as a late arrival (Half-Day preserves administrative late tracking)
+  if (dayStatus === 'absent') {
     isLate = false;
     lateMins = 0;
   }

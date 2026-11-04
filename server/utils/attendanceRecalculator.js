@@ -216,18 +216,14 @@ async function recalculateAttendanceForUser(userId, options = {}) {
 
       if (status === ATTENDANCE_STATUS.HALF_DAY) {
         // Keep half_day if check-in was after halfDayCutoff
-        isLate = false;
-        lateMins = 0;
       } else if (hoursWorked < recMinHours) {
         status = ATTENDANCE_STATUS.HALF_DAY;
-        isLate = false;
-        lateMins = 0;
       } else {
         status = ATTENDANCE_STATUS.COMPLETED;
       }
     }
 
-    if (status === ATTENDANCE_STATUS.HALF_DAY || status === ATTENDANCE_STATUS.ABSENT) {
+    if (status === ATTENDANCE_STATUS.ABSENT) {
       isLate = false;
       lateMins = 0;
     }

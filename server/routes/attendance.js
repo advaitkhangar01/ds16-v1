@@ -123,7 +123,6 @@ async function autoCheckoutPendingRecords() {
       let isLate = r.is_late;
       if (newStatus === 'half_day' || hoursWorked < minWorkingHours) {
         newStatus = 'half_day';
-        isLate = false;
       } else {
         newStatus = 'completed';
       }
@@ -512,23 +511,19 @@ router.post('/checkout', authenticate, async (req, res) => {
       } catch (_) { /* ignore */ }
     }
 
-    const isHalfDay = (newStatus === ATTENDANCE_STATUS.HALF_DAY);
-
     const { rows } = await pool.query(
       `UPDATE attendance SET
          check_out = $1, status = $2,
          checkout_lat = $3, checkout_lng = $4, checkout_accuracy = $5,
          checkout_distance = $6, checkout_zone = $7, checkout_outside_zone = $8,
-         hours_worked = $9,
-         is_late = CASE WHEN $12::boolean THEN false ELSE is_late END,
-         late_minutes = CASE WHEN $12::boolean THEN 0 ELSE late_minutes END
+         hours_worked = $9
        WHERE user_id = $10 AND date = $11::date
        RETURNING *`,
       [
         nowIso, newStatus,
         lat || null, lng || null, (parseFloat(accuracy) || null),
         checkoutDistance, checkoutZone, checkoutOutsideZone,
-        hoursWorked, userId, today, isHalfDay
+        hoursWorked, userId, today
       ]
     );
 
@@ -734,8 +729,8 @@ router.post('/manual', authenticate, requireAdmin, checkPeriodLock, async (req, 
     let finalLateMinutes = parseInt(late_minutes || 0, 10);
     if (isNaN(finalLateMinutes) || finalLateMinutes < 0) finalLateMinutes = 0;
 
-    // Enforce business rule: Half-Day and Absent must NEVER carry late markers
-    if (statusLower === 'half_day' || statusLower === 'absent') {
+    // Enforce business rule: Absent must NEVER carry late markers (Half-Day preserves late tracking)
+    if (statusLower === 'absent') {
       finalIsLate = false;
       finalLateMinutes = 0;
     }
