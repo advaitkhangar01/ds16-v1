@@ -78,7 +78,7 @@ router.get('/:id', async (req, res) => {
     let statsQuery = `
       SELECT 
         COUNT(*) FILTER (WHERE LOWER(status) = 'working' OR LOWER(status) = 'completed' OR LOWER(status) = 'present' OR LOWER(status) = 'half_day') as total_present,
-        COUNT(*) FILTER (WHERE is_late = true AND LOWER(COALESCE(status, '')) NOT IN ('half_day', 'absent')) as total_late,
+        COUNT(*) FILTER (WHERE is_late = true AND LOWER(COALESCE(status, '')) NOT IN ('absent', 'leave')) as total_late,
         AVG(hours_worked) FILTER (WHERE hours_worked > 0) as avg_hours
       FROM attendance
       WHERE user_id = $1
@@ -98,7 +98,7 @@ router.get('/:id', async (req, res) => {
     const { rows: allTimeStats } = await pool.query(
       `SELECT 
          COUNT(*) FILTER (WHERE LOWER(status) = 'working' OR LOWER(status) = 'completed' OR LOWER(status) = 'present' OR LOWER(status) = 'half_day') as all_time_checkins,
-         COUNT(*) FILTER (WHERE is_late = true AND LOWER(COALESCE(status, '')) NOT IN ('half_day', 'absent')) as all_time_late
+         COUNT(*) FILTER (WHERE is_late = true AND LOWER(COALESCE(status, '')) NOT IN ('absent', 'leave')) as all_time_late
        FROM attendance
        WHERE user_id = $1`,
       [id]
@@ -363,7 +363,7 @@ router.get('/:id', async (req, res) => {
       const isUpcomingOrPending = r.status === 'upcoming' || r.status === 'future' || r.status === 'today_pending';
       return isUpcomingOrPending ? sum : sum + (parseFloat(r.earnings) || 0);
     }, 0);
-    const periodLates = processedAttendance.filter(r => r.is_late && r.status !== 'half_day' && r.status !== 'absent' && r.status !== 'upcoming' && r.status !== 'today_pending').length;
+    const periodLates = processedAttendance.filter(r => r.is_late && r.status !== 'absent' && r.status !== 'leave' && r.status !== 'upcoming' && r.status !== 'today_pending').length;
     const lateRuleCount = parseInt(settings.late_penalty_rule_count || 3, 10);
     const lateRuleDays = parseFloat(settings.late_penalty_rule_days || 0.15);
     const periodLatePenalty = Math.floor(periodLates / lateRuleCount) * lateRuleDays * (baseSalary > 0 ? baseSalary / 30 : 0);

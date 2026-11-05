@@ -470,7 +470,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     }
 
     // Business rule: exclude half_day, absent, upcoming, today_pending from lateCount
-    if (dayStats.is_late && dayStats.status !== 'half_day' && dayStats.status !== 'absent' && dayStats.status !== 'upcoming' && dayStats.status !== 'today_pending') {
+    if (dayStats.is_late && dayStats.status !== 'absent' && dayStats.status !== 'leave' && dayStats.status !== 'upcoming' && dayStats.status !== 'today_pending') {
       lateCount++;
       if (lateCount % latePenaltyRuleCount === 0) {
         const penaltyAmount = Math.round(latePenaltyRuleDays * perDaySalary * 100) / 100;

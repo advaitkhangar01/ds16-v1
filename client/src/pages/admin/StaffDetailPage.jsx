@@ -212,7 +212,7 @@ export default function StaffDetailPage() {
           const isUpcomingOrPending = att.status === 'upcoming' || att.status === 'future' || att.status === 'today_pending';
           if (!isUpcomingOrPending) {
             periodEarnings += Number(att.earnings || 0);
-            if (att.is_late && att.status !== 'half_day' && att.status !== 'absent') {
+            if (att.is_late && att.status !== 'absent' && att.status !== 'leave') {
               periodLateCount++;
             }
           }
@@ -489,8 +489,8 @@ export default function StaffDetailPage() {
     rows.push(['Daily Salary Basis', `₹${baseSalary.toLocaleString('en-IN')} ÷ 30 days`, `₹${perDaySalary.toFixed(2)}/day`, `₹${perDaySalary.toFixed(2)}`]);
     rows.push(['Attendance Deductions', 'Absences & Half-day short hours', '—', `₹${Number(attendanceShortfall).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     rows.push(['Late Arrivals', 'Attendance records counted as late', `${lateCount} lates`, '—']);
-    rows.push(['Late Deduction Groups', `FLOOR(${lateCount} ÷ 3)`, `${lateGroups} groups`, '—']);
-    rows.push(['Late Penalty Deduction', `${lateGroups} groups × 0.15 day × ₹${perDaySalary.toFixed(2)}`, `${lateDeductionDays.toFixed(2)} day`, `₹${Number(lateDeductionAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    rows.push(['Late Deduction Groups', `FLOOR(${lateCount} ÷ 3)`, `${lateGroups} ${lateGroups === 1 ? 'group' : 'groups'}`, '—']);
+    rows.push(['Late Penalty Deduction', `${lateGroups} ${lateGroups === 1 ? 'group' : 'groups'} × 0.15 day × ₹${perDaySalary.toFixed(2)}`, `${lateDeductionDays.toFixed(2)} day`, `₹${Number(lateDeductionAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     if (overtimeEarnings > 0) {
       rows.push(['Overtime Earnings', 'Check-out after 7:00 PM IST at hourly rate', `${activePayroll.total_overtime_hours || 0} hrs`, `₹${Number(overtimeEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     }
@@ -504,7 +504,7 @@ export default function StaffDetailPage() {
     // Additional Notes / Rules Section
     rows.push([]);
     rows.push(['Payroll Rule', 'Every 3 late arrivals = 0.15 day salary deduction.']);
-    rows.push(['Late Count', `${lateCount} late arrivals → ${lateGroups} complete groups + ${lateCount % 3} remaining late → ${lateDeductionDays.toFixed(2)} day deduction.`]);
+    rows.push(['Late Count', `${lateCount} late arrivals → ${lateGroups} ${lateGroups === 1 ? 'complete group' : 'complete groups'} + ${lateCount % 3} remaining late → ${lateDeductionDays.toFixed(2)} day deduction.`]);
     rows.push(['Salary Basis', 'Fixed 30-day divisor used for daily salary basis (Base Salary ÷ 30). Full month pays 100% Base Salary regardless of calendar month length.']);
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
