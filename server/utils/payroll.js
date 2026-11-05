@@ -633,6 +633,7 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     deductions: Math.round(totalDeductions * 100) / 100,
     total_deductions_to_date: Math.round(totalDeductions * 100) / 100,
     total_attendance_deductions: Math.round(totalAttendanceDeductions * 100) / 100,
+    attendance_shortfall: Math.round((absenceDeduction + halfDayShortfallDeduction) * 100) / 100,
     late_deduction_days: latePenaltyDays,
     late_deduction_amount: Math.round(lateDeductionAmount * 100) / 100,
     half_day_deduction_amount: Math.round(halfDayDeductionAmount * 100) / 100,

@@ -4,6 +4,7 @@
 const router = require('express').Router();
 const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
+const { calculatePayrollForEmployee } = require('../utils/payroll');
 
 // 1. Attendance Analytical Report Endpoint
 router.get('/attendance', authenticate, requireAccounting, async (req, res) => {
@@ -285,6 +286,42 @@ router.get('/payroll', authenticate, requireAccounting, async (req, res) => {
 
     query += ' ORDER BY p.year DESC, p.month DESC, u.name ASC';
     const { rows } = await pool.query(query, params);
+
+    if (rows.length === 0 && month && year) {
+      const settingsRes = await pool.query('SELECT key, value FROM app_settings');
+      const settings = settingsRes.rows.reduce((acc, row) => { acc[row.key] = row.value; return acc; }, {});
+      const { rows: emps } = await pool.query(
+        `SELECT id, name, department, role, base_salary FROM users 
+         WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head')
+           AND is_active IS NOT FALSE
+           ${department ? 'AND department = $1' : ''}
+         ORDER BY name`,
+        department ? [department] : []
+      );
+      const liveRows = await Promise.all(emps.map(async emp => {
+        const pData = await calculatePayrollForEmployee(emp.id, parseInt(month), parseInt(year), settings, pool);
+        const net = pData ? (pData.current_net_payable !== undefined ? pData.current_net_payable : pData.suggested_salary) : emp.base_salary;
+        const deductions = pData ? (pData.total_deductions !== undefined ? pData.total_deductions : pData.deductions) : 0;
+        return {
+          id: `live-${emp.id}`,
+          user_id: emp.id,
+          month: parseInt(month),
+          year: parseInt(year),
+          base_salary: emp.base_salary,
+          bonus: 0,
+          incentives: 0,
+          deductions: deductions,
+          net_paid: net,
+          payment_date: null,
+          status: 'pending',
+          employee_name: emp.name,
+          role: emp.role,
+          department: emp.department
+        };
+      }));
+      return res.json({ success: true, data: liveRows });
+    }
+
     res.json({ success: true, data: rows });
   } catch (err) {
     console.error('Error fetching payroll reports:', err);

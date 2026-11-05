@@ -369,12 +369,88 @@ router.get('/:id', async (req, res) => {
     const periodLatePenalty = Math.floor(periodLates / lateRuleCount) * lateRuleDays * (baseSalary > 0 ? baseSalary / 30 : 0);
     const periodNetPayable = Math.max(0, Math.round((periodEarnings - periodLatePenalty) * 100) / 100);
 
+    // Compute period payroll for filtered views
+    let periodPayroll = null;
+    const isFiltered = Boolean(startDate || endDate);
+
+    if (isFiltered && startDate && endDate) {
+      const [sY, sM, sD] = String(startDate).split('-').map(Number);
+      const [eY, eM, eD] = String(endDate).split('-').map(Number);
+      const lastDayOfSM = new Date(sY, sM, 0).getDate();
+
+      if (sY === eY && sM === eM && sD === 1 && eD === lastDayOfSM) {
+        // Authoritative monthly calculation for a full calendar month
+        periodPayroll = await calculatePayrollForEmployee(id, sM, sY, settings, pool);
+      }
+    }
+
+    if (!periodPayroll && isFiltered) {
+      const fullDaysWorked = processedAttendance.filter(r => ['present', 'working', 'completed'].includes(r.status)).length;
+      const halfDaysWorked = processedAttendance.filter(r => r.status === 'half_day').length;
+      const absentDays = processedAttendance.filter(r => r.status === 'absent').length;
+      const paidLeaves = processedAttendance.filter(r => r.status === 'leave').length;
+      const sundaysCount = processedAttendance.filter(r => r.status === 'sunday').length;
+      const holidaysCount = processedAttendance.filter(r => r.status === 'holiday').length;
+
+      const totalOvertimeHours = processedAttendance.reduce((sum, r) => sum + (parseFloat(r.overtime_hours) || 0), 0);
+      const totalOvertimeEarnings = processedAttendance.reduce((sum, r) => sum + (parseFloat(r.overtime_earnings) || 0), 0);
+      const totalNormalEarnings = processedAttendance.reduce((sum, r) => {
+        const isUp = r.status === 'upcoming' || r.status === 'future' || r.status === 'today_pending';
+        return isUp ? sum : sum + (parseFloat(r.normal_earnings) || 0);
+      }, 0);
+
+      const lateGroups = Math.floor(periodLates / lateRuleCount);
+      const latePenaltyDays = lateGroups * lateRuleDays;
+      const perDaySalary = baseSalary > 0 ? (baseSalary / 30) : (hourlyRate * defaultBatchMinHours);
+      const latePenaltyAmount = Math.round(latePenaltyDays * perDaySalary * 100) / 100;
+
+      const halfDayShortfalls = processedAttendance
+        .filter(r => r.status === 'half_day')
+        .reduce((sum, r) => sum + Math.max(0, perDaySalary - (parseFloat(r.normal_earnings) || 0)), 0);
+      const attendanceShortfall = Math.round(((absentDays * perDaySalary) + halfDayShortfalls) * 100) / 100;
+
+      const effectiveDays = fullDaysWorked + (halfDaysWorked * 0.5) + sundaysCount + holidaysCount + paidLeaves;
+      const payableDays = Math.max(0, Math.round((effectiveDays - latePenaltyDays) * 100) / 100);
+
+      const netPayable = Math.max(0, Math.round((periodEarnings - latePenaltyAmount) * 100) / 100);
+
+      periodPayroll = {
+        employee,
+        base_salary: baseSalary,
+        per_day_salary: perDaySalary,
+        hourly_rate: hourlyRate,
+        full_days_worked: fullDaysWorked,
+        half_days_worked: halfDaysWorked,
+        late_count: periodLates,
+        late_penalty_days: latePenaltyDays,
+        late_deduction_amount: latePenaltyAmount,
+        total_deductions: latePenaltyAmount,
+        deductions: latePenaltyAmount,
+        total_overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
+        overtime_earnings: Math.round(totalOvertimeEarnings * 100) / 100,
+        payable_days: payableDays,
+        suggested_salary: netPayable,
+        accrued_earnings_to_date: Math.round(periodEarnings * 100) / 100,
+        accrued_salary: Math.round(periodEarnings * 100) / 100,
+        current_net_payable: netPayable,
+        net_salary_payable: netPayable,
+        projected_month_end_net: netPayable,
+        is_month_in_progress: false,
+        attendance_shortfall: attendanceShortfall,
+        total_attendance_deductions: 0
+      };
+    } else if (!isFiltered) {
+      periodPayroll = currentMonthPayroll;
+    }
+
     const periodStats = {
-      period_earnings: Math.round(periodEarnings * 100) / 100,
-      period_late_penalty: Math.round(periodLatePenalty * 100) / 100,
-      period_deductions: Math.round(periodLatePenalty * 100) / 100,
-      period_net_payable: periodNetPayable,
-      period_late_count: periodLates
+      period_earnings: periodPayroll ? periodPayroll.accrued_earnings_to_date : Math.round(periodEarnings * 100) / 100,
+      period_late_penalty: periodPayroll ? periodPayroll.late_deduction_amount : Math.round(periodLatePenalty * 100) / 100,
+      period_deductions: periodPayroll ? periodPayroll.total_deductions : Math.round(periodLatePenalty * 100) / 100,
+      period_net_payable: periodPayroll ? periodPayroll.current_net_payable : periodNetPayable,
+      period_late_count: periodPayroll ? periodPayroll.late_count : periodLates,
+      payable_days: periodPayroll ? periodPayroll.payable_days : 0,
+      attendance_shortfall: periodPayroll ? (periodPayroll.attendance_shortfall || 0) : 0
     };
 
     // Compute current month leave estimate
@@ -436,6 +512,7 @@ router.get('/:id', async (req, res) => {
       leaveBalances,
       payroll,
       currentMonthPayroll,
+      periodPayroll,
       periodStats,
       leaveEstimate
     });

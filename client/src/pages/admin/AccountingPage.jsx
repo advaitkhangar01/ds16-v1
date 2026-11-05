@@ -564,7 +564,8 @@ export default function AccountingPage() {
         } else {
           const inc = parseFloat(rowIncentives[emp.id] || 0);
           totalIncentives += inc;
-          totalNetPaid += (emp.suggested_salary || base) + inc;
+          const empNet = emp.current_net_payable !== undefined ? emp.current_net_payable : (emp.net_salary_payable !== undefined ? emp.net_salary_payable : (emp.suggested_salary !== undefined ? emp.suggested_salary : base));
+          totalNetPaid += empNet + inc;
         }
       });
 
@@ -646,7 +647,8 @@ export default function AccountingPage() {
         const processed = payrollHistory.find(p => p.user_id === emp.id);
         const base = parseFloat(emp.base_salary || 0);
         const inc = processed ? parseFloat(processed.incentives || 0) : parseFloat(rowIncentives[emp.id] || 0);
-        const net = processed ? parseFloat(processed.net_paid || 0) : ((emp.suggested_salary || base) + inc);
+        const empNet = emp.current_net_payable !== undefined ? emp.current_net_payable : (emp.net_salary_payable !== undefined ? emp.net_salary_payable : (emp.suggested_salary !== undefined ? emp.suggested_salary : base));
+        const net = processed ? parseFloat(processed.net_paid || 0) : (empNet + inc);
         const statusText = processed ? 'PAID' : 'PENDING';
 
         const rowHeight = 7;
@@ -4223,7 +4225,8 @@ export default function AccountingPage() {
                       const processed = payrollHistory.find(p => p.user_id === emp.id);
                       const base = parseFloat(emp.base_salary || 0);
                       const inc = processed ? parseFloat(processed.incentives || 0) : parseFloat(rowIncentives[emp.id] || 0);
-                      const net = processed ? parseFloat(processed.net_paid || 0) : ((emp.suggested_salary || base) + inc);
+                      const empNet = emp.current_net_payable !== undefined ? emp.current_net_payable : (emp.net_salary_payable !== undefined ? emp.net_salary_payable : (emp.suggested_salary !== undefined ? emp.suggested_salary : base));
+        const net = processed ? parseFloat(processed.net_paid || 0) : (empNet + inc);
                       const workSummary = `${emp.payable_days || emp.full_days_worked || 0} days`;
 
                       return (

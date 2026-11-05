@@ -182,20 +182,25 @@ export default function StaffDetailPage() {
 
   if (!data) return null;
 
-  const { employee, projects, tasks, attendanceStats, financialStats, periodStats, leaveEstimate, attendance, leaveStats, leaves, leaveBalances = [], payroll, currentMonthPayroll } = data;
+  const { employee, projects, tasks, attendanceStats, financialStats, periodStats, leaveEstimate, attendance, leaveStats, leaves, leaveBalances = [], payroll, currentMonthPayroll, periodPayroll } = data;
 
   // Calculate earnings and deduction stats from attendance records & payroll history
   const calculateAttendanceMetrics = () => {
     const isFiltered = Boolean(startDate || endDate);
 
     if (isFiltered) {
-      if (periodStats) {
+      const activePayroll = periodPayroll || periodStats;
+      if (activePayroll) {
+        const earnings = activePayroll.accrued_earnings_to_date !== undefined ? Number(activePayroll.accrued_earnings_to_date) : (Number(periodStats?.period_earnings) || 0);
+        const latePenalty = activePayroll.late_deduction_amount !== undefined ? Number(activePayroll.late_deduction_amount) : (Number(periodStats?.period_late_penalty) || 0);
+        const net = activePayroll.current_net_payable !== undefined ? Number(activePayroll.current_net_payable) : Math.max(0, earnings - latePenalty);
+
         return {
-          totalEarnings: periodStats.period_earnings,
-          totalDeduction: periodStats.period_deductions,
-          periodAttendanceDeduction: 0,
-          periodLatePenalty: periodStats.period_late_penalty,
-          netPayable: periodStats.period_net_payable,
+          totalEarnings: earnings,
+          totalDeduction: latePenalty,
+          periodAttendanceDeduction: Number(activePayroll.attendance_shortfall || activePayroll.total_attendance_deductions || 0),
+          periodLatePenalty: latePenalty,
+          netPayable: net,
           earningsThisMonth: 0,
           deductionsThisMonth: 0
         };
@@ -423,23 +428,50 @@ export default function StaffDetailPage() {
     });
 
     // Calculate Salary Justification Metrics
-    const baseSalary = Number(employee.base_salary || currentMonthPayroll?.employee?.base_salary || 0);
-    const cmp = data?.currentMonthPayroll || {};
+    const isFiltered = Boolean(startDate || endDate);
+    const activePayroll = isFiltered ? (data?.periodPayroll || {}) : (data?.currentMonthPayroll || {});
+
+    const baseSalary = Number(employee.base_salary || activePayroll?.employee?.base_salary || 0);
     const perDaySalary = baseSalary > 0 ? baseSalary / 30 : 0;
-    const lateCount = cmp.late_count !== undefined ? cmp.late_count : 0;
+
+    const lateCount = activePayroll.late_count !== undefined 
+      ? activePayroll.late_count 
+      : (attendanceStats.period_late || attendanceStats.total_late || 0);
     const lateGroups = Math.floor(lateCount / 3);
-    const lateDeductionDays = cmp.late_penalty_days !== undefined ? cmp.late_penalty_days : (lateGroups * 0.15);
-    const lateDeductionAmount = cmp.late_deduction_amount !== undefined ? cmp.late_deduction_amount : (lateDeductionDays * perDaySalary);
-    const totalDeductions = cmp.deductions !== undefined ? cmp.deductions : 0;
-    const attendanceDeductions = cmp.total_attendance_deductions !== undefined ? cmp.total_attendance_deductions : Math.max(0, totalDeductions - lateDeductionAmount);
-    const overtimeEarnings = cmp.overtime_earnings !== undefined ? cmp.overtime_earnings : 0;
-    const accruedEarnings = cmp.accrued_earnings_to_date !== undefined ? cmp.accrued_earnings_to_date : (cmp.accrued_salary || 0);
-    const netSalaryPayable = cmp.current_net_payable !== undefined 
-      ? cmp.current_net_payable 
-      : (cmp.net_salary_payable !== undefined ? cmp.net_salary_payable : Math.max(0, accruedEarnings - totalDeductions));
-    const projectedMonthEndNet = cmp.projected_month_end_net !== undefined 
-      ? cmp.projected_month_end_net 
+    const lateDeductionDays = activePayroll.late_penalty_days !== undefined 
+      ? activePayroll.late_penalty_days 
+      : (lateGroups * 0.15);
+    const lateDeductionAmount = activePayroll.late_deduction_amount !== undefined 
+      ? activePayroll.late_deduction_amount 
+      : (lateDeductionDays * perDaySalary);
+
+    const overtimeEarnings = activePayroll.overtime_earnings !== undefined 
+      ? activePayroll.overtime_earnings 
+      : 0;
+
+    const accruedEarnings = activePayroll.accrued_earnings_to_date !== undefined 
+      ? activePayroll.accrued_earnings_to_date 
+      : (activePayroll.accrued_salary || 0);
+
+    const attendanceShortfall = activePayroll.attendance_shortfall !== undefined 
+      ? activePayroll.attendance_shortfall 
+      : (baseSalary > 0 && accruedEarnings ? Math.max(0, Math.round((baseSalary - (accruedEarnings - overtimeEarnings)) * 100) / 100) : 0);
+
+    const totalDeductions = activePayroll.total_deductions !== undefined 
+      ? activePayroll.total_deductions 
+      : (attendanceShortfall + lateDeductionAmount);
+
+    const netSalaryPayable = activePayroll.current_net_payable !== undefined 
+      ? activePayroll.current_net_payable 
+      : (activePayroll.net_salary_payable !== undefined ? activePayroll.net_salary_payable : Math.max(0, accruedEarnings - lateDeductionAmount));
+
+    const projectedMonthEndNet = activePayroll.projected_month_end_net !== undefined 
+      ? activePayroll.projected_month_end_net 
       : Math.max(0, baseSalary - totalDeductions + overtimeEarnings);
+
+    const payableDays = activePayroll.payable_days !== undefined 
+      ? activePayroll.payable_days 
+      : (attendanceStats.total_present || 0);
 
     // Append Salary Justification Section below existing attendance table
     rows.push([]);
@@ -455,17 +487,17 @@ export default function StaffDetailPage() {
     // Table Rows
     rows.push(['Monthly Salary', 'Fixed monthly salary', '1 month', baseSalary > 0 ? `₹${baseSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—']);
     rows.push(['Daily Salary Basis', `₹${baseSalary.toLocaleString('en-IN')} ÷ 30 days`, `₹${perDaySalary.toFixed(2)}/day`, `₹${perDaySalary.toFixed(2)}`]);
-    rows.push(['Attendance Deductions', 'Absences & Half-day short hours', '—', `₹${Number(attendanceDeductions).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    rows.push(['Attendance Deductions', 'Absences & Half-day short hours', '—', `₹${Number(attendanceShortfall).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     rows.push(['Late Arrivals', 'Attendance records counted as late', `${lateCount} lates`, '—']);
     rows.push(['Late Deduction Groups', `FLOOR(${lateCount} ÷ 3)`, `${lateGroups} groups`, '—']);
     rows.push(['Late Penalty Deduction', `${lateGroups} groups × 0.15 day × ₹${perDaySalary.toFixed(2)}`, `${lateDeductionDays.toFixed(2)} day`, `₹${Number(lateDeductionAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     if (overtimeEarnings > 0) {
-      rows.push(['Overtime Earnings', 'Check-out after 7:00 PM IST at hourly rate', `${cmp.total_overtime_hours || 0} hrs`, `₹${Number(overtimeEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+      rows.push(['Overtime Earnings', 'Check-out after 7:00 PM IST at hourly rate', `${activePayroll.total_overtime_hours || 0} hrs`, `₹${Number(overtimeEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     }
-    rows.push(['Accrued Earnings to Date', 'Worked days + elapsed Sundays + OT through cutoff', `${cmp.payable_days || 0} days`, `₹${Number(accruedEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    rows.push(['Accrued Earnings to Date', 'Worked days + elapsed Sundays + OT through cutoff', `${payableDays} days`, `₹${Number(accruedEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     rows.push(['Total Deductions', 'Attendance short hours + late penalty deductions', '—', `₹${Number(totalDeductions).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     rows.push(['Net Salary Payable', `Earnings − Total Deductions`, 'Current accrued payable', `₹${Number(netSalaryPayable).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
-    if (cmp.is_month_in_progress) {
+    if (activePayroll.is_month_in_progress) {
       rows.push(['Projected Month-End Net', 'Base Salary − Deductions + Overtime (Full month projection)', 'Month-end projected', `₹${Number(projectedMonthEndNet).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     }
 
@@ -1102,6 +1134,117 @@ export default function StaffDetailPage() {
                   </table>
                 </div>
               )}
+
+              {/* SALARY JUSTIFICATION & DEDUCTION BREAKDOWN (Visible on screen and printed in PDF) */}
+              {attendance && attendance.length > 0 && (() => {
+                const isFiltered = Boolean(startDate || endDate);
+                const activePayroll = isFiltered ? (periodPayroll || {}) : (currentMonthPayroll || {});
+                const baseSalary = Number(employee?.base_salary || activePayroll?.employee?.base_salary || 0);
+                const perDaySalary = baseSalary > 0 ? baseSalary / 30 : 0;
+                const lateCount = activePayroll.late_count !== undefined ? activePayroll.late_count : (attendanceStats.period_late || attendanceStats.total_late || 0);
+                const lateGroups = Math.floor(lateCount / 3);
+                const lateDeductionDays = activePayroll.late_penalty_days !== undefined ? activePayroll.late_penalty_days : (lateGroups * 0.15);
+                const lateDeductionAmount = activePayroll.late_deduction_amount !== undefined ? activePayroll.late_deduction_amount : (lateDeductionDays * perDaySalary);
+                const overtimeEarnings = activePayroll.overtime_earnings !== undefined ? activePayroll.overtime_earnings : 0;
+                const accruedEarnings = activePayroll.accrued_earnings_to_date !== undefined ? activePayroll.accrued_earnings_to_date : (activePayroll.accrued_salary || 0);
+                const attendanceShortfall = activePayroll.attendance_shortfall !== undefined 
+                  ? activePayroll.attendance_shortfall 
+                  : (baseSalary > 0 && accruedEarnings ? Math.max(0, Math.round((baseSalary - (accruedEarnings - overtimeEarnings)) * 100) / 100) : 0);
+                const totalDeductions = activePayroll.total_deductions !== undefined ? activePayroll.total_deductions : (attendanceShortfall + lateDeductionAmount);
+                const netSalaryPayable = activePayroll.current_net_payable !== undefined ? activePayroll.current_net_payable : Math.max(0, accruedEarnings - lateDeductionAmount);
+                const payableDays = activePayroll.payable_days !== undefined ? activePayroll.payable_days : (attendanceStats.total_present || 0);
+
+                let periodLabel = 'All Time (Recent 50 Check-ins)';
+                if (startDate || endDate) {
+                  periodLabel = `From ${formatDateIST(startDate || 'Beginning')} to ${formatDateIST(endDate || 'Today')}`;
+                } else if (activePreset && activePreset.includes('-')) {
+                  const [y, m] = activePreset.split('-');
+                  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                  periodLabel = `${monthNames[parseInt(m) - 1]} ${y}`;
+                }
+
+                return (
+                  <div className="mt-8 border border-slate-200 rounded-3xl p-6 bg-white shadow-sm space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
+                          <IndianRupee size={15} className="text-primary" /> Salary Justification &amp; Deduction Breakdown
+                        </h4>
+                        <p className="text-[11px] font-semibold text-slate-400 mt-0.5">Period: {periodLabel}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Net Payable</span>
+                        <span className="text-xl font-black text-emerald-600 font-mono">₹{Number(netSalaryPayable).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                            <th className="py-2.5 px-3">Salary Component</th>
+                            <th className="py-2.5 px-3">Calculation / Basis</th>
+                            <th className="py-2.5 px-3">Days / Units</th>
+                            <th className="py-2.5 px-3 text-right">Amount (₹)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                          <tr>
+                            <td className="py-3 px-3 font-bold text-slate-900">Monthly Base Salary</td>
+                            <td className="py-3 px-3 text-slate-500">Fixed monthly salary</td>
+                            <td className="py-3 px-3">1 month</td>
+                            <td className="py-3 px-3 text-right font-mono font-bold">₹{baseSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          </tr>
+                          <tr>
+                            <td className="py-3 px-3 font-bold text-slate-900">Daily Salary Basis</td>
+                            <td className="py-3 px-3 text-slate-500">₹{baseSalary.toLocaleString('en-IN')} ÷ 30 days</td>
+                            <td className="py-3 px-3">₹{perDaySalary.toFixed(2)}/day</td>
+                            <td className="py-3 px-3 text-right font-mono font-bold">₹{perDaySalary.toFixed(2)}</td>
+                          </tr>
+                          <tr>
+                            <td className="py-3 px-3 font-bold text-slate-900">Attendance Shortfall</td>
+                            <td className="py-3 px-3 text-slate-500">Absences &amp; Half-day unworked hours</td>
+                            <td className="py-3 px-3">—</td>
+                            <td className="py-3 px-3 text-right font-mono text-red-500 font-bold">₹{Number(attendanceShortfall).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          </tr>
+                          <tr>
+                            <td className="py-3 px-3 font-bold text-slate-900">Late Arrivals</td>
+                            <td className="py-3 px-3 text-slate-500">Attendance records counted as late</td>
+                            <td className="py-3 px-3 font-bold text-amber-600">{lateCount} lates</td>
+                            <td className="py-3 px-3 text-right font-mono">—</td>
+                          </tr>
+                          <tr>
+                            <td className="py-3 px-3 font-bold text-slate-900">Late Penalty Deduction</td>
+                            <td className="py-3 px-3 text-slate-500">{lateGroups} groups × 0.15 day × ₹{perDaySalary.toFixed(2)} (every 3 lates)</td>
+                            <td className="py-3 px-3 font-bold">{lateDeductionDays.toFixed(2)} day</td>
+                            <td className="py-3 px-3 text-right font-mono text-red-600 font-bold">₹{Number(lateDeductionAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          </tr>
+                          {overtimeEarnings > 0 && (
+                            <tr>
+                              <td className="py-3 px-3 font-bold text-slate-900">Overtime Earnings</td>
+                              <td className="py-3 px-3 text-slate-500">Check-out after 7:00 PM IST at hourly rate</td>
+                              <td className="py-3 px-3 font-bold text-primary">{activePayroll.total_overtime_hours || 0} hrs</td>
+                              <td className="py-3 px-3 text-right font-mono text-primary font-bold">₹{Number(overtimeEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                          )}
+                          <tr className="bg-slate-50/70">
+                            <td className="py-3 px-3 font-bold text-slate-900">Accrued Earnings to Date</td>
+                            <td className="py-3 px-3 text-slate-500">Worked days + elapsed Sundays + OT</td>
+                            <td className="py-3 px-3 font-bold">{payableDays} days</td>
+                            <td className="py-3 px-3 text-right font-mono text-slate-900 font-bold">₹{Number(accruedEarnings).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          </tr>
+                          <tr className="bg-emerald-50/50 font-black text-emerald-900">
+                            <td className="py-3.5 px-3">Net Salary Payable</td>
+                            <td className="py-3.5 px-3 text-emerald-700">Earnings − Late Penalty Deductions</td>
+                            <td className="py-3.5 px-3 text-emerald-800">Period Payable</td>
+                            <td className="py-3.5 px-3 text-right font-mono text-emerald-700 text-sm">₹{Number(netSalaryPayable).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
