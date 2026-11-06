@@ -13,7 +13,7 @@ export default function TeamApprovedLeavesWidget({
 
   const leaveLabel = (type) => {
     if (!type) return 'Leave';
-    if (type === 'half_day') return 'Half Day';
+    if (type === 'half_day') return 'Irregular';
     const clean = type.replace(/_leave$/i, '').replace('_', ' ');
     return clean.charAt(0).toUpperCase() + clean.slice(1) + ' Leave';
   };

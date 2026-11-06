@@ -1538,7 +1538,7 @@ export default function AccountingPage() {
     if (!isManual) {
       const breakdown = `
         Full Days: ${emp.full_days}
-        Half Days: ${emp.half_days} (${emp.half_days * 0.5}d)
+        Irregular: ${emp.half_days} (${emp.half_days * 0.5}d)
         Late Penalty: -${emp.late_penalty_days}d
         Unpaid Leaves: -${emp.unpaid_leaves}
         Paid Holidays: +${emp.paid_holidays}
@@ -2550,8 +2550,8 @@ export default function AccountingPage() {
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px]">Employee / Role</th>
                         <th className="px-6 py-4 font-bold text-emerald-700 uppercase tracking-tighter text-[11px] text-center bg-emerald-50/10">Present</th>
                         <th className="px-6 py-4 font-bold text-rose-700 uppercase tracking-tighter text-[11px] text-center bg-rose-50/10 border-r border-gray-200">Absent</th>
-                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Full Days</th>
-                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Half Days</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Regular</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Irregular</th>
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center">Sundays</th>
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center border-r border-gray-200">Holidays</th>
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase tracking-tighter text-[11px] text-center border-r border-gray-200">Leaves</th>
@@ -2582,7 +2582,7 @@ export default function AccountingPage() {
                               </div>
                               <div className="text-[10px] text-gray-400 font-bold uppercase">{emp.department}</div>
                             </td>
-                            <td className="px-6 py-4 text-center bg-emerald-50/5" title={`${emp.full_days_worked || 0} Full Days + ${emp.half_days_worked || 0} Half Days (Physical Attendance)`}>
+                            <td className="px-6 py-4 text-center bg-emerald-50/5" title={`${emp.full_days_worked || 0} Regular + ${emp.half_days_worked || 0} Irregular (Physical Attendance)`}>
                               <span className="font-bold text-emerald-700">{emp.total_present || 0}</span>
                               <span className="text-[9px] text-gray-400 font-bold ml-0.5">d</span>
                             </td>
@@ -2718,7 +2718,7 @@ export default function AccountingPage() {
                                     <span className="font-bold">{emp.full_days}</span>
                                   </div>
                                   <div className="flex justify-between text-[11px]">
-                                    <span className="text-gray-400">Half Days:</span>
+                                    <span className="text-gray-400">Irregular:</span>
                                     <span className="font-bold text-orange-400">{emp.half_days * 0.5}d</span>
                                   </div>
                                   <div className="flex justify-between text-[11px]">

@@ -14,7 +14,7 @@ const STATUS_CFG = {
   present:   { label: 'Present',  bg: 'bg-emerald-50',  text: 'text-emerald-700', dot: 'bg-emerald-500', ring: 'ring-emerald-200' },
   working:   { label: 'Working',  bg: 'bg-emerald-50',  text: 'text-emerald-700', dot: 'bg-emerald-500', ring: 'ring-emerald-200' },
   completed: { label: 'Done',     bg: 'bg-blue-50',     text: 'text-blue-700',    dot: 'bg-blue-500',   ring: 'ring-blue-200'   },
-  half_day:  { label: 'Half Day', bg: 'bg-amber-50',    text: 'text-amber-700',   dot: 'bg-amber-400',  ring: 'ring-amber-200'  },
+  half_day:  { label: 'Irregular', bg: 'bg-amber-50',    text: 'text-amber-700',   dot: 'bg-amber-400',  ring: 'ring-amber-200'  },
   absent:    { label: 'Absent',   bg: 'bg-red-50',      text: 'text-red-600',     dot: 'bg-red-400',    ring: 'ring-red-200'    },
   leave:     { label: 'Leave',    bg: 'bg-purple-50',   text: 'text-purple-700',  dot: 'bg-purple-400', ring: 'ring-purple-200' },
   sunday:    { label: 'Sunday',   bg: 'bg-slate-50',    text: 'text-slate-400',   dot: 'bg-slate-300',  ring: 'ring-slate-200'  },
@@ -188,7 +188,7 @@ export default function SalaryBreakdownModal({ isOpen, onClose, defaultTab = 'ea
                 },
                 { 
                   label: 'Days In', 
-                  sublabel: summary.half_days > 0 ? `${summary.full_days}F · ${summary.half_days}H` : 'Full days',
+                  sublabel: summary.half_days > 0 ? `${summary.full_days} Regular · ${summary.half_days} Irregular` : 'Regular days',
                   value: summary.full_days ?? 0, 
                   color: 'text-slate-800'   
                 },

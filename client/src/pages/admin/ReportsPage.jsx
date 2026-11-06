@@ -352,9 +352,9 @@ export default function ReportsPage() {
         'Role': r.role,
         'Check-In': formatISTTime(r.check_in),
         'Check-Out': formatISTTime(r.check_out),
-        'Status': (r.status === 'working' || r.status === 'completed' || r.status === 'present') ? 'Present' :
-                  r.status === 'half_day' ? 'Half Day' :
-                  r.status === 'leave' ? 'On Leave' :
+        'Status': (r.status === 'working' || r.status === 'completed' || r.status === 'present') ? 'Regular' :
+                  r.status === 'half_day' ? 'Irregular' :
+                  r.status === 'leave' ? 'Leave' :
                   r.status === 'sunday' ? 'Sunday' :
                   r.status === 'holiday' ? 'Holiday' :
                   (r.status === 'upcoming' || r.status === 'future') ? 'Upcoming' :
@@ -1030,9 +1030,9 @@ export default function ReportsPage() {
                               row.status === 'future' ? 'bg-slate-50 text-slate-400 border-slate-100' :
                               'bg-red-50 text-red-500 border-red-100'
                             }`}>
-                              {(row.status === 'working' || row.status === 'completed' || row.status === 'present') ? 'Present' : 
-                               row.status === 'half_day' ? 'Half Day' : 
-                               row.status === 'leave' ? 'On Leave' : 
+                              {(row.status === 'working' || row.status === 'completed' || row.status === 'present') ? 'Regular' : 
+                               row.status === 'half_day' ? 'Irregular' :
+                               row.status === 'leave' ? 'Leave' : 
                                row.status === 'sunday' ? 'Sunday' :
                                row.status === 'holiday' ? 'Holiday' :
                                row.status === 'future' ? 'Upcoming' : 'Absent'}

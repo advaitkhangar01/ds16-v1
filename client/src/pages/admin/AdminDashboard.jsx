@@ -276,7 +276,7 @@ function MyAdminSalaryStats({ salary, onCardClick }) {
           )}
         </div>
         <p className="text-[10px] text-slate-400 mt-1 leading-tight">
-          {[salary.leaves_count > 0 && `${salary.leaves_count} leave`, salary.late_count > 0 && `${salary.late_count} late`, salary.half_day_count > 0 && `${salary.half_day_count} half-day`, salary.unmarked_absent_count > 0 && `${salary.unmarked_absent_count} absent`].filter(Boolean).join(' · ') || 'Leaves, late arrivals & half days'}
+          {[salary.leaves_count > 0 && `${salary.leaves_count} leave`, salary.late_count > 0 && `${salary.late_count} late`, salary.half_day_count > 0 && `${salary.half_day_count} irregular`, salary.unmarked_absent_count > 0 && `${salary.unmarked_absent_count} absent`].filter(Boolean).join(' · ') || 'Leaves, late arrivals & irregular shifts'}
         </p>
         <p className="text-[9px] text-slate-300 mt-1 group-hover:text-amber-400 transition-colors font-bold uppercase tracking-widest">Click for breakdown →</p>
       </button>
@@ -414,10 +414,11 @@ function TeamAttendanceTable({ records }) {
                         r.status === 'leave'     ? 'bg-purple-50 text-purple-600 border-purple-100' :
                         'bg-red-50 text-red-500 border-red-100'
                       }`}>
-                        {r.status === 'working'   ? 'Present'  :
-                         r.status === 'completed' ? 'Done'     :
-                         r.status === 'half_day'  ? 'Half Day' :
-                         r.status === 'leave'     ? 'On Leave' : 'Absent'}
+                        {(r.status === 'working' || r.status === 'completed' || r.status === 'present') ? 'Regular' :
+                         r.status === 'half_day'  ? 'Irregular' :
+                         r.status === 'leave'     ? 'Leave' :
+                         r.status === 'sunday'    ? 'Sunday' :
+                         r.status === 'holiday'   ? 'Holiday' : 'Absent'}
                       </span>
                     </td>
                     <td className="py-2.5 pr-3">

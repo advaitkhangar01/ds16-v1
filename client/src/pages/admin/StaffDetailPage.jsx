@@ -383,11 +383,19 @@ export default function StaffDetailPage() {
       const isLate = att.is_late === true;
       let anomalyLabel = 'Regular';
       if (att.status === 'absent') {
-        anomalyLabel = `Absent${att.deduction > 0 ? ` (₹${Math.round(att.deduction)})` : ''}`;
+        anomalyLabel = 'Absent';
+      } else if (att.status === 'sunday') {
+        anomalyLabel = 'Sunday';
+      } else if (att.status === 'holiday') {
+        anomalyLabel = 'Holiday';
+      } else if (att.status === 'leave') {
+        anomalyLabel = 'Leave';
       } else if (att.status === 'half_day') {
-        anomalyLabel = `Half Day${att.deduction > 0 ? ` (₹${Math.round(att.deduction)})` : ''}`;
+        anomalyLabel = isLate ? `Late Arrival (+${att.late_minutes || 0}m) + Irregular` : 'Irregular';
       } else if (isLate) {
-        anomalyLabel = `Late Arrival (+${att.late_minutes || 0}m)${att.deduction > 0 ? ` (₹${Math.round(att.deduction)})` : ''}`;
+        anomalyLabel = `Late Arrival (+${att.late_minutes || 0}m) + Regular`;
+      } else {
+        anomalyLabel = 'Regular';
       }
 
       let geoInfo = '—';
@@ -399,10 +407,9 @@ export default function StaffDetailPage() {
       }
 
       let statusStr = 'Absent';
-      if (att.status === 'working') statusStr = 'Present';
-      else if (att.status === 'completed') statusStr = 'Done';
-      else if (att.status === 'half_day') statusStr = 'Half Day';
-      else if (att.status === 'leave') statusStr = 'On Leave';
+      if (att.status === 'working' || att.status === 'completed' || att.status === 'present') statusStr = 'Regular';
+      else if (att.status === 'half_day') statusStr = 'Irregular';
+      else if (att.status === 'leave') statusStr = 'Leave';
       else if (att.status === 'sunday') statusStr = 'Sunday';
       else if (att.status === 'holiday') statusStr = 'Holiday';
       else if (att.status === 'upcoming' || att.status === 'future') statusStr = 'Upcoming';
@@ -487,7 +494,7 @@ export default function StaffDetailPage() {
     // Table Rows
     rows.push(['Monthly Salary', 'Fixed monthly salary', '1 month', baseSalary > 0 ? `₹${baseSalary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—']);
     rows.push(['Daily Salary Basis', `₹${baseSalary.toLocaleString('en-IN')} ÷ 30 days`, `₹${perDaySalary.toFixed(2)}/day`, `₹${perDaySalary.toFixed(2)}`]);
-    rows.push(['Attendance Deductions', 'Absences & Half-day short hours', '—', `₹${Number(attendanceShortfall).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+    rows.push(['Attendance Deductions', 'Absences & Irregular unworked hours', '—', `₹${Number(attendanceShortfall).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
     rows.push(['Late Arrivals', 'Attendance records counted as late', `${lateCount} lates`, '—']);
     rows.push(['Late Deduction Groups', `FLOOR(${lateCount} ÷ 3)`, `${lateGroups} ${lateGroups === 1 ? 'group' : 'groups'}`, '—']);
     rows.push(['Late Penalty Deduction', `${lateGroups} ${lateGroups === 1 ? 'group' : 'groups'} × 0.15 day × ₹${perDaySalary.toFixed(2)}`, `${lateDeductionDays.toFixed(2)} day`, `₹${Number(lateDeductionAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
@@ -1021,7 +1028,7 @@ export default function StaffDetailPage() {
                         <th className="px-6 py-4">Hours Worked</th>
                         <th className="px-6 py-4">Overtime</th>
                         <th className="px-6 py-4">Earnings</th>
-                        <th className="px-6 py-4 text-center">Late/Half Day/Absent</th>
+                        <th className="px-6 py-4 text-center">Attendance Type / Anomaly</th>
                         <th className="px-6 py-4 no-print">Geo Location</th>
                         <th className="px-6 py-4 text-center">Status</th>
                       </tr>
@@ -1030,8 +1037,6 @@ export default function StaffDetailPage() {
                       {attendance.map((att) => {
                         const isLate = att.is_late === true;
                         const isUpcomingOrPending = att.status === 'upcoming' || att.status === 'future' || att.status === 'today_pending';
-
-                        const deductionText = att.deduction > 0 ? ` (₹${Math.round(att.deduction).toLocaleString('en-IN')})` : '';
 
                         let anomalyLabel = 'Regular';
                         let anomalyClass = 'bg-slate-50 text-slate-500 border-slate-200';
@@ -1048,17 +1053,22 @@ export default function StaffDetailPage() {
                           anomalyLabel = 'Holiday';
                           anomalyClass = 'bg-indigo-50 text-indigo-500 border border-indigo-100';
                         } else if (att.status === 'leave') {
-                          anomalyLabel = `Leave${deductionText}`;
+                          anomalyLabel = 'Leave';
                           anomalyClass = 'bg-violet-50 text-violet-600 border border-violet-100 font-bold';
                         } else if (att.status === 'absent') {
-                          anomalyLabel = `Absent${deductionText}`;
+                          anomalyLabel = 'Absent';
                           anomalyClass = 'bg-red-50 text-red-600 border border-red-100 font-bold';
                         } else if (att.status === 'half_day') {
-                          anomalyLabel = `Half Day${deductionText}`;
-                          anomalyClass = 'bg-amber-50 text-amber-600 border border-amber-100 font-bold';
+                          if (isLate) {
+                            anomalyLabel = `Late Arrival (+${att.late_minutes}m) + Irregular`;
+                            anomalyClass = 'bg-amber-50 text-amber-800 border-amber-200 font-bold';
+                          } else {
+                            anomalyLabel = 'Irregular';
+                            anomalyClass = 'bg-amber-50 text-amber-700 border-amber-200 font-bold';
+                          }
                         } else if (isLate) {
-                          anomalyLabel = `Late Arrival (${att.late_minutes}m)${deductionText}`;
-                          anomalyClass = 'bg-red-50/50 text-red-500 border border-red-100/50 font-bold';
+                          anomalyLabel = `Late Arrival (+${att.late_minutes}m) + Regular`;
+                          anomalyClass = 'bg-orange-50 text-orange-700 border-orange-200 font-bold';
                         }
 
                         return (
@@ -1117,10 +1127,9 @@ export default function StaffDetailPage() {
                                 att.status === 'today_pending' ? 'bg-blue-50 text-blue-600 border-blue-200' :
                                 'bg-red-50 text-red-500 border-red-100'
                               }`}>
-                                {att.status === 'working' ? 'Present' : 
-                                 att.status === 'completed' ? 'Done' : 
-                                 att.status === 'half_day' ? 'Half Day' : 
-                                 att.status === 'leave' ? 'On Leave' : 
+                                {(att.status === 'working' || att.status === 'completed' || att.status === 'present') ? 'Regular' : 
+                                 att.status === 'half_day' ? 'Irregular' : 
+                                 att.status === 'leave' ? 'Leave' : 
                                  att.status === 'sunday' ? 'Sunday' : 
                                  att.status === 'holiday' ? 'Holiday' : 
                                  (att.status === 'upcoming' || att.status === 'future') ? 'Upcoming' :
@@ -1203,7 +1212,7 @@ export default function StaffDetailPage() {
                           </tr>
                           <tr>
                             <td className="py-3 px-3 font-bold text-slate-900">Attendance Shortfall</td>
-                            <td className="py-3 px-3 text-slate-500">Absences &amp; Half-day unworked hours</td>
+                            <td className="py-3 px-3 text-slate-500">Absences &amp; Irregular unworked hours</td>
                             <td className="py-3 px-3">—</td>
                             <td className="py-3 px-3 text-right font-mono text-red-500 font-bold">₹{Number(attendanceShortfall).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                           </tr>

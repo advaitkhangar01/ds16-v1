@@ -46,16 +46,15 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
 
   if (isHalfDay) {
     return (
-      <span className="inline-flex items-center gap-1.5">
-        <span className="badge bg-sky-50 text-sky-600 border-sky-200 font-bold">◑ Half Day</span>
-        {isLate && <span className="badge bg-red-50 text-red-600 border-red-200 font-bold">Late</span>}
+      <span className="badge bg-amber-50 text-amber-700 border-amber-200 font-bold">
+        ◑ {isLate ? 'Late Arrival + Irregular' : 'Irregular'}
       </span>
     );
   }
   if (normStatus === 'working' || normStatus === 'completed' || normStatus === 'present' || checkIn) {
     return (
-      <span className={`badge ${isLate ? 'bg-red-50 text-red-600 border-red-200' : 'badge-working'}`}>
-        ● {isLate ? 'Late Arrival' : 'Present'}
+      <span className={`badge ${isLate ? 'bg-orange-50 text-orange-700 border-orange-200 font-bold' : 'badge-working'}`}>
+        ● {isLate ? 'Late Arrival + Regular' : 'Regular'}
       </span>
     );
   }
@@ -83,8 +82,8 @@ export default function AttendancePage() {
     const t = type?.toLowerCase();
     if (t === 'half_day') {
       return {
-        label: 'Half Day',
-        subLabel: 'Half Day',
+        label: 'Irregular',
+        subLabel: 'Irregular Shift',
         badgeClass: 'bg-sky-50 text-sky-600 border-sky-200 font-bold',
       };
     } else if (t === 'advance') {
@@ -414,9 +413,9 @@ export default function AttendancePage() {
                      ? 'bg-white text-[#E05A1E] shadow-sm border border-slate-200/50 font-black'
                      : 'text-muted hover:text-[#1A1A1A] hover:bg-white/60'
                  }`}
-                 title="Request Half Day"
+                 title="Request Irregular Shift"
                >
-                 <span>⏱️</span> Half Day
+                 <span>⏱️</span> Irregular
                </button>
                <button
                  onClick={() => handleCategoryTabClick('advance')}
@@ -478,7 +477,7 @@ export default function AttendancePage() {
           </div>
           <div className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full bg-sky-50 border border-sky-500" />
-            <span className="text-[10px] font-black text-muted uppercase tracking-wider">Half Day</span>
+            <span className="text-[10px] font-black text-muted uppercase tracking-wider">Irregular</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full bg-red-50 border border-red-500" />
@@ -552,7 +551,7 @@ export default function AttendancePage() {
             {[
               { id: ATTENDANCE_STATUS.PRESENT, label: 'Present', count: summary.present, pct: summary.percentages.present, icon: UserCheck, color: 'emerald' },
               { id: 'late', label: 'Late', count: summary.late, pct: summary.percentages.late, icon: Clock, color: 'amber' },
-              { id: ATTENDANCE_STATUS.HALF_DAY, label: 'Half Day', count: summary.halfDay, pct: summary.percentages.halfDay, icon: UserMinus, color: 'sky' },
+              { id: ATTENDANCE_STATUS.HALF_DAY, label: 'Irregular', count: summary.halfDay, pct: summary.percentages.halfDay, icon: UserMinus, color: 'sky' },
               { id: ATTENDANCE_STATUS.ABSENT, label: 'Absent', count: summary.absent, pct: summary.percentages.absent, icon: UserX, color: 'red' },
               { id: ATTENDANCE_STATUS.LEAVE, label: 'Leave', count: summary.leave, pct: summary.percentages.leave, icon: CalendarOff, color: 'violet' }
             ].map(card => (
@@ -714,16 +713,16 @@ export default function AttendancePage() {
                         const cellIsLate    = !!record?.is_late;
 
                         if (cellIsHalfDay && cellIsLate) {
-                          statusText = 'Half Day (Late)';
-                          styleClass = 'bg-sky-50 text-sky-700 border-amber-500 hover:bg-sky-100 hover:scale-105';
+                          statusText = 'Late Arrival + Irregular';
+                          styleClass = 'bg-amber-50 text-amber-800 border-amber-500 hover:bg-amber-100 hover:scale-105';
                         } else if (cellIsHalfDay) {
-                          statusText = 'Half Day';
-                          styleClass = 'bg-sky-50 text-sky-700 border-sky-500 hover:bg-sky-100 hover:scale-105';
+                          statusText = 'Irregular';
+                          styleClass = 'bg-amber-50 text-amber-700 border-amber-400 hover:bg-amber-100 hover:scale-105';
                         } else if (isPresent && cellIsLate) {
-                          statusText = 'Present (Late)';
-                          styleClass = 'bg-amber-50 text-amber-700 border-amber-500 hover:bg-amber-100 hover:scale-105';
+                          statusText = 'Late Arrival + Regular';
+                          styleClass = 'bg-orange-50 text-orange-700 border-orange-500 hover:bg-orange-100 hover:scale-105';
                         } else if (isPresent) {
-                          statusText = 'Present';
+                          statusText = 'Regular';
                           styleClass = 'bg-emerald-50 text-emerald-700 border-emerald-500 hover:bg-emerald-100 hover:scale-105';
                         } else if (recStatus === ATTENDANCE_STATUS.LEAVE) {
                           statusText = 'Leave';
@@ -897,7 +896,7 @@ export default function AttendancePage() {
                    {[
                      { key: 'all', label: 'All Requests' },
                      { key: 'leave', label: '🌴 Full Leave' },
-                     { key: 'half_day', label: '⏱️ Half Day' },
+                     { key: 'half_day', label: '⏱️ Irregular' },
                      { key: 'advance', label: '💵 Advance' },
                      { key: 'resignation', label: '📝 Resignation' }
                    ].map(cat => (
@@ -1105,7 +1104,7 @@ export default function AttendancePage() {
                     }}
                     className={`flex-1 py-2 px-2 text-[11px] font-black rounded-lg transition-all ${requestCategory === 'half_day' ? 'bg-white text-[#E05A1E] shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                   >
-                    Half Day
+                    Irregular
                   </button>
                   <button
                     type="button"
@@ -1162,7 +1161,7 @@ export default function AttendancePage() {
                 ) : (
                   <div>
                     <label className="label">
-                      {requestCategory === 'half_day' ? 'Half Day Date' :
+                      {requestCategory === 'half_day' ? 'Irregular Shift Date' :
                        requestCategory === 'resignation' ? 'Proposed Last Working Date' : 'Requested Date'}
                     </label>
                     <input 

@@ -168,7 +168,7 @@ export default function RequestKanbanBoard({
       case 'resignation':
         return { label: 'Resignation Notice', icon: '📝', color: 'bg-rose-50 text-rose-700 border-rose-200' };
       case 'half_day':
-        return { label: 'Half Day', icon: '⏱️', color: 'bg-amber-50 text-amber-800 border-amber-200' };
+        return { label: 'Irregular', icon: '⏱️', color: 'bg-amber-50 text-amber-800 border-amber-200' };
       case 'sick':
         return { label: 'Sick Leave', icon: '🩺', color: 'bg-rose-50 text-rose-700 border-rose-200' };
       case 'emergency':
@@ -225,7 +225,7 @@ export default function RequestKanbanBoard({
           {[
             { key: 'all', label: 'All', count: data.counts.all },
             { key: 'leaves', label: '🌴 Leaves', count: data.counts.leaves },
-            { key: 'half_day', label: '⏱️ Half Day', count: data.counts.half_day },
+            { key: 'half_day', label: '⏱️ Irregular', count: data.counts.half_day },
             { key: 'advance', label: '💰 Advance', count: data.counts.advance },
             { key: 'resignation', label: '📝 Resignation', count: data.counts.resignation },
           ].map(filter => (
@@ -352,7 +352,7 @@ export default function RequestKanbanBoard({
                               <div>
                                 <div className="flex items-center justify-between">
                                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                                    {item.type === 'half_day' ? 'Half Day Date' : 'Duration'}
+                                    {item.type === 'half_day' ? 'Irregular Shift Date' : 'Duration'}
                                   </p>
                                   {item.type !== 'half_day' && (
                                     <span className="text-[9px] font-extrabold text-violet-600 bg-violet-50 px-1 py-0.2 rounded">

@@ -86,7 +86,7 @@ function QuickStats({ salary, onCardClick }) {
           )}
         </div>
         <p className="text-[10px] text-slate-400 mt-1 leading-tight">
-          {[salary?.leaves_count > 0 && `${salary.leaves_count} leave`, salary?.late_count > 0 && `${salary.late_count} late`, salary?.half_day_count > 0 && `${salary.half_day_count} half-day`, salary?.unmarked_absent_count > 0 && `${salary.unmarked_absent_count} absent`].filter(Boolean).join(' · ') || 'Leaves, late arrivals & half days'}
+          {[salary?.leaves_count > 0 && `${salary.leaves_count} leave`, salary?.late_count > 0 && `${salary.late_count} late`, salary?.half_day_count > 0 && `${salary.half_day_count} irregular`, salary?.unmarked_absent_count > 0 && `${salary.unmarked_absent_count} absent`].filter(Boolean).join(' · ') || 'Leaves, late arrivals & irregular shifts'}
         </p>
         <p className="text-[9px] text-slate-300 mt-1 group-hover:text-amber-400 transition-colors font-bold uppercase tracking-widest">Click for full breakdown →</p>
       </button>
@@ -339,7 +339,7 @@ function TeamAttendanceCompact({ records }) {
     return true; // 'all'
   });
 
-  // Sort records: Active working first, then completed/half-day, then away/leave/absent
+  // Sort records: Active working first, then completed/irregular, then away/leave/absent
   const getSortOrder = (status) => {
     switch (status) {
       case 'working': return 1;

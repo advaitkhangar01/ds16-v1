@@ -984,14 +984,14 @@ export default function SettingsPage() {
                         <p className="text-[10px] text-gray-400 font-medium italic">Marked "Late" after this time</p>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight text-orange-500">Half-Day Cutoff (1:00 PM)</label>
+                        <label className="text-xs font-black text-gray-500 uppercase tracking-tight text-orange-500">Irregular Cutoff (1:00 PM)</label>
                         <input 
                           type="time"
                           value={payrollSettings.half_day_cutoff_time}
                           onChange={(e) => setPayrollSettings({...payrollSettings, half_day_cutoff_time: e.target.value})}
                           className="w-full bg-gray-50 border-orange-100 border rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all"
                         />
-                        <p className="text-[10px] text-gray-400 font-medium italic">Automatic half-day if check-in after this</p>
+                        <p className="text-[10px] text-gray-400 font-medium italic">Automatic irregular shift if check-in after this</p>
                       </div>
                       <div className="space-y-2">
                         <label className="text-xs font-black text-gray-500 uppercase tracking-tight">Min. Work Hours</label>
@@ -1142,7 +1142,7 @@ export default function SettingsPage() {
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Batch Name</th>
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Office Start</th>
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Late Threshold</th>
-                        <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Half Day Cutoff</th>
+                        <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Irregular Cutoff</th>
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest">Min Hours</th>
                         <th className="px-6 py-4 font-bold text-gray-600 uppercase text-[10px] tracking-widest text-center">Actions</th>
                       </tr>
@@ -1730,7 +1730,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Half Day Cutoff Time</label>
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Irregular Cutoff Time</label>
                     <input 
                       type="time" required
                       value={newBatch.half_day_cutoff_time}
@@ -1797,7 +1797,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Half Day Cutoff Time</label>
+                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Irregular Cutoff Time</label>
                     <input 
                       type="time" required
                       value={editingBatch.half_day_cutoff_time}
@@ -1852,7 +1852,7 @@ export default function SettingsPage() {
                     type="text" required
                     value={editingDropdown.label}
                     onChange={(e) => setEditingDropdown({ ...editingDropdown, label: e.target.value })}
-                    placeholder="e.g. Maternity Leave / Half Day"
+                    placeholder="e.g. Maternity Leave / Irregular Shift"
                     className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary font-bold"
                   />
                 </div>
