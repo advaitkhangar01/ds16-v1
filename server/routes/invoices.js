@@ -3,6 +3,7 @@ const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
 const { checkPeriodLock } = require('../middleware/periodLock');
+const { validateBody, schemas } = require('../middleware/validate');
 const { getISTDate } = require('../utils/date');
 const { createNotification, getAdminAndAccountsUserIds } = require('../utils/notifier');
 
@@ -162,11 +163,21 @@ router.get('/', authenticate, requireAccounting, async (req, res) => {
       paginatedInvoices = allInvoices.slice(offset, offset + limitInt);
     }
 
+    const totalAmount = allInvoices.reduce((sum, inv) => sum + (parseFloat(inv.amount) || 0), 0);
+    const totalReceived = allInvoices.reduce((sum, inv) => sum + (parseFloat(inv.received_amount) || 0), 0);
+    const totalPending = allInvoices.reduce((sum, inv) => sum + (parseFloat(inv.pending_amount) || 0), 0);
+
     res.json({ 
       invoices: paginatedInvoices, 
       page: page ? parseInt(page) : 1, 
       limit: limit ? parseInt(limit) : allInvoices.length, 
-      totalCount: allInvoices.length 
+      totalCount: allInvoices.length,
+      summary: {
+        totalCount: allInvoices.length,
+        totalAmount: Math.round(totalAmount * 100) / 100,
+        totalReceived: Math.round(totalReceived * 100) / 100,
+        totalPending: Math.round(totalPending * 100) / 100
+      }
     });
   } catch (err) {
     console.error('Get invoices error:', err);
@@ -277,7 +288,7 @@ router.get('/:id', authenticate, requireAccounting, checkProjectAccess({ idIsRes
 
 // POST /api/invoices - Strictly CREATE a new invoice (no silent overwrites)
 // Returns 409 Conflict if the invoice_no already exists
-router.post('/', authenticate, requireAccounting, checkPeriodLock, async (req, res) => {
+router.post('/', authenticate, requireAccounting, checkPeriodLock, validateBody(schemas.invoiceCreateSchema, 'InvoiceCreate'), async (req, res) => {
   const client = await pool.connect();
   try {
     const { 

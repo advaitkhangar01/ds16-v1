@@ -3,6 +3,7 @@ const router = require('express').Router();
 const pool = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
+const { validateBody, schemas } = require('../middleware/validate');
 const { createNotification, deleteEntityNotifications } = require('../utils/notifier');
 
 // Helper: Parse @mentions
@@ -20,7 +21,7 @@ async function parseMentions(message) {
 
 // 1. Create Task
 // POST /api/tasks
-router.post('/', authenticate, checkProjectAccess(), async (req, res) => {
+router.post('/', authenticate, checkProjectAccess(), validateBody(schemas.taskCreateSchema, 'TaskCreate'), async (req, res) => {
   const isPrivileged = req.user.role === 'admin' || req.user.role === 'design_head' || req.user.role === 'accounts' || req.user.department === 'accounts' || req.user.role === 'back_office' || req.user.role === 'project_head';
   if (!isPrivileged) {
     return res.status(403).json({ error: 'Only authorized roles can create tasks' });

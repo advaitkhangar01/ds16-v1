@@ -3,6 +3,7 @@ const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
 const checkPeriodLock = require('../middleware/periodLock');
+const { validateBody, schemas } = require('../middleware/validate');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -177,7 +178,15 @@ router.get('/transactions', authenticate, requireAccounting, async (req, res) =>
         }
 
         const allTransactions = [...dbTransactions, ...virtualTransactions].sort((a, b) => new Date(b.date) - new Date(a.date));
-        res.json({ transactions: allTransactions });
+        const totalAmount = allTransactions.reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
+        res.json({ 
+          transactions: allTransactions,
+          totalCount: allTransactions.length,
+          summary: {
+            totalCount: allTransactions.length,
+            totalAmount: Math.round(totalAmount * 100) / 100
+          }
+        });
       });
     }
 
@@ -295,10 +304,26 @@ router.get('/transactions', authenticate, requireAccounting, async (req, res) =>
       // Note: Include all transactions (including manually-added salary entries) plus payroll records.
       // Payroll records from the payroll table are merged alongside any manually-entered salary transactions.
       const allTransactions = [...transactions, ...payrollRows].sort((a, b) => new Date(b.date) - new Date(a.date));
-      return res.json({ transactions: allTransactions });
+      const totalAmount = allTransactions.reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
+      return res.json({ 
+        transactions: allTransactions,
+        totalCount: allTransactions.length,
+        summary: {
+          totalCount: allTransactions.length,
+          totalAmount: Math.round(totalAmount * 100) / 100
+        }
+      });
     }
 
-    res.json({ transactions });
+    const totalAmount = transactions.reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
+    res.json({ 
+      transactions,
+      totalCount: transactions.length,
+      summary: {
+        totalCount: transactions.length,
+        totalAmount: Math.round(totalAmount * 100) / 100
+      }
+    });
   } catch (err) {
     console.error('Get transactions error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -306,7 +331,7 @@ router.get('/transactions', authenticate, requireAccounting, async (req, res) =>
 });
 
 // POST /api/finances/transactions
-router.post('/transactions', authenticate, upload.single('receipt'), checkProjectAccess(), checkPeriodLock, requireAccounting, async (req, res) => {
+router.post('/transactions', authenticate, upload.single('receipt'), checkProjectAccess(), checkPeriodLock, requireAccounting, validateBody(schemas.transactionCreateSchema, 'TransactionCreate'), async (req, res) => {
   try {
     console.log('New Transaction:', req.body);
     if (req.file) console.log('Attached Receipt:', req.file.filename);
