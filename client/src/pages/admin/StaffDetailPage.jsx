@@ -284,6 +284,14 @@ export default function StaffDetailPage() {
 
   const { totalEarnings, totalDeduction, earningsThisMonth, deductionsThisMonth, netPayable } = calculateAttendanceMetrics();
 
+  const isFiltered = Boolean(startDate || endDate);
+  const activePayroll = isFiltered ? (periodPayroll || periodStats) : currentMonthPayroll;
+  const currentPeriodLateCount = activePayroll?.late_count !== undefined 
+    ? activePayroll.late_count 
+    : (periodStats?.period_late_count !== undefined 
+        ? periodStats.period_late_count 
+        : (attendanceStats?.period_late ?? attendanceStats?.total_late ?? 0));
+
   const calculateCurrentMonthLeavesTaken = () => {
     const today = new Date();
     const currentMonth = today.getMonth() + 1;
@@ -702,7 +710,7 @@ export default function StaffDetailPage() {
                   </div>
                   <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Late Arrivals</p>
-                    <span className="text-xl font-black text-red-500 font-mono">{attendanceStats.this_month_late} times</span>
+                    <span className="text-xl font-black text-red-500 font-mono">{(currentMonthPayroll?.late_count !== undefined ? currentMonthPayroll.late_count : attendanceStats.this_month_late)} times</span>
                   </div>
                 </div>
 
@@ -762,13 +770,13 @@ export default function StaffDetailPage() {
                 </div>
 
                 {/* Quick Info Alerts */}
-                {(attendanceStats.this_month_late >= 3 || attendanceStats.total_late >= 3) && (
+                {(((currentMonthPayroll?.late_count ?? attendanceStats.this_month_late) >= 3) || ((currentPeriodLateCount ?? attendanceStats.total_late) >= 3)) && (
                   <div className="bg-amber-50 border border-amber-200 p-5 rounded-2xl flex gap-3.5">
                     <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20} />
                     <div>
                       <h4 className="text-xs font-black text-amber-900 uppercase">Late compliance warning</h4>
                       <p className="text-[11px] text-amber-700 mt-1 leading-relaxed">
-                        This employee has recorded <strong>{attendanceStats.this_month_late ?? attendanceStats.total_late}</strong> late arrival(s) this month ({attendanceStats.all_time_late ?? attendanceStats.total_late} lifetime). According to payroll settings, every 3 late arrivals incur a 0.15-day salary deduction.
+                        This employee has recorded <strong>{currentMonthPayroll?.late_count ?? attendanceStats.this_month_late ?? attendanceStats.total_late}</strong> late arrival(s) this month ({attendanceStats.all_time_late ?? attendanceStats.total_late} lifetime). According to payroll settings, every 3 late arrivals incur a 0.15-day salary deduction.
                       </p>
                     </div>
                   </div>
@@ -794,7 +802,7 @@ export default function StaffDetailPage() {
                     Present: {attendanceStats.total_present}
                   </span>
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-700 border border-red-100 rounded-full text-[10px] font-black uppercase tracking-wider">
-                    Lates: {attendanceStats.total_late}
+                    Lates: {currentPeriodLateCount}
                   </span>
                   <button 
                     onClick={handleExportExcel}
@@ -831,8 +839,8 @@ export default function StaffDetailPage() {
                     </div>
                     <div className="bg-red-50 border border-red-200/60 p-4 rounded-2xl">
                       <p className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-1">Late Arrivals (Period)</p>
-                      <span className={`text-lg font-black font-mono ${attendanceStats.total_late > 0 ? 'text-red-700' : 'text-slate-700'}`}>
-                        {attendanceStats.total_late} times
+                      <span className={`text-lg font-black font-mono ${currentPeriodLateCount > 0 ? 'text-red-700' : 'text-slate-700'}`}>
+                        {currentPeriodLateCount} times
                       </span>
                     </div>
                     <div className="bg-primary/5 border border-primary/20 p-4 rounded-2xl">

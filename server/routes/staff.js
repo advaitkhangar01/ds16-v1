@@ -482,19 +482,23 @@ router.get('/:id', async (req, res) => {
       unpaid_leaves: currentMonthUnpaid
     };
 
+    const effectivePeriodLate = periodPayroll ? periodPayroll.late_count : periodLates;
+    const effectiveThisMonthLate = currentMonthPayroll ? currentMonthPayroll.late_count : parseInt(thisMonthLateStats[0]?.this_month_late || 0);
+    const effectiveTotalLate = isFiltered ? effectivePeriodLate : effectiveThisMonthLate;
+
     res.json({
       employee,
       projects,
       tasks,
       attendanceStats: {
         total_present: parseInt(attStats[0]?.total_present || 0),
-        total_late: req.query.startDate || req.query.endDate ? parseInt(attStats[0]?.total_late || 0) : parseInt(thisMonthLateStats[0]?.this_month_late || 0),
-        period_late: parseInt(attStats[0]?.total_late || 0),
+        total_late: effectiveTotalLate,
+        period_late: effectivePeriodLate,
         all_time_late: parseInt(allTimeStats[0]?.all_time_late || 0),
         avg_hours: parseFloat(attStats[0]?.avg_hours || 0).toFixed(1),
         all_time_checkins: parseInt(allTimeStats[0]?.all_time_checkins || 0),
         this_month_checkins: parseInt(thisMonthStats[0]?.this_month_checkins || 0),
-        this_month_late: parseInt(thisMonthLateStats[0]?.this_month_late || 0)
+        this_month_late: effectiveThisMonthLate
       },
       financialStats: {
         total_earnings: Math.round(allTimeEarnings),
