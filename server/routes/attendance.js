@@ -453,29 +453,51 @@ router.post('/checkout', authenticate, async (req, res) => {
     );
     const userBatch = userRows[0] || {};
 
-    const { rows: existing } = await pool.query(
-      'SELECT id, check_in, check_out, LOWER(status) AS status FROM attendance WHERE user_id = $1 AND date = $2::date',
+    let existingRow = null;
+
+    const { rows: todayRows } = await pool.query(
+      'SELECT id, check_in, check_out, LOWER(status) AS status, date FROM attendance WHERE user_id = $1 AND date = $2::date',
       [userId, today]
     );
 
-    console.log(`[ATTENDANCE] Check-out lookup: user=${userId}, date=${today}, found=${existing.length}`);
+    if (todayRows.length && todayRows[0].check_in) {
+      existingRow = todayRows[0];
+    } else {
+      // Cross-midnight fallback: check for unclosed check-in from within the last 24 hours
+      const { rows: openRows } = await pool.query(
+        `SELECT id, check_in, check_out, LOWER(status) AS status, date
+         FROM attendance
+         WHERE user_id = $1
+           AND check_in IS NOT NULL
+           AND check_out IS NULL
+           AND date >= ($2::date - INTERVAL '1 day')
+         ORDER BY date DESC, check_in DESC
+         LIMIT 1`,
+        [userId, today]
+      );
+      if (openRows.length) {
+        existingRow = openRows[0];
+      }
+    }
 
-    if (!existing.length || !existing[0].check_in) {
+    console.log(`[ATTENDANCE] Check-out lookup: user=${userId}, date=${today}, foundRecord=${!!existingRow}`);
+
+    if (!existingRow || !existingRow.check_in) {
       return res.status(400).json({ error: 'Please check in first' });
     }
 
-    if (existing[0].check_out) {
+    if (existingRow.check_out) {
       return res.status(400).json({ error: 'Already checked out today' });
     }
 
     const now        = new Date();
     const nowIso     = now.toISOString();
-    const checkIn    = new Date(existing[0].check_in);
+    const checkIn    = new Date(existingRow.check_in);
     let hoursWorked = (now - checkIn) / (1000 * 60 * 60);
     
     if (isNaN(hoursWorked)) hoursWorked = 0;
 
-    let newStatus = (existing[0].status || ATTENDANCE_STATUS.WORKING).toLowerCase();
+    let newStatus = (existingRow.status || ATTENDANCE_STATUS.WORKING).toLowerCase();
     const currentStatusLower = newStatus;
 
     let minWorkingHours = parseFloat(userBatch.min_working_hours || settings.min_working_hours || 9.0);
@@ -511,23 +533,40 @@ router.post('/checkout', authenticate, async (req, res) => {
       } catch (_) { /* ignore */ }
     }
 
+    // ── Overtime calculation strictly past 19:00 IST and >= minWorkingHours ───
+    let overtimeHours = 0;
+    if (hoursWorked >= minWorkingHours && newStatus !== ATTENDANCE_STATUS.HALF_DAY) {
+      const ci = checkIn;
+      const co = now;
+      const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+      const checkOutDateStr = formatter.format(co);
+      const cutoff = new Date(`${checkOutDateStr}T19:00:00+05:30`);
+      const extraHoursBeyondShift = Math.floor(Math.max(0, hoursWorked - minWorkingHours));
+      if (co > cutoff && extraHoursBeyondShift >= 1) {
+        const startForOt = ci > cutoff ? ci : cutoff;
+        const otMs = co.getTime() - startForOt.getTime();
+        const completedHoursPast7PM = Math.floor(Math.max(0, otMs / (1000 * 60 * 60)));
+        overtimeHours = Math.min(extraHoursBeyondShift, completedHoursPast7PM);
+      }
+    }
+
     const { rows } = await pool.query(
       `UPDATE attendance SET
          check_out = $1, status = $2,
          checkout_lat = $3, checkout_lng = $4, checkout_accuracy = $5,
          checkout_distance = $6, checkout_zone = $7, checkout_outside_zone = $8,
-         hours_worked = $9
-       WHERE user_id = $10 AND date = $11::date
+         hours_worked = $9, overtime_hours = $10
+       WHERE id = $11
        RETURNING *`,
       [
         nowIso, newStatus,
         lat || null, lng || null, (parseFloat(accuracy) || null),
         checkoutDistance, checkoutZone, checkoutOutsideZone,
-        hoursWorked, userId, today
+        hoursWorked, overtimeHours, existingRow.id
       ]
     );
 
-    console.log(`[ATTENDANCE] Check-out update: user=${userId}, date=${today}, success=${rows.length > 0}`);
+    console.log(`[ATTENDANCE] Check-out update: id=${existingRow.id}, user=${userId}, success=${rows.length > 0}`);
 
     const msg = checkoutOutsideZone
       ? 'Checked out outside office location'
@@ -591,7 +630,33 @@ router.get('/today', authenticate, async (req, res) => {
       return { ...rest, lat: null, lng: null, checkin_distance: null, checkin_zone: null, checkin_accuracy: null };
     });
 
-    const myRecord = rows.find(r => r.user_id === req.user.id) || {};
+    let myRecord = rows.find(r => r.user_id === req.user.id) || {};
+
+    // Cross-midnight active shift detection: if user checked in yesterday and has not checked out yet
+    if (!myRecord.check_in) {
+      try {
+        const { rows: openShift } = await pool.query(
+          `SELECT a.id, a.user_id, a.check_in, a.check_out, a.lat, a.lng, a.date, a.is_late, a.late_minutes, a.hours_worked,
+                  a.checkin_zone, a.checkin_distance, a.checkin_accuracy,
+                  a.is_boundary_checkin, a.checkin_verified,
+                  a.checkout_zone, a.checkout_distance, a.checkout_outside_zone,
+                  'working' AS status
+           FROM attendance a
+           WHERE a.user_id = $1
+             AND a.check_in IS NOT NULL
+             AND a.check_out IS NULL
+             AND a.date >= ($2::date - INTERVAL '1 day')
+           ORDER BY a.date DESC, a.check_in DESC
+           LIMIT 1`,
+          [req.user.id, today]
+        );
+        if (openShift.length > 0) {
+          myRecord = { ...myRecord, ...openShift[0] };
+        }
+      } catch (e) {
+        console.warn('[Today] Could not query active cross-midnight shift:', e.message);
+      }
+    }
 
     console.log(`[Today] User ${req.user.id} requested team attendance for ${today}.`);
     res.json({ attendance: sanitizedRows, my_attendance: myRecord, date: today });
@@ -741,9 +806,25 @@ router.post('/manual', authenticate, requireAdmin, checkPeriodLock, async (req, 
     );
 
     let hours_worked = 0;
+    let overtime_hours = 0;
     if (check_in && check_out) {
       // C4: guard against negative hours when check_out < check_in
       hours_worked = Math.max(0, (new Date(check_out) - new Date(check_in)) / (1000 * 60 * 60));
+      const minWorkingHours = 9.0;
+      if (hours_worked >= minWorkingHours && statusLower !== 'half_day' && statusLower !== 'absent') {
+        const ci = new Date(check_in);
+        const co = new Date(check_out);
+        const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+        const checkOutDateStr = formatter.format(co);
+        const cutoff = new Date(`${checkOutDateStr}T19:00:00+05:30`);
+        const extraHoursBeyondShift = Math.floor(Math.max(0, hours_worked - minWorkingHours));
+        if (co > cutoff && extraHoursBeyondShift >= 1) {
+          const startForOt = ci > cutoff ? ci : cutoff;
+          const otMs = co.getTime() - startForOt.getTime();
+          const completedHoursPast7PM = Math.floor(Math.max(0, otMs / (1000 * 60 * 60)));
+          overtime_hours = Math.min(extraHoursBeyondShift, completedHoursPast7PM);
+        }
+      }
     }
 
     let row;
@@ -751,18 +832,18 @@ router.post('/manual', authenticate, requireAdmin, checkPeriodLock, async (req, 
       const { rows } = await pool.query(
         `UPDATE attendance SET
            check_in = $1, check_out = $2, status = $3,
-           is_late = $4, late_minutes = $5, hours_worked = $6
-         WHERE id = $7
+           is_late = $4, late_minutes = $5, hours_worked = $6, overtime_hours = $7
+         WHERE id = $8
          RETURNING *`,
-        [check_in, check_out, statusLower, finalIsLate, finalLateMinutes, hours_worked, existing[0].id]
+        [check_in, check_out, statusLower, finalIsLate, finalLateMinutes, hours_worked, overtime_hours, existing[0].id]
       );
       row = rows[0];
     } else {
       const { rows } = await pool.query(
-        `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO attendance (user_id, date, check_in, check_out, status, is_late, late_minutes, hours_worked, overtime_hours)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING *`,
-        [user_id, date, check_in, check_out, statusLower, finalIsLate, finalLateMinutes, hours_worked]
+        [user_id, date, check_in, check_out, statusLower, finalIsLate, finalLateMinutes, hours_worked, overtime_hours]
       );
       row = rows[0];
     }

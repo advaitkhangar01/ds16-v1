@@ -42,11 +42,15 @@ function calculateUnifiedNet({
   totalDeductions = 0,
   totalOvertimeEarnings = 0,
   totalNormalEarnings = 0,
-  isMonthInProgress = false
+  isMonthInProgress = false,
+  totalDaysInMonth = 30
 }) {
   const base = parseFloat(baseSalary) || 0;
   const perDay = base > 0 ? base / 30 : 0;
-  const absences = (parseInt(unmarkedAbsentCount || 0, 10) + parseInt(unpaidLeaves || 0, 10)) * perDay;
+  const rawAbsenceDays = parseInt(unmarkedAbsentCount || 0, 10) + parseInt(unpaidLeaves || 0, 10);
+  const excessDays = totalDaysInMonth > 30 ? (totalDaysInMonth - 30) : 0;
+  const effectiveAbsenceDays = Math.max(0, rawAbsenceDays - excessDays);
+  const absences = effectiveAbsenceDays * perDay;
   const deductions = parseFloat(totalDeductions || 0);
   const ot = parseFloat(totalOvertimeEarnings || 0);
   const normal = parseFloat(totalNormalEarnings || 0);

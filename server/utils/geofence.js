@@ -62,7 +62,7 @@ function validateLocation(location, settings) {
   const officeLng     = parseFloat(settings.office_lng);
   const strictRadius  = parseFloat(settings.geofence_strict_radius) || 25;
   const bufferRadius  = parseFloat(settings.geofence_buffer_radius) || 50;
-  const maxAccuracy   = parseFloat(settings.geofence_max_accuracy)  || 50;
+  const maxAccuracy   = parseFloat(settings.geofence_max_accuracy)  || 100;
 
   // ── 1. Accuracy gate ────────────────────────────────────────────────────────
   if (accuracy > maxAccuracy) {

@@ -12,10 +12,12 @@ export default function AttendanceCard({ attendance, onAction }) {
   const hasCheckedIn = !!attendance?.checkIn;
   const hasCheckedOut = !!attendance?.checkOut;
 
-  async function getLocation() {
+  async function getLocation(timeoutMs = 6000) {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
-        reject(new Error('Geolocation not supported'));
+        const err = new Error('Geolocation not supported');
+        err.isPermissionDenied = false;
+        reject(err);
         return;
       }
       navigator.geolocation.getCurrentPosition(
@@ -24,24 +26,39 @@ export default function AttendanceCard({ attendance, onAction }) {
           lng: pos.coords.longitude,
           accuracy: pos.coords.accuracy,   // required for geo-fence effective-distance calc
         }),
-        (err) => reject(new Error('Location access denied. Please allow location.')),
-        { timeout: 10000, maximumAge: 0, enableHighAccuracy: true }
+        (geoErr) => {
+          const isPermissionDenied = geoErr.code === 1; // 1 = PERMISSION_DENIED
+          const err = new Error(
+            isPermissionDenied
+              ? 'Location access denied. Please allow location.'
+              : 'Location request timed out.'
+          );
+          err.isPermissionDenied = isPermissionDenied;
+          reject(err);
+        },
+        { timeout: timeoutMs, maximumAge: 0, enableHighAccuracy: true }
       );
     });
   }
 
   async function handleCheckIn() {
+    if (actionLoading || locLoading || hasCheckedIn) return;
+    setActionLoading(true);
     setLocLoading(true);
+
     let coords = {};
     try {
-      coords = await getLocation();
+      coords = await getLocation(6000);
     } catch (err) {
-      toast(err.message, { icon: '📍' });
+      if (err.isPermissionDenied) {
+        toast.error(err.message, { icon: '📍' });
+      } else {
+        console.warn('Geolocation capture skipped/timed out:', err.message);
+      }
     } finally {
       setLocLoading(false);
     }
 
-    setActionLoading(true);
     try {
       await api.post('/attendance/checkin', coords);
       toast.success('Checked in! Have a great day 🌅');
@@ -57,9 +74,19 @@ export default function AttendanceCard({ attendance, onAction }) {
   }
 
   async function handleCheckOut() {
+    if (actionLoading || locLoading || !hasCheckedIn || hasCheckedOut) return;
     setActionLoading(true);
+
+    let coords = {};
     try {
-      const { data } = await api.post('/attendance/checkout');
+      // Non-blocking checkout location capture (3.5s timeout)
+      coords = await getLocation(3500);
+    } catch (err) {
+      console.warn('Checkout location capture skipped:', err.message);
+    }
+
+    try {
+      const { data } = await api.post('/attendance/checkout', coords);
       toast.success(data.message || 'Checked out! See you tomorrow 👋');
       
       const updated = await api.get('/attendance/today');
@@ -123,7 +150,7 @@ export default function AttendanceCard({ attendance, onAction }) {
           disabled={hasCheckedIn || actionLoading || locLoading}
           className="btn-success flex-1 justify-center py-2.5 shadow-sm shadow-emerald-200/50"
         >
-          {(actionLoading && !hasCheckedIn) || locLoading ? (
+          {actionLoading && !hasCheckedIn ? (
             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
           ) : (
             <>
@@ -131,13 +158,13 @@ export default function AttendanceCard({ attendance, onAction }) {
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
                 <polyline points="22 4 12 14.01 9 11.01"/>
               </svg>
-              <span>Check-In</span>
+              <span>{locLoading ? 'Locating...' : 'Check-In'}</span>
             </>
           )}
         </button>
         <button
           onClick={handleCheckOut}
-          disabled={!hasCheckedIn || hasCheckedOut || actionLoading}
+          disabled={!hasCheckedIn || hasCheckedOut || actionLoading || locLoading}
           className="btn-secondary flex-1 justify-center py-2.5 disabled:opacity-40"
         >
           {actionLoading && hasCheckedIn && !hasCheckedOut ? (

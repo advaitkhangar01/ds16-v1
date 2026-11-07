@@ -287,7 +287,8 @@ router.get('/payroll', authenticate, requireAccounting, async (req, res) => {
     query += ' ORDER BY p.year DESC, p.month DESC, u.name ASC';
     const { rows } = await pool.query(query, params);
 
-    if (rows.length === 0 && month && year) {
+    if (month && year) {
+      // In a specific month view, ensure all active staff are included (both disbursed and pending)
       const settingsRes = await pool.query('SELECT key, value FROM app_settings');
       const settings = settingsRes.rows.reduce((acc, row) => { acc[row.key] = row.value; return acc; }, {});
       const { rows: emps } = await pool.query(
@@ -298,7 +299,12 @@ router.get('/payroll', authenticate, requireAccounting, async (req, res) => {
          ORDER BY name`,
         department ? [department] : []
       );
-      const liveRows = await Promise.all(emps.map(async emp => {
+
+      const paidUserMap = new Map(rows.map(r => [r.user_id, r]));
+      const fullRoster = await Promise.all(emps.map(async emp => {
+        if (paidUserMap.has(emp.id)) {
+          return paidUserMap.get(emp.id);
+        }
         const pData = await calculatePayrollForEmployee(emp.id, parseInt(month), parseInt(year), settings, pool);
         const net = pData ? (pData.current_net_payable !== undefined ? pData.current_net_payable : pData.suggested_salary) : emp.base_salary;
         const deductions = pData ? (pData.total_deductions !== undefined ? pData.total_deductions : pData.deductions) : 0;
@@ -319,7 +325,8 @@ router.get('/payroll', authenticate, requireAccounting, async (req, res) => {
           department: emp.department
         };
       }));
-      return res.json({ success: true, data: liveRows });
+
+      return res.json({ success: true, data: fullRoster });
     }
 
     res.json({ success: true, data: rows });

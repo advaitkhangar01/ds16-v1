@@ -228,14 +228,31 @@ async function recalculateAttendanceForUser(userId, options = {}) {
       lateMins = 0;
     }
 
+    let overtimeHours = 0;
+    if (r.check_out && hoursWorked >= recMinHours && status !== ATTENDANCE_STATUS.HALF_DAY && status !== ATTENDANCE_STATUS.ABSENT) {
+      const ci = new Date(r.check_in);
+      const co = new Date(r.check_out);
+      const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+      const checkOutDateStr = formatter.format(co);
+      const cutoff = new Date(`${checkOutDateStr}T19:00:00+05:30`);
+      const extraHoursBeyondShift = Math.floor(Math.max(0, hoursWorked - recMinHours));
+      if (co > cutoff && extraHoursBeyondShift >= 1) {
+        const startForOt = ci > cutoff ? ci : cutoff;
+        const otMs = co.getTime() - startForOt.getTime();
+        const completedHoursPast7PM = Math.floor(Math.max(0, otMs / (1000 * 60 * 60)));
+        overtimeHours = Math.min(extraHoursBeyondShift, completedHoursPast7PM);
+      }
+    }
+
     await db.query(
       `UPDATE attendance SET
          status = $1,
          is_late = $2,
          late_minutes = $3,
-         hours_worked = $4
-       WHERE id = $5`,
-      [status, isLate, lateMins, hoursWorked, r.id]
+         hours_worked = $4,
+         overtime_hours = $5
+       WHERE id = $6`,
+      [status, isLate, lateMins, hoursWorked, overtimeHours, r.id]
     );
 
     recalculatedCount++;

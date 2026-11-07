@@ -352,13 +352,23 @@ export default function ReportsPage() {
         'Role': r.role,
         'Check-In': formatISTTime(r.check_in),
         'Check-Out': formatISTTime(r.check_out),
-        'Status': (r.status === 'working' || r.status === 'completed' || r.status === 'present') ? 'Regular' :
-                  r.status === 'half_day' ? 'Irregular' :
-                  r.status === 'leave' ? 'Leave' :
-                  r.status === 'sunday' ? 'Sunday' :
-                  r.status === 'holiday' ? 'Holiday' :
-                  (r.status === 'upcoming' || r.status === 'future') ? 'Upcoming' :
-                  r.status === 'today_pending' ? 'Pending Check-in' : 'Absent',
+        'Status': (() => {
+          const isPresent = (r.status === 'working' || r.status === 'completed' || r.status === 'present');
+          const isHalfDay = r.status === 'half_day';
+          const isLate = !!r.is_late && r.status !== 'absent' && r.status !== 'leave';
+          const lateMins = parseInt(r.late_minutes || 0, 10);
+          const lateTag = lateMins > 0 ? `Late Arrival (+${lateMins}m)` : 'Late Arrival';
+          if (isPresent && isLate) return `${lateTag} + Regular`;
+          if (isPresent) return 'Regular';
+          if (isHalfDay && isLate) return `${lateTag} + Irregular`;
+          if (isHalfDay) return 'Irregular';
+          if (r.status === 'leave') return 'Leave';
+          if (r.status === 'sunday') return 'Sunday';
+          if (r.status === 'holiday') return 'Holiday';
+          if (r.status === 'upcoming' || r.status === 'future') return 'Upcoming';
+          if (r.status === 'today_pending') return 'Pending Check-in';
+          return 'Absent';
+        })(),
         'Late Arrival': r.is_late ? 'Yes' : 'No',
         'Late Minutes': r.late_minutes || 0,
         'Hours Worked': r.hours_worked || 0,
@@ -1021,22 +1031,48 @@ export default function ReportsPage() {
                             {row.is_late ? `+${row.late_minutes}m` : '0'}
                           </td>
                           <td className="px-6 py-3 text-center">
-                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter shadow-sm border ${
-                              (row.status === 'working' || row.status === 'completed' || row.status === 'present') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                              row.status === 'half_day' ? 'bg-amber-50 text-amber-600 border-amber-100' :
-                              row.status === 'leave' ? 'bg-purple-50 text-purple-600 border-purple-100' :
-                              row.status === 'sunday' ? 'bg-slate-100 text-slate-600 border-slate-200' :
-                              row.status === 'holiday' ? 'bg-cyan-50 text-cyan-600 border-cyan-100' :
-                              row.status === 'future' ? 'bg-slate-50 text-slate-400 border-slate-100' :
-                              'bg-red-50 text-red-500 border-red-100'
-                            }`}>
-                              {(row.status === 'working' || row.status === 'completed' || row.status === 'present') ? 'Regular' : 
-                               row.status === 'half_day' ? 'Irregular' :
-                               row.status === 'leave' ? 'Leave' : 
-                               row.status === 'sunday' ? 'Sunday' :
-                               row.status === 'holiday' ? 'Holiday' :
-                               row.status === 'future' ? 'Upcoming' : 'Absent'}
-                            </span>
+                            {(() => {
+                              const isPresent = (row.status === 'working' || row.status === 'completed' || row.status === 'present');
+                              const isHalfDay = row.status === 'half_day';
+                              const isLate = !!row.is_late && row.status !== 'absent' && row.status !== 'leave';
+                              const lateMins = parseInt(row.late_minutes || 0, 10);
+                              const lateTag = lateMins > 0 ? `Late Arrival (+${lateMins}m)` : 'Late Arrival';
+
+                              let badgeText = 'Absent';
+                              let badgeClass = 'bg-red-50 text-red-500 border-red-100';
+
+                              if (isPresent && isLate) {
+                                badgeText = `${lateTag} + Regular`;
+                                badgeClass = 'bg-orange-50 text-orange-700 border-orange-200 font-bold';
+                              } else if (isPresent) {
+                                badgeText = 'Regular';
+                                badgeClass = 'bg-emerald-50 text-emerald-600 border-emerald-100';
+                              } else if (isHalfDay && isLate) {
+                                badgeText = `${lateTag} + Irregular`;
+                                badgeClass = 'bg-amber-50 text-amber-800 border-amber-200 font-bold';
+                              } else if (isHalfDay) {
+                                badgeText = 'Irregular';
+                                badgeClass = 'bg-amber-50 text-amber-600 border-amber-100';
+                              } else if (row.status === 'leave') {
+                                badgeText = 'Leave';
+                                badgeClass = 'bg-purple-50 text-purple-600 border-purple-100';
+                              } else if (row.status === 'sunday') {
+                                badgeText = 'Sunday';
+                                badgeClass = 'bg-slate-100 text-slate-600 border-slate-200';
+                              } else if (row.status === 'holiday') {
+                                badgeText = 'Holiday';
+                                badgeClass = 'bg-cyan-50 text-cyan-600 border-cyan-100';
+                              } else if (row.status === 'future' || row.status === 'upcoming') {
+                                badgeText = 'Upcoming';
+                                badgeClass = 'bg-slate-50 text-slate-400 border-slate-100';
+                              }
+
+                              return (
+                                <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter shadow-sm border ${badgeClass}`}>
+                                  {badgeText}
+                                </span>
+                              );
+                            })()}
                           </td>
                         </>
                       )}

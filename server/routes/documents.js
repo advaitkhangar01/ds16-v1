@@ -452,7 +452,21 @@ router.patch('/payment-stages/:id', authenticate, requireAccounting, checkProjec
 // ---------------------------------------------------------------------------
 router.delete('/payment-stages/:id', authenticate, requireAccounting, checkProjectAccess({ idIsResource: 'payment-stage' }), async (req, res) => {
   try {
-    await pool.query('DELETE FROM project_payment_stages WHERE id = $1', [req.params.id]);
+    const stageId = parseInt(req.params.id);
+    if (isNaN(stageId)) return res.status(400).json({ error: 'Invalid stage ID' });
+
+    const activeInv = await pool.query(
+      `SELECT 1 FROM invoices i 
+       WHERE (i.payment_stage_id = $1 
+              OR EXISTS (SELECT 1 FROM invoice_payment_stages ips WHERE ips.invoice_id = i.id AND ips.payment_stage_id = $1))
+         AND i.status NOT IN ('cancelled')`,
+      [stageId]
+    );
+    if (activeInv.rows.length > 0) {
+      return res.status(400).json({ error: 'Cannot delete a payment stage with an active invoice' });
+    }
+
+    await pool.query('DELETE FROM project_payment_stages WHERE id = $1', [stageId]);
     res.json({ message: 'Payment stage removed' });
   } catch (err) {
     console.error('Delete payment stage error:', err);
@@ -467,10 +481,19 @@ router.delete('/payment-stages/remove/tag', authenticate, requireAccounting, che
   try {
     const { project_id, document_type } = req.body;
     const pid = parseInt(project_id);
+    if (isNaN(pid) || !document_type) {
+      return res.status(400).json({ error: 'Invalid project_id or document_type' });
+    }
+
+    const tagsToDelete = [document_type];
+    if (document_type === 'Adhar Card & Pan Card') {
+      tagsToDelete.push('Adhar Card', 'Pan Card');
+    }
+
     await pool.query(
       `DELETE FROM project_payment_stages
-       WHERE project_id = $1 AND document_type = $2 AND status = 'payment initiated'`,
-      [pid, document_type]
+       WHERE project_id = $1 AND document_type = ANY($2::text[]) AND status = 'payment initiated'`,
+      [pid, tagsToDelete]
     );
     res.json({ message: 'Payment stage removed' });
   } catch (err) {

@@ -9,7 +9,7 @@ import toast from 'react-hot-toast';
 import { UserCheck, UserX, CalendarOff, Clock, UserMinus } from 'lucide-react';
 import { ATTENDANCE_STATUS, VIEW_MODES } from '../config/constants';
 
-function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: data_hours_worked, isLate: propIsLate }) {
+function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: data_hours_worked, isLate: propIsLate, late_minutes: propLateMinutes }) {
   const officeStartTimeStr = settings?.office_start_time || '09:30';
   const lateThresholdTimeStr = settings?.late_threshold_time;
   const lateThresholdMins = parseInt(settings?.late_threshold_mins || 15);
@@ -17,7 +17,8 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
   const halfDayThresholdHours = parseFloat(settings?.half_day_threshold_hours || settings?.min_working_hours || 9);
 
   let isLate = propIsLate;
-  if (isLate === undefined && checkIn) {
+  let computedLateMinutes = parseInt(propLateMinutes || 0, 10);
+  if (checkIn) {
     const checkInTime = new Date(checkIn);
     // Format check-in time as HH:mm in IST
     const checkInStr = new Intl.DateTimeFormat('en-GB', {
@@ -27,14 +28,22 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
       hour12: false
     }).format(checkInTime);
 
-    if (lateThresholdTimeStr) {
-      isLate = checkInStr > lateThresholdTimeStr;
-    } else {
+    if (isLate === undefined) {
+      if (lateThresholdTimeStr) {
+        isLate = checkInStr > lateThresholdTimeStr;
+      } else {
+        const [ciH, ciM] = checkInStr.split(':').map(Number);
+        const [startH, startM] = officeStartTimeStr.split(':').map(Number);
+        const diffMins = (ciH * 60 + ciM) - (startH * 60 + startM);
+        isLate = diffMins > lateThresholdMins;
+      }
+    }
+
+    if (!computedLateMinutes && officeStartTimeStr) {
       const [ciH, ciM] = checkInStr.split(':').map(Number);
       const [startH, startM] = officeStartTimeStr.split(':').map(Number);
-      
       const diffMins = (ciH * 60 + ciM) - (startH * 60 + startM);
-      isLate = diffMins > lateThresholdMins;
+      if (diffMins > 0) computedLateMinutes = diffMins;
     }
   }
 
@@ -43,18 +52,19 @@ function AttendanceBadge({ status, checkIn, checkOut, settings, hours_worked: da
   // Trust the server's status for half_day — don't recalculate from hours in the frontend,
   // as that causes a collision with the late-arrival path (both use hoursWorked < threshold).
   const isHalfDay = normStatus === 'half_day';
+  const lateTag = computedLateMinutes > 0 ? `Late Arrival (+${computedLateMinutes}m)` : 'Late Arrival';
 
   if (isHalfDay) {
     return (
       <span className="badge bg-amber-50 text-amber-700 border-amber-200 font-bold">
-        ◑ {isLate ? 'Late Arrival + Irregular' : 'Irregular'}
+        ◑ {isLate ? `${lateTag} + Irregular` : 'Irregular'}
       </span>
     );
   }
   if (normStatus === 'working' || normStatus === 'completed' || normStatus === 'present' || checkIn) {
     return (
       <span className={`badge ${isLate ? 'bg-orange-50 text-orange-700 border-orange-200 font-bold' : 'badge-working'}`}>
-        ● {isLate ? 'Late Arrival + Regular' : 'Regular'}
+        ● {isLate ? `${lateTag} + Regular` : 'Regular'}
       </span>
     );
   }
@@ -712,14 +722,17 @@ export default function AttendancePage() {
                         const cellIsHalfDay = recStatus === ATTENDANCE_STATUS.HALF_DAY;
                         const cellIsLate    = !!record?.is_late;
 
+                        const cellLateMins = parseInt(record?.late_minutes || 0, 10);
+                        const cellLateTag = cellLateMins > 0 ? `Late Arrival (+${cellLateMins}m)` : 'Late Arrival';
+
                         if (cellIsHalfDay && cellIsLate) {
-                          statusText = 'Late Arrival + Irregular';
+                          statusText = `${cellLateTag} + Irregular`;
                           styleClass = 'bg-amber-50 text-amber-800 border-amber-500 hover:bg-amber-100 hover:scale-105';
                         } else if (cellIsHalfDay) {
                           statusText = 'Irregular';
                           styleClass = 'bg-amber-50 text-amber-700 border-amber-400 hover:bg-amber-100 hover:scale-105';
                         } else if (isPresent && cellIsLate) {
-                          statusText = 'Late Arrival + Regular';
+                          statusText = `${cellLateTag} + Regular`;
                           styleClass = 'bg-orange-50 text-orange-700 border-orange-500 hover:bg-orange-100 hover:scale-105';
                         } else if (isPresent) {
                           statusText = 'Regular';

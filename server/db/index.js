@@ -514,9 +514,9 @@ if (process.env.NODE_ENV !== 'test') {
         if (parseInt(batchCount[0].count) === 0) {
           await pool.query(`
             INSERT INTO attendance_batches (name, office_start_time, late_threshold_time, half_day_cutoff_time, min_working_hours) VALUES
-            ('9 AM Batch', '09:00:00', '09:15:00', '13:00:00', 4.00),
-            ('10 AM Batch', '10:00:00', '10:15:00', '13:00:00', 4.00),
-            ('11 AM Batch', '11:00:00', '11:15:00', '14:00:00', 4.00)
+            ('9 AM Batch', '09:00:00', '09:15:00', '13:00:00', 9.00),
+            ('10 AM Batch', '10:00:00', '10:15:00', '13:00:00', 9.00),
+            ('11 AM Batch', '11:00:00', '11:15:00', '14:00:00', 9.00)
           `);
         }
 

@@ -299,7 +299,9 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
       const overlapEnd = new Date(Math.min(leaveEnd.getTime(), endOfMonth.getTime()));
       const diffMs = overlapEnd.getTime() - overlapStart.getTime();
       if (diffMs >= 0) {
-        leavesTaken += Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1;
+        const spanDays = Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1;
+        const dayWeight = (lr.type || '').toLowerCase() === 'half_day' ? 0.5 : 1.0;
+        leavesTaken += spanDays * dayWeight;
       }
     }
     unpaidLeaves = Math.max(0, leavesTaken - (prevClosingBalance + 1.50));
@@ -404,7 +406,12 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     } else if (dateStr === todayStr) {
       dayStatus = 'today_pending';
     } else if (isOnApprovedLeave || status === 'leave') {
-      dayStatus = 'leave';
+      const approvedReq = leaveRequests.find(lr => {
+        const start = formatDate(lr.start_date);
+        const end = formatDate(lr.end_date);
+        return dateStr >= start && dateStr <= end;
+      });
+      dayStatus = (approvedReq?.type || '').toLowerCase() === 'half_day' ? 'half_day' : 'leave';
     } else if (isSunday) {
       dayStatus = 'sunday';
     } else if (holidayDates.has(dateStr)) {
@@ -534,7 +541,8 @@ async function calculatePayrollForEmployee(userId, month, year, settings, dbPool
     totalDeductions,
     totalOvertimeEarnings,
     totalNormalEarnings,
-    isMonthInProgress
+    isMonthInProgress,
+    totalDaysInMonth: daysInMonth
   });
 
   const accruedEarningsToDate = unified.accruedEarningsToDate;

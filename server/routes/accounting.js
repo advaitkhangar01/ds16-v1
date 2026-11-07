@@ -266,13 +266,14 @@ router.put('/payroll/employees/:id', checkPeriodLock, async (req, res) => {
           const finalIncentives = incentives !== undefined ? parseFloat(incentives) : parseFloat(existingPayroll[0].incentives || 0);
           const finalDeductions = parseFloat(payrollData.deductions || 0);
           const finalOvertime = parseFloat(payrollData.overtime_earnings || 0);
+          const finalOvertimeHours = parseFloat(payrollData.total_overtime_hours || 0);
           const finalNetPaid = Math.max(0, parseFloat(payrollData.net_salary_payable || 0) + finalBonus + finalIncentives);
 
           await pool.query(
             `UPDATE payroll 
-             SET base_salary = $1, incentives = $2, deductions = $3, net_paid = $4
-             WHERE user_id = $5 AND month = $6 AND year = $7`,
-            [finalBaseSalary, finalIncentives, finalDeductions, finalNetPaid, req.params.id, month, year]
+             SET base_salary = $1, incentives = $2, deductions = $3, net_paid = $4, overtime_pay = $5, overtime_hours = $6
+             WHERE user_id = $7 AND month = $8 AND year = $9`,
+            [finalBaseSalary, finalIncentives, finalDeductions, finalNetPaid, finalOvertime, finalOvertimeHours, req.params.id, month, year]
           );
         }
       }
@@ -311,12 +312,12 @@ router.get('/payroll/history', async (req, res) => {
 
 // Process payroll (add/update) — accounting staff can prepare payroll, admin finalizes via month-close
 router.post('/payroll', checkPeriodLock, async (req, res) => {
-  const { user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status, is_manual_override } = req.body;
+  const { user_id, base_salary, bonus, incentives, deductions, net_paid, overtime_pay, overtime_hours, month, year, payment_date, status, is_manual_override } = req.body;
   const isOverride = is_manual_override !== undefined ? Boolean(is_manual_override) : true;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO payroll (user_id, base_salary, bonus, incentives, deductions, net_paid, month, year, payment_date, status, is_manual_override)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO payroll (user_id, base_salary, bonus, incentives, deductions, net_paid, overtime_pay, overtime_hours, month, year, payment_date, status, is_manual_override)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (user_id, month, year) 
        DO UPDATE SET 
          base_salary = EXCLUDED.base_salary,
@@ -324,11 +325,13 @@ router.post('/payroll', checkPeriodLock, async (req, res) => {
          incentives = EXCLUDED.incentives,
          deductions = EXCLUDED.deductions,
          net_paid = EXCLUDED.net_paid,
+         overtime_pay = EXCLUDED.overtime_pay,
+         overtime_hours = EXCLUDED.overtime_hours,
          payment_date = EXCLUDED.payment_date,
          status = EXCLUDED.status,
          is_manual_override = EXCLUDED.is_manual_override
        RETURNING *`,
-      [user_id, base_salary, bonus || 0, incentives || 0, deductions || 0, net_paid, month, year, payment_date || new Date(), status || 'paid', isOverride]
+      [user_id, base_salary, bonus || 0, incentives || 0, deductions || 0, net_paid, overtime_pay || 0, overtime_hours || 0, month, year, payment_date || new Date(), status || 'paid', isOverride]
     );
 
     await logAudit({

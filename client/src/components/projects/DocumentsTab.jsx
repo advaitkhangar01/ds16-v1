@@ -78,11 +78,21 @@ export default function DocumentsTab({ projectId, currentUser }) {
     try {
       const { data } = await api.get(`/documents?project_id=${projectId}&category=document&grouped=true`);
       setDocuments(data.documents || {});
-      setAmounts(data.amounts || {});
+      const amountsMap = { ...(data.amounts || {}) };
+      if (!amountsMap['Adhar Card & Pan Card']) {
+        const legacyAmount = parseFloat(amountsMap['Adhar Card']) || parseFloat(amountsMap['Pan Card']) || 0;
+        if (legacyAmount > 0) {
+          amountsMap['Adhar Card & Pan Card'] = legacyAmount;
+        }
+      }
+      setAmounts(amountsMap);
       if (canViewFinancials) {
         const { data: payData } = await api.get(`/documents/payment-stages?project_id=${projectId}`);
         const initiated = (payData.paymentStages || []).reduce((acc, stage) => {
           acc[stage.document_type] = true;
+          if (stage.document_type === 'Adhar Card' || stage.document_type === 'Pan Card') {
+            acc['Adhar Card & Pan Card'] = true;
+          }
           return acc;
         }, {});
         setSelectedRows(initiated);
