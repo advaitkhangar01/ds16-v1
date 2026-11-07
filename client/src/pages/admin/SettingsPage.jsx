@@ -1,6 +1,8 @@
 /* eslint-disable no-unused-vars, react-hooks/immutability, react-hooks/exhaustive-deps */
 import React, { useState, useEffect, useMemo } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
+import ResetPasswordModal from '../../components/settings/ResetPasswordModal';
+import BatchModal from '../../components/settings/BatchModal';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
 import {
@@ -1656,173 +1658,35 @@ export default function SettingsPage() {
         )}
 
         {/* Password Reset Modal */}
-        {resetModal.show && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
-              <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900">Reset Password</h3>
-                  <p className="text-xs text-gray-500 font-medium">Changing password for {resetModal.userName}</p>
-                </div>
-                <button onClick={() => setResetModal({ ...resetModal, show: false })} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
-              </div>
-              <form onSubmit={handleResetPassword} className="p-6 space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">New Password</label>
-                  <div className="relative">
-                    <Lock size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input 
-                      type="password" required
-                      placeholder="Min. 6 characters"
-                      value={resetModal.newPassword}
-                      onChange={(e) => setResetModal({...resetModal, newPassword: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-                </div>
-                <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
-                  <button type="button" onClick={() => setResetModal({ ...resetModal, show: false })} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
-                  <button type="submit" className="px-6 py-2.5 text-sm font-bold text-white bg-primary hover:bg-[#C94E16] rounded-xl shadow-lg shadow-orange-100 transition-all active:scale-95">Reset Now</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
+        <ResetPasswordModal
+          isOpen={resetModal.show}
+          onClose={() => setResetModal({ ...resetModal, show: false })}
+          userName={resetModal.userName}
+          newPassword={resetModal.newPassword}
+          onChangePassword={(val) => setResetModal({ ...resetModal, newPassword: val })}
+          onSubmit={handleResetPassword}
+        />
 
         {/* Batch Add Modal */}
-        {showBatchModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-              <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                <h3 className="text-xl font-bold text-gray-900">Create Attendance Batch</h3>
-                <button onClick={() => setShowBatchModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
-              </div>
-              <form onSubmit={handleCreateBatch} className="p-6 space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Batch Name</label>
-                  <input 
-                    type="text" required
-                    value={newBatch.name}
-                    onChange={(e) => setNewBatch({...newBatch, name: e.target.value})}
-                    placeholder="e.g. 9 AM Shift"
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Office Start Time</label>
-                    <input 
-                      type="time" required
-                      value={newBatch.office_start_time}
-                      onChange={(e) => setNewBatch({...newBatch, office_start_time: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Late Threshold Time</label>
-                    <input 
-                      type="time" required
-                      value={newBatch.late_threshold_time}
-                      onChange={(e) => setNewBatch({...newBatch, late_threshold_time: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Irregular Cutoff Time</label>
-                    <input 
-                      type="time" required
-                      value={newBatch.half_day_cutoff_time}
-                      onChange={(e) => setNewBatch({...newBatch, half_day_cutoff_time: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Min Working Hours</label>
-                    <input 
-                      type="number" required step="0.5" min="1" max="24"
-                      value={newBatch.min_working_hours}
-                      onChange={(e) => setNewBatch({...newBatch, min_working_hours: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-                </div>
-                <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
-                  <button type="button" onClick={() => setShowBatchModal(false)} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
-                  <button type="submit" className="btn-primary px-8 py-2.5">Create Batch</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
+        <BatchModal
+          isOpen={showBatchModal}
+          onClose={() => setShowBatchModal(false)}
+          isEdit={false}
+          batchData={newBatch}
+          setBatchData={setNewBatch}
+          onSubmit={handleCreateBatch}
+        />
 
         {/* Batch Edit Modal */}
-        {showEditBatchModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-              <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                <h3 className="text-xl font-bold text-gray-900">Edit Attendance Batch</h3>
-                <button onClick={() => setShowEditBatchModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
-              </div>
-              <form onSubmit={handleUpdateBatch} className="p-6 space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Batch Name</label>
-                  <input 
-                    type="text" required
-                    value={editingBatch.name}
-                    onChange={(e) => setEditingBatch({...editingBatch, name: e.target.value})}
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Office Start Time</label>
-                    <input 
-                      type="time" required
-                      value={editingBatch.office_start_time}
-                      onChange={(e) => setEditingBatch({...editingBatch, office_start_time: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Late Threshold Time</label>
-                    <input 
-                      type="time" required
-                      value={editingBatch.late_threshold_time}
-                      onChange={(e) => setEditingBatch({...editingBatch, late_threshold_time: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Irregular Cutoff Time</label>
-                    <input 
-                      type="time" required
-                      value={editingBatch.half_day_cutoff_time}
-                      onChange={(e) => setEditingBatch({...editingBatch, half_day_cutoff_time: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Min Working Hours</label>
-                    <input 
-                      type="number" required step="0.5" min="1" max="24"
-                      value={editingBatch.min_working_hours}
-                      onChange={(e) => setEditingBatch({...editingBatch, min_working_hours: e.target.value})}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-                </div>
-                <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
-                  <button type="button" onClick={() => setShowEditBatchModal(false)} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
-                  <button type="submit" className="btn-primary px-8 py-2.5">Save Changes</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
+        <BatchModal
+          isOpen={showEditBatchModal}
+          onClose={() => setShowEditBatchModal(false)}
+          isEdit={true}
+          batchData={editingBatch}
+          setBatchData={setEditingBatch}
+          onSubmit={handleUpdateBatch}
+        />
+
         {/* Dropdown Master Option Modal */}
         {showDropdownModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
