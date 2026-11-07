@@ -74,7 +74,7 @@ router.get('/expenses', async (req, res) => {
                ELSE (MAKE_DATE(year, month, 1) + INTERVAL '1 month - 1 day')::date
              END as date, 
              'Monthly salary payment' as description, NULL as receipt_url, 'payroll' as source, NULL as period_unlock_id, NULL as unlock_reason, NULL as unlock_date, NULL as unlock_user 
-      FROM payroll WHERE status = 'paid'
+      FROM payroll WHERE LOWER(status) = 'paid'
       UNION ALL
       SELECT id, 'Incentives' as category, incentives as amount, 
              CASE 
@@ -82,7 +82,7 @@ router.get('/expenses', async (req, res) => {
                ELSE (MAKE_DATE(year, month, 1) + INTERVAL '1 month - 1 day')::date
              END as date, 
              'Performance incentive' as description, NULL as receipt_url, 'payroll' as source, NULL as period_unlock_id, NULL as unlock_reason, NULL as unlock_date, NULL as unlock_user 
-      FROM payroll WHERE status = 'paid' AND incentives > 0
+      FROM payroll WHERE LOWER(status) = 'paid' AND incentives > 0
       ORDER BY date DESC, id DESC
     `;
     const { rows } = await pool.query(query);

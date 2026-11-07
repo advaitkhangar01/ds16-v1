@@ -135,11 +135,11 @@ router.get('/', authenticate, async (req, res) => {
       
       const tasksParams = [];
       if (view === 'history') {
-        tasksQuery += ` WHERE t.status = 'passed' `;
+        tasksQuery += ` WHERE LOWER(t.status) = 'passed' `;
       } else if (view === 'scheduled') {
-        tasksQuery += ` WHERE t.status != 'passed' AND t.start_date > CURRENT_DATE `;
+        tasksQuery += ` WHERE LOWER(t.status) != 'passed' AND t.start_date > CURRENT_DATE `;
       } else {
-        tasksQuery += ` WHERE t.status != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE) `;
+        tasksQuery += ` WHERE LOWER(t.status) != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE) `;
       }
 
       tasksQuery += ` GROUP BY t.id, p.name, u.name ORDER BY t.created_at DESC`;
@@ -207,7 +207,7 @@ router.get('/', authenticate, async (req, res) => {
           LEFT JOIN users u ON u.id = t.assigned_to
           LEFT JOIN task_participants tp ON tp.task_id = t.id
           LEFT JOIN users part_u ON part_u.id = tp.user_id
-          WHERE t.project_id = $1 AND t.status != 'passed'
+          WHERE t.project_id = $1 AND LOWER(t.status) != 'passed'
           GROUP BY t.id, u.name 
           ORDER BY t.created_at DESC
         `;
@@ -233,11 +233,11 @@ router.get('/', authenticate, async (req, res) => {
     const whereClauses = [];
 
     if (view === 'history') {
-      whereClauses.push(`t.status = 'passed'`);
+      whereClauses.push(`LOWER(t.status) = 'passed'`);
     } else if (view === 'scheduled') {
-      whereClauses.push(`t.status != 'passed' AND t.start_date > CURRENT_DATE`);
+      whereClauses.push(`LOWER(t.status) != 'passed' AND t.start_date > CURRENT_DATE`);
     } else {
-      whereClauses.push(`t.status != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE)`);
+      whereClauses.push(`LOWER(t.status) != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE)`);
     }
 
     if (!isPrivileged) {
@@ -281,7 +281,7 @@ router.get('/export/report', authenticate, async (req, res) => {
 
     if (status && status !== 'all') {
       params.push(status);
-      whereClauses.push(`t.status = $${params.length}`);
+      whereClauses.push(`LOWER(t.status) = LOWER($${params.length})`);
     }
 
     if (from_date) {
@@ -639,7 +639,7 @@ async function cleanupOldTasks() {
   try {
     const { rowCount } = await pool.query(`
       DELETE FROM tasks 
-      WHERE status = 'passed' 
+      WHERE LOWER(status) = 'passed' 
       AND COALESCE(completed_at, updated_at) < NOW() - INTERVAL '90 days'
     `);
     if (rowCount > 0) {

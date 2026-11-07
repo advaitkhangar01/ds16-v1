@@ -117,7 +117,7 @@ router.get('/transactions', authenticate, requireAccounting, async (req, res) =>
             FROM project_payment_stages pps
             JOIN projects p ON p.id = pps.project_id
             LEFT JOIN users u ON u.id = pps.initiated_by
-            WHERE pps.project_id = $1 AND pps.status != 'cancelled'
+            WHERE pps.project_id = $1 AND LOWER(pps.status) != 'cancelled'
           `;
           const stageParams = [project_id];
           let sIdx = 2;
@@ -154,7 +154,7 @@ router.get('/transactions', authenticate, requireAccounting, async (req, res) =>
             FROM invoices inv
             JOIN projects p ON p.id = inv.project_id
             LEFT JOIN users u ON u.id = inv.created_by
-            WHERE inv.project_id = $1 AND inv.status != 'cancelled'
+            WHERE inv.project_id = $1 AND LOWER(inv.status) != 'cancelled'
           `;
           const invoiceParams = [project_id];
           let iIdx = 2;
@@ -248,7 +248,7 @@ router.get('/transactions', authenticate, requireAccounting, async (req, res) =>
             COALESCE(ea.is_verified, FALSE) as is_verified
           FROM payroll p 
           LEFT JOIN expense_audits ea ON LOWER(ea.category) = 'salaries' AND ea.month = p.month AND ea.year = p.year
-          WHERE p.status = 'paid'
+          WHERE LOWER(p.status) = 'paid'
           
           UNION ALL
           
@@ -273,7 +273,7 @@ router.get('/transactions', authenticate, requireAccounting, async (req, res) =>
             COALESCE(ea.is_verified, FALSE) as is_verified
           FROM payroll p 
           LEFT JOIN expense_audits ea ON LOWER(ea.category) = 'incentives' AND ea.month = p.month AND ea.year = p.year
-          WHERE p.status = 'paid' AND p.incentives > 0
+          WHERE LOWER(p.status) = 'paid' AND p.incentives > 0
         ) p_virtual
         WHERE 1=1
       `;
@@ -379,14 +379,14 @@ router.get('/summary', authenticate, requireAccounting, async (req, res) => {
           WITH active_stages AS (
             SELECT DISTINCT ON (project_id) project_id, stage_name, status
             FROM project_stages
-            WHERE status != 'completed'
+            WHERE LOWER(status) != 'completed'
             ORDER BY project_id, id ASC
           ),
           project_categories AS (
             SELECT p.id as project_id,
               CASE 
                 WHEN a.project_id IS NULL THEN 'completed'
-                WHEN a.status = 'pending' THEN 'pending'
+                WHEN LOWER(a.status) = 'pending' THEN 'pending'
                 WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
                 WHEN a.stage_name = 'Submission' THEN 'sanction'
                 WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
@@ -578,9 +578,9 @@ router.get('/summary', authenticate, requireAccounting, async (req, res) => {
               CASE WHEN ea_inc.is_verified = TRUE THEN p.incentives ELSE 0 END
             ), 0) as total_incentives
           FROM payroll p
-          LEFT JOIN expense_audits ea_sal ON ea_sal.category = 'Salaries' AND ea_sal.month = p.month AND ea_sal.year = p.year
-          LEFT JOIN expense_audits ea_inc ON ea_inc.category = 'Incentives' AND ea_inc.month = p.month AND ea_inc.year = p.year
-          WHERE p.status = 'paid'
+          LEFT JOIN expense_audits ea_sal ON LOWER(ea_sal.category) = 'salaries' AND ea_sal.month = p.month AND ea_sal.year = p.year
+          LEFT JOIN expense_audits ea_inc ON LOWER(ea_inc.category) = 'incentives' AND ea_inc.month = p.month AND ea_inc.year = p.year
+          WHERE LOWER(p.status) = 'paid'
         `;
         const payrollParams = [];
         let pIdx = 1;
@@ -658,20 +658,20 @@ router.get('/charts', authenticate, requireAccounting, async (req, res) => {
           
           SELECT p.payment_date as date, 'expense' as type, 'Salaries' as category, (p.net_paid - p.incentives) as amount, NULL as project_id 
           FROM payroll p 
-          LEFT JOIN expense_audits ea ON ea.category = 'Salaries' AND ea.month = p.month AND ea.year = p.year
-          WHERE p.status = 'paid' AND ea.is_verified = TRUE
+          LEFT JOIN expense_audits ea ON LOWER(ea.category) = 'salaries' AND ea.month = p.month AND ea.year = p.year
+          WHERE LOWER(p.status) = 'paid' AND ea.is_verified = TRUE
           
           UNION ALL
           
           SELECT p.payment_date as date, 'expense' as type, 'Incentives' as category, p.incentives as amount, NULL as project_id 
           FROM payroll p 
-          LEFT JOIN expense_audits ea ON ea.category = 'Incentives' AND ea.month = p.month AND ea.year = p.year
-          WHERE p.status = 'paid' AND p.incentives > 0 AND ea.is_verified = TRUE
+          LEFT JOIN expense_audits ea ON LOWER(ea.category) = 'incentives' AND ea.month = p.month AND ea.year = p.year
+          WHERE LOWER(p.status) = 'paid' AND p.incentives > 0 AND ea.is_verified = TRUE
         )
         SELECT 
           TO_CHAR(date, 'Mon YYYY') as month_year,
-          SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
-          SUM(CASE WHEN type = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'vendor payment') THEN amount ELSE 0 END) as expense,
+          COALESCE(SUM(CASE WHEN LOWER(type) = 'income' THEN amount ELSE 0 END), 0) as income,
+          COALESCE(SUM(CASE WHEN LOWER(type) = 'expense' AND LOWER(category) NOT IN ('vendor_payment', 'vendor payment') THEN amount ELSE 0 END), 0) as expense,
           MIN(date) as sort_date
         FROM combined_data
         WHERE 1=1
@@ -715,19 +715,19 @@ router.get('/charts', authenticate, requireAccounting, async (req, res) => {
           
           SELECT 'Salaries' as category, (p.net_paid - p.incentives) as amount, p.payment_date as date, NULL as project_name 
           FROM payroll p 
-          LEFT JOIN expense_audits ea ON ea.category = 'Salaries' AND ea.month = p.month AND ea.year = p.year
-          WHERE p.status = 'paid' AND ea.is_verified = TRUE
+          LEFT JOIN expense_audits ea ON LOWER(ea.category) = 'salaries' AND ea.month = p.month AND ea.year = p.year
+          WHERE LOWER(p.status) = 'paid' AND ea.is_verified = TRUE
           
           UNION ALL
           
           SELECT 'Incentives' as category, p.incentives as amount, p.payment_date as date, NULL as project_name 
           FROM payroll p 
-          LEFT JOIN expense_audits ea ON ea.category = 'Incentives' AND ea.month = p.month AND ea.year = p.year
-          WHERE p.status = 'paid' AND p.incentives > 0 AND ea.is_verified = TRUE
+          LEFT JOIN expense_audits ea ON LOWER(ea.category) = 'incentives' AND ea.month = p.month AND ea.year = p.year
+          WHERE LOWER(p.status) = 'paid' AND p.incentives > 0 AND ea.is_verified = TRUE
         )
         SELECT 
           category as name,
-          SUM(amount) as value
+          COALESCE(SUM(amount), 0) as value
         FROM combined_expenses
         WHERE 1=1
       `;

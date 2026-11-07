@@ -365,7 +365,7 @@ router.get('/payment-stages', authenticate, requireAccounting, checkProjectAcces
            SELECT 1 FROM invoices i 
            WHERE (i.payment_stage_id = pps.id 
                   OR EXISTS (SELECT 1 FROM invoice_payment_stages ips WHERE ips.invoice_id = i.id AND ips.payment_stage_id = pps.id))
-             AND i.status NOT IN ('cancelled')
+             AND LOWER(i.status) NOT IN ('cancelled')
          ) THEN true ELSE false END as has_active_invoice
        FROM project_payment_stages pps
        WHERE pps.project_id = $1
@@ -459,7 +459,7 @@ router.delete('/payment-stages/:id', authenticate, requireAccounting, checkProje
       `SELECT 1 FROM invoices i 
        WHERE (i.payment_stage_id = $1 
               OR EXISTS (SELECT 1 FROM invoice_payment_stages ips WHERE ips.invoice_id = i.id AND ips.payment_stage_id = $1))
-         AND i.status NOT IN ('cancelled')`,
+         AND LOWER(i.status) NOT IN ('cancelled')`,
       [stageId]
     );
     if (activeInv.rows.length > 0) {
@@ -492,7 +492,7 @@ router.delete('/payment-stages/remove/tag', authenticate, requireAccounting, che
 
     await pool.query(
       `DELETE FROM project_payment_stages
-       WHERE project_id = $1 AND document_type = ANY($2::text[]) AND status = 'payment initiated'`,
+       WHERE project_id = $1 AND document_type = ANY($2::text[]) AND LOWER(status) = 'payment initiated'`,
       [pid, tagsToDelete]
     );
     res.json({ message: 'Payment stage removed' });
@@ -535,7 +535,7 @@ router.post('/amounts', authenticate, requireAccounting, checkProjectAccess(), a
       await client.query(
         `UPDATE project_payment_stages
          SET amount = $1, updated_at = NOW()
-         WHERE project_id = $2 AND document_type = $3 AND status != 'paid'`,
+         WHERE project_id = $2 AND document_type = $3 AND LOWER(status) != 'paid'`,
         [numericAmount, project_id, document_type]
       );
     }

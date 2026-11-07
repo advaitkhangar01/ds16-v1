@@ -268,8 +268,8 @@ router.get('/:id', async (req, res) => {
     // 5. Leaves History
     const { rows: leaveStats } = await pool.query(`
       SELECT 
-        COUNT(*) FILTER (WHERE status = 'approved') as approved_leaves,
-        COUNT(*) FILTER (WHERE status = 'pending') as pending_leaves
+        COUNT(*) FILTER (WHERE LOWER(status) = 'approved') as approved_leaves,
+        COUNT(*) FILTER (WHERE LOWER(status) = 'pending') as pending_leaves
       FROM leave_requests
       WHERE user_id = $1
     `, [id]);
@@ -460,7 +460,7 @@ router.get('/:id', async (req, res) => {
     const endOfCurrentMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${new Date(currentYear, currentMonth, 0).getDate()}`;
     let currentMonthLeavesTaken = 0;
     for (const l of leaves) {
-      if (l.status === 'approved') {
+      if ((l.status || '').toLowerCase() === 'approved') {
         const lStart = new Date(l.start_date);
         const lEnd = new Date(l.end_date);
         const overlapStart = new Date(Math.max(lStart.getTime(), new Date(startOfCurrentMonth).getTime()));

@@ -158,7 +158,7 @@ router.get('/finances', authenticate, requireAccounting, async (req, res) => {
               'System' as creator_name
             FROM payroll p
             JOIN users u ON u.id = p.user_id
-            WHERE p.status = 'paid'
+            WHERE LOWER(p.status) = 'paid'
             
             UNION ALL
             
@@ -180,7 +180,7 @@ router.get('/finances', authenticate, requireAccounting, async (req, res) => {
               'System' as creator_name
             FROM payroll p
             JOIN users u ON u.id = p.user_id
-            WHERE p.status = 'paid' AND p.incentives > 0
+            WHERE LOWER(p.status) = 'paid' AND p.incentives > 0
           ) p_virtual
           WHERE 1=1
         `;
@@ -363,7 +363,7 @@ router.get('/invoices', authenticate, requireAccounting, async (req, res) => {
     }
     if (status) {
       params.push(status);
-      query += ` AND i.status = $${params.length}`;
+      query += ` AND LOWER(i.status) = LOWER($${params.length})`;
     }
     if (start_date) {
       params.push(start_date);
@@ -391,9 +391,9 @@ router.get('/projects', authenticate, requireAccounting, async (req, res) => {
       SELECT 
         p.id, p.name, p.client_name, p.type, p.location, p.area_sq_ft, p.structural_engineer, p.status, p.start_date, p.created_at,
         u.name as creator_name,
-        (SELECT COUNT(*) FROM project_stages ps WHERE ps.project_id = p.id AND ps.status = 'completed') as completed_stages,
+        (SELECT COUNT(*) FROM project_stages ps WHERE ps.project_id = p.id AND LOWER(ps.status) = 'completed') as completed_stages,
         (SELECT COUNT(*) FROM project_stages ps WHERE ps.project_id = p.id) as total_stages,
-        (SELECT stage_name FROM project_stages ps WHERE ps.project_id = p.id AND ps.status = 'in_progress' ORDER BY ps.id ASC LIMIT 1) as active_stage
+        (SELECT stage_name FROM project_stages ps WHERE ps.project_id = p.id AND LOWER(ps.status) = 'in_progress' ORDER BY ps.id ASC LIMIT 1) as active_stage
       FROM projects p
       LEFT JOIN users u ON u.id = p.created_by
       WHERE 1=1
@@ -402,7 +402,7 @@ router.get('/projects', authenticate, requireAccounting, async (req, res) => {
 
     if (status) {
       params.push(status);
-      query += ` AND p.status = $${params.length}`;
+      query += ` AND LOWER(p.status) = LOWER($${params.length})`;
     }
     if (type) {
       params.push(type);

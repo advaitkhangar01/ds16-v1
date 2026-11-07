@@ -121,7 +121,7 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
        JOIN users au ON au.id = t.created_by
        WHERE t.assigned_to IS NOT NULL AND u.is_active IS NOT FALSE
          AND DATE(t.created_at AT TIME ZONE 'Asia/Kolkata') = $1::date
-         AND t.status != 'passed'
+         AND LOWER(t.status) != 'passed'
          AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE)
        ORDER BY p.name, t.created_at DESC`,
       [today]
@@ -151,13 +151,13 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
     projectRows.forEach((p) => {
       const stages = p.stages || [];
       // Find the first stage that isn't completed
-      const activeStage = stages.find(s => s.status !== 'completed');
+      const activeStage = stages.find(s => (s.status || '').toLowerCase() !== 'completed');
       
       let col = 'pending';
       if (!activeStage) {
         // If all stages are completed
         col = 'completed';
-      } else if (activeStage.status === 'pending') {
+      } else if ((activeStage.status || '').toLowerCase() === 'pending') {
         // If the current stage is pending, show in Pending column
         col = 'pending';
       } else {
@@ -205,17 +205,17 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
       WITH active_stages AS (
         SELECT DISTINCT ON (project_id) project_id, stage_name, status
         FROM project_stages
-        WHERE status != 'completed'
+        WHERE LOWER(status) != 'completed'
         ORDER BY project_id, id ASC
       ),
       project_categories AS (
         SELECT p.id as project_id,
           CASE 
             WHEN a.project_id IS NULL THEN 'completed'
-            WHEN a.status = 'pending' THEN 'pending'
-            WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
-            WHEN a.stage_name = 'Submission' THEN 'sanction'
-            WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
+            WHEN LOWER(a.status) = 'pending' THEN 'pending'
+            WHEN LOWER(a.stage_name) IN ('proposal', 'design') THEN 'design_proposal'
+            WHEN LOWER(a.stage_name) = 'submission' THEN 'sanction'
+            WHEN LOWER(a.stage_name) IN ('working', 'execution') THEN 'execution'
             ELSE 'pending'
           END as stage_category
         FROM projects p
@@ -285,9 +285,9 @@ router.get('/admin', authenticate, requireAccounting, async (req, res) => {
            END
          ), 0) as total_payroll 
        FROM payroll p
-       LEFT JOIN expense_audits ea_sal ON ea_sal.category = 'Salaries' AND ea_sal.month = $1 AND ea_sal.year = $2
-       LEFT JOIN expense_audits ea_inc ON ea_inc.category = 'Incentives' AND ea_inc.month = $1 AND ea_inc.year = $2
-       WHERE p.status = 'paid' AND p.month = $1 AND p.year = $2`,
+       LEFT JOIN expense_audits ea_sal ON LOWER(ea_sal.category) = 'salaries' AND ea_sal.month = $1 AND ea_sal.year = $2
+       LEFT JOIN expense_audits ea_inc ON LOWER(ea_inc.category) = 'incentives' AND ea_inc.month = $1 AND ea_inc.year = $2
+       WHERE LOWER(p.status) = 'paid' AND p.month = $1 AND p.year = $2`,
       [month, year]
     );
     const totalPayroll = parseFloat(payrollRows[0].total_payroll);
@@ -387,28 +387,28 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
         WITH active_stages AS (
           SELECT DISTINCT ON (project_id) project_id, stage_name, status
           FROM project_stages
-          WHERE status != 'completed'
+          WHERE LOWER(status) != 'completed'
           ORDER BY project_id, id ASC
         ),
         project_categories AS (
           SELECT p.id as project_id,
             CASE 
               WHEN a.project_id IS NULL THEN 'completed'
-              WHEN a.status = 'pending' THEN 'pending'
-              WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
-              WHEN a.stage_name = 'Submission' THEN 'sanction'
-              WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
+              WHEN LOWER(a.status) = 'pending' THEN 'pending'
+              WHEN LOWER(a.stage_name) IN ('proposal', 'design') THEN 'design_proposal'
+              WHEN LOWER(a.stage_name) = 'submission' THEN 'sanction'
+              WHEN LOWER(a.stage_name) IN ('working', 'execution') THEN 'execution'
               ELSE 'pending'
             END as stage_category
           FROM projects p
           LEFT JOIN active_stages a ON p.id = a.project_id
         )
-        SELECT p.id, p.name, SUM(pda.amount) as amount
+        SELECT p.id, p.name, COALESCE(SUM(pda.amount), 0) as amount
         FROM projects p
         JOIN project_document_amounts pda ON p.id = pda.project_id
         JOIN project_categories pc ON p.id = pc.project_id
         WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
-          AND ($1::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
+          AND ($1::boolean OR LOWER(p.status) IN ('sanction', 'under sanctioning'))
         GROUP BY p.id, p.name
         ORDER BY amount DESC
       `, [isGlobal]);
@@ -425,29 +425,29 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
             WITH active_stages AS (
               SELECT DISTINCT ON (project_id) project_id, stage_name, status
               FROM project_stages
-              WHERE status != 'completed'
+              WHERE LOWER(status) != 'completed'
               ORDER BY project_id, id ASC
             ),
             project_categories AS (
               SELECT p.id as project_id,
                 CASE 
                   WHEN a.project_id IS NULL THEN 'completed'
-                  WHEN a.status = 'pending' THEN 'pending'
-                  WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
-                  WHEN a.stage_name = 'Submission' THEN 'sanction'
-                  WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
+                  WHEN LOWER(a.status) = 'pending' THEN 'pending'
+                  WHEN LOWER(a.stage_name) IN ('proposal', 'design') THEN 'design_proposal'
+                  WHEN LOWER(a.stage_name) = 'submission' THEN 'sanction'
+                  WHEN LOWER(a.stage_name) IN ('working', 'execution') THEN 'execution'
                   ELSE 'pending'
                 END as stage_category
               FROM projects p
               LEFT JOIN active_stages a ON p.id = a.project_id
             ),
             project_totals AS (
-              SELECT project_id, SUM(amount) as total_val
+              SELECT project_id, COALESCE(SUM(amount), 0) as total_val
               FROM project_document_amounts
               GROUP BY project_id
             ),
             project_received AS (
-              SELECT project_id, SUM(amount) as rec_val
+              SELECT project_id, COALESCE(SUM(amount), 0) as rec_val
               FROM transactions
               WHERE type = 'income'
               GROUP BY project_id
@@ -460,7 +460,7 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
             LEFT JOIN project_received pr ON p.id = pr.project_id
             WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
               AND (COALESCE(pt.total_val, 0) - COALESCE(pr.rec_val, 0)) > 0
-              AND ($1::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
+              AND ($1::boolean OR LOWER(p.status) IN ('sanction', 'under sanctioning'))
             GROUP BY p.id, p.name, pt.total_val, pr.rec_val
             ORDER BY amount DESC
           `
@@ -468,29 +468,29 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
             WITH active_stages AS (
               SELECT DISTINCT ON (project_id) project_id, stage_name, status
               FROM project_stages
-              WHERE status != 'completed'
+              WHERE LOWER(status) != 'completed'
               ORDER BY project_id, id ASC
             ),
             project_categories AS (
               SELECT p.id as project_id,
                 CASE 
                   WHEN a.project_id IS NULL THEN 'completed'
-                  WHEN a.status = 'pending' THEN 'pending'
-                  WHEN a.stage_name IN ('Proposal', 'Design') THEN 'design_proposal'
-                  WHEN a.stage_name = 'Submission' THEN 'sanction'
-                  WHEN a.stage_name IN ('Working', 'Execution') THEN 'execution'
+                  WHEN LOWER(a.status) = 'pending' THEN 'pending'
+                  WHEN LOWER(a.stage_name) IN ('proposal', 'design') THEN 'design_proposal'
+                  WHEN LOWER(a.stage_name) = 'submission' THEN 'sanction'
+                  WHEN LOWER(a.stage_name) IN ('working', 'execution') THEN 'execution'
                   ELSE 'pending'
                 END as stage_category
               FROM projects p
               LEFT JOIN active_stages a ON p.id = a.project_id
             ),
             project_totals AS (
-              SELECT project_id, SUM(amount) as total_val
+              SELECT project_id, COALESCE(SUM(amount), 0) as total_val
               FROM project_document_amounts
               GROUP BY project_id
             ),
             project_received AS (
-              SELECT project_id, SUM(amount) as rec_val
+              SELECT project_id, COALESCE(SUM(amount), 0) as rec_val
               FROM project_payment_stages
               WHERE LOWER(status) = 'paid' AND LOWER(status) != 'cancelled'
               GROUP BY project_id
@@ -503,7 +503,7 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
             LEFT JOIN project_received pr ON p.id = pr.project_id
             WHERE pc.stage_category IN ('design_proposal', 'sanction', 'execution')
               AND (COALESCE(pt.total_val, 0) - COALESCE(pr.rec_val, 0)) > 0
-              AND ($1::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
+              AND ($1::boolean OR LOWER(p.status) IN ('sanction', 'under sanctioning'))
             GROUP BY p.id, p.name, pt.total_val, pr.rec_val
             ORDER BY amount DESC
           `,
@@ -513,13 +513,13 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
     } else if (type === 'billed') {
       // Billed = non-cancelled invoices in the current period, grouped by project
       const { rows } = await pool.query(`
-        SELECT p.id, p.name, SUM(i.amount) as amount
+        SELECT p.id, p.name, COALESCE(SUM(i.amount), 0) as amount
         FROM invoices i
         JOIN projects p ON p.id = i.project_id
         WHERE LOWER(i.status) != 'cancelled'
           AND i.project_id IS NOT NULL
           AND i.date >= $1 AND i.date <= $2
-          AND ($3::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
+          AND ($3::boolean OR LOWER(p.status) IN ('sanction', 'under sanctioning'))
         GROUP BY p.id, p.name
         HAVING SUM(i.amount) > 0
         ORDER BY amount DESC
@@ -548,10 +548,10 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
                 AND t.reference_id = i.invoice_no
             )
         )
-        SELECT p.id, p.name, SUM(c.amount) as amount
+        SELECT p.id, p.name, COALESCE(SUM(c.amount), 0) as amount
         FROM combined_received c
         JOIN projects p ON p.id = c.project_id
-        WHERE ($3::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
+        WHERE ($3::boolean OR LOWER(p.status) IN ('sanction', 'under sanctioning'))
         GROUP BY p.id, p.name
         HAVING SUM(c.amount) > 0
         ORDER BY amount DESC
@@ -561,12 +561,12 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
       // Pending = outstanding balance per project (invoice amount - received), for unpaid invoices
       const { rows } = await pool.query(`
         SELECT p.id, p.name,
-          SUM(GREATEST(i.amount - i.received_amount, 0)) as amount
+          COALESCE(SUM(GREATEST(i.amount - i.received_amount, 0)), 0) as amount
         FROM invoices i
         JOIN projects p ON p.id = i.project_id
         WHERE LOWER(i.status) NOT IN ('cancelled', 'paid')
           AND i.project_id IS NOT NULL
-          AND ($1::boolean OR p.status IN ('Sanction', 'Under Sanctioning'))
+          AND ($1::boolean OR LOWER(p.status) IN ('sanction', 'under sanctioning'))
         GROUP BY p.id, p.name
         HAVING SUM(GREATEST(i.amount - i.received_amount, 0)) > 0
         ORDER BY amount DESC
@@ -584,7 +584,7 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
             AND ea.year = EXTRACT(YEAR FROM t.date)
           WHERE t.type = 'expense' AND LOWER(t.category) NOT IN ('vendor_payment', 'vendor payment', 'salary', 'incentive', 'salaries', 'incentives') AND t.vendor_id IS NULL
             AND t.date >= $1 AND t.date <= $2
-            AND ($5::boolean OR p.id IS NULL OR p.status IN ('Sanction', 'Under Sanctioning'))
+            AND ($5::boolean OR p.id IS NULL OR LOWER(p.status) IN ('sanction', 'under sanctioning'))
             AND ea.is_verified = TRUE
           
           UNION ALL
@@ -597,8 +597,8 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
             p.payment_date as date, 
             NULL as project_name
           FROM payroll p
-          LEFT JOIN expense_audits ea ON ea.category = 'Salaries' AND ea.month = $3 AND ea.year = $4
-          WHERE p.status = 'paid'
+          LEFT JOIN expense_audits ea ON LOWER(ea.category) = 'salaries' AND ea.month = $3 AND ea.year = $4
+          WHERE LOWER(p.status) = 'paid'
             AND p.month = $3 AND p.year = $4
             AND ea.is_verified = TRUE
           
@@ -612,8 +612,8 @@ router.get('/admin/finances/breakdown', authenticate, requireAccounting, async (
             p.payment_date as date, 
             NULL as project_name
           FROM payroll p
-          LEFT JOIN expense_audits ea ON ea.category = 'Incentives' AND ea.month = $3 AND ea.year = $4
-          WHERE p.status = 'paid' AND p.incentives > 0
+          LEFT JOIN expense_audits ea ON LOWER(ea.category) = 'incentives' AND ea.month = $3 AND ea.year = $4
+          WHERE LOWER(p.status) = 'paid' AND p.incentives > 0
             AND p.month = $3 AND p.year = $4
             AND ea.is_verified = TRUE
         ) combined_expenses
@@ -774,7 +774,7 @@ router.get('/employee', authenticate, async (req, res) => {
        FROM tasks t
        JOIN projects p ON p.id = t.project_id
        JOIN users au ON au.id = t.created_by
-       WHERE t.assigned_to = $1 AND t.status != 'passed'
+       WHERE t.assigned_to = $1 AND LOWER(t.status) != 'passed'
          AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE)
        ORDER BY t.created_at DESC`,
       [userId]
@@ -800,10 +800,10 @@ router.get('/employee', authenticate, async (req, res) => {
     const kanban = { pending: [], design_proposal: [], sanction: [], execution: [], completed: [] };
     projectRows.forEach((p) => {
       const stages = p.stages || [];
-      const activeStage = stages.find(s => s.status !== 'completed');
+      const activeStage = stages.find(s => (s.status || '').toLowerCase() !== 'completed');
       let col = 'pending';
       if (!activeStage) col = 'completed';
-      else if (activeStage.status === 'pending') col = 'pending';
+      else if ((activeStage.status || '').toLowerCase() === 'pending') col = 'pending';
       else {
         const name = activeStage.stage_name;
         if (name === 'Proposal' || name === 'Design') col = 'design_proposal';

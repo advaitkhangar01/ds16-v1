@@ -122,7 +122,7 @@ async function generateSnapshot(month, year, client = pool) {
        COALESCE(SUM(net_paid - incentives), 0) as base_salaries,
        COALESCE(SUM(incentives), 0) as incentives
      FROM payroll
-     WHERE month = $1 AND year = $2 AND status = 'paid'`,
+     WHERE month = $1 AND year = $2 AND LOWER(status) = 'paid'`,
     [month, year]
   );
   const baseSalariesRaw = parseFloat(payrollCheckRes.rows[0].base_salaries);
@@ -160,7 +160,7 @@ async function generateSnapshot(month, year, client = pool) {
 
   // Breakdown by category
   const breakdownRes = await client.query(
-    `SELECT category, SUM(amount) as amount FROM (
+    `SELECT category, COALESCE(SUM(amount), 0) as amount FROM (
        SELECT oe.category, oe.amount 
        FROM office_expenses oe
        INNER JOIN expense_audits ea ON LOWER(ea.category) = LOWER(oe.category)
@@ -198,12 +198,12 @@ async function generateSnapshot(month, year, client = pool) {
   const empRes = await client.query("SELECT COUNT(*) as count FROM users WHERE role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head') AND is_active IS NOT FALSE");
   const totalEmployees = parseInt(empRes.rows[0].count);
 
-  const processedRes = await client.query("SELECT COUNT(*) as count FROM payroll WHERE month = $1 AND year = $2 AND status = 'paid'", [month, year]);
+  const processedRes = await client.query("SELECT COUNT(*) as count FROM payroll WHERE month = $1 AND year = $2 AND LOWER(status) = 'paid'", [month, year]);
   const payrollProcessed = parseInt(processedRes.rows[0].count);
 
   const totalLeavesRes = await client.query(
     `SELECT COALESCE(SUM(amount), 0) as val FROM leave_requests 
-     WHERE status = 'approved' AND start_date >= $1 AND end_date <= $2`,
+     WHERE LOWER(status) = 'approved' AND start_date >= $1 AND end_date <= $2`,
     [monthStart, monthEnd]
   );
   const totalLeaveDaysTaken = parseFloat(totalLeavesRes.rows[0].val);
@@ -325,7 +325,7 @@ router.get('/preview', requireAccounting, async (req, res) => {
          LEAST(end_date::date, $2::date) - GREATEST(start_date::date, $1::date) + 1
        ), 0) AS total_days
        FROM leave_requests
-       WHERE status = 'approved'
+       WHERE LOWER(status) = 'approved'
          AND NOT (end_date < $1 OR start_date > $2)`,
       [monthStartLv, monthEndLv]
     );
@@ -551,7 +551,7 @@ async function executeMonthCloseInternal(month, year, closedByUserId = null, clo
     // 5. Soft-blocker auditing
     // Check if payroll had any pending employees
     const payrollProcessedRes = await client.query(
-      "SELECT user_id FROM payroll WHERE month = $1 AND year = $2 AND status = 'paid'",
+      "SELECT user_id FROM payroll WHERE month = $1 AND year = $2 AND LOWER(status) = 'paid'",
       [month, year]
     );
     const processedIds = new Set(payrollProcessedRes.rows.map(r => r.user_id));
