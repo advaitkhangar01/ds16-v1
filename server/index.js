@@ -125,7 +125,42 @@ const fs = require('fs');
 if (!fs.existsSync(uploadsPath)) fs.mkdirSync(uploadsPath, { recursive: true });
 if (!fs.existsSync(projectsUploadsPath)) fs.mkdirSync(projectsUploadsPath, { recursive: true });
 
-app.use('/uploads', express.static(uploadsPath));
+const { authenticate } = require('./middleware/auth');
+
+// Secure media delivery with authentication, traversal prevention, and safe headers
+app.use('/uploads', authenticate, (req, res) => {
+  let relativePath = '';
+  try {
+    relativePath = decodeURIComponent(req.path);
+  } catch {
+    relativePath = req.path;
+  }
+
+  const safeRelativePath = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
+  const resolvedPath = path.resolve(uploadsPath, '.' + safeRelativePath);
+
+  if (!resolvedPath.startsWith(uploadsPath + path.sep) && resolvedPath !== uploadsPath) {
+    return res.status(403).json({ error: 'Access denied: invalid file path' });
+  }
+
+  if (!fs.existsSync(resolvedPath) || fs.statSync(resolvedPath).isDirectory()) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  const ext = path.extname(resolvedPath).toLowerCase();
+  const filename = path.basename(resolvedPath);
+
+  // Force download for executable or script-bearing file formats (HTML, SVG, XML)
+  if (['.svg', '.html', '.htm', '.xml'].includes(ext)) {
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  } else {
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+  }
+
+  return res.sendFile(resolvedPath);
+});
 app.use(express.static(clientDistPath));
 
 // Catch-all route to serve React app for non-API requests

@@ -11,15 +11,58 @@ if (!JWT_SECRET && process.env.NODE_ENV === 'production') {
 const ACTUAL_SECRET = JWT_SECRET || 'ds16_fallback_secret_change_in_production';
 
 /**
- * Attach user to req.user from Bearer token
+ * Parse raw Cookie header string into key-value map
+ */
+const parseCookies = (cookieHeader) => {
+  const list = {};
+  if (!cookieHeader) return list;
+  cookieHeader.split(';').forEach((cookie) => {
+    let [name, ...rest] = cookie.split('=');
+    name = name?.trim();
+    if (!name) return;
+    const value = rest.join('=').trim();
+    if (!value) return;
+    try {
+      list[name] = decodeURIComponent(value);
+    } catch {
+      list[name] = value;
+    }
+  });
+  return list;
+};
+
+/**
+ * Extract token from Authorization header, HTTP-only cookie, or query parameter
+ */
+const extractToken = (req) => {
+  // 1. Authorization header (Bearer token)
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7);
+  }
+  // 2. HTTP-only cookie (for browser media elements like <img>, <a>, PDF previews)
+  if (req.headers.cookie) {
+    const cookies = parseCookies(req.headers.cookie);
+    if (cookies.ds16_token) {
+      return cookies.ds16_token;
+    }
+  }
+  // 3. Query parameter fallback (for direct browser file requests/downloads)
+  if (req.query && req.query.token) {
+    return req.query.token;
+  }
+  return null;
+};
+
+/**
+ * Attach user to req.user from Bearer token, HTTP-only cookie, or query token
  */
 const authenticate = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = extractToken(req);
+    if (!token) {
       return res.status(401).json({ error: 'No token provided' });
     }
-    const token = authHeader.slice(7);
     const decoded = jwt.verify(token, ACTUAL_SECRET);
 
     const { rows } = await pool.query(
@@ -80,4 +123,4 @@ const signToken = (userId) => {
   return jwt.sign({ userId }, ACTUAL_SECRET, { expiresIn: '7d' });
 };
 
-module.exports = { authenticate, requireAdmin, requireAccounting, canViewFinancials, signToken };
+module.exports = { authenticate, requireAdmin, requireAccounting, canViewFinancials, signToken, parseCookies, extractToken };

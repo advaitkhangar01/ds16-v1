@@ -114,7 +114,7 @@ echo "✓ All server files syntax-OK"
 echo "🏗️ Step 4/6: Building React client..."
 cd "${APP_DIR}/client"
 npm install --silent
-npm run build
+NODE_OPTIONS="--max-old-space-size=4096" npm run build
 cd "$APP_DIR"
 echo "✓ Frontend build complete"
 

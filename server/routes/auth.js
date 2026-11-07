@@ -1,5 +1,5 @@
 // server/routes/auth.js
-// POST /api/auth/login
+// POST /api/auth/login, POST /api/auth/logout, GET /api/auth/users
 
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
@@ -34,6 +34,16 @@ router.post('/login', async (req, res) => {
     }
 
     const token = signToken(user.id);
+    const isProd = process.env.NODE_ENV === 'production';
+
+    // Set HTTP-only cookie for secure media and file authorization
+    res.cookie('ds16_token', token, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/',
+    });
 
     res.json({
       token,
@@ -50,6 +60,12 @@ router.post('/login', async (req, res) => {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// POST /api/auth/logout - Clear HTTP-only session cookie
+router.post('/logout', (req, res) => {
+  res.clearCookie('ds16_token', { path: '/' });
+  res.json({ message: 'Logged out successfully' });
 });
 
 // GET /api/auth/users

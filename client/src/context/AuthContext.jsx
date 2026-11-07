@@ -38,6 +38,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(() => {
+    api.post('/auth/logout').catch(() => {});
     localStorage.removeItem('ds16_token');
     localStorage.removeItem('ds16_user');
     setToken(null);
