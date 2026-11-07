@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
+import ErrorBoundary from './components/ui/ErrorBoundary';
 
 // Pages - Lazy loaded
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -46,7 +47,7 @@ function ProtectedRoute({ children, adminOnly = false, allowAccounts = false }) 
     return <Navigate to="/employee/dashboard" replace />;
   }
   
-  return children;
+  return <ErrorBoundary>{children}</ErrorBoundary>;
 }
 
 function RoleRouter() {
@@ -74,8 +75,9 @@ function LoadingScreen() {
 
 function AppRoutes() {
   return (
-    <Suspense fallback={<LoadingScreen />}>
-      <Routes>
+    <ErrorBoundary>
+      <Suspense fallback={<LoadingScreen />}>
+        <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<RoleRouter />} />
 
@@ -145,6 +147,7 @@ function AppRoutes() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
+    </ErrorBoundary>
   );
 }
 

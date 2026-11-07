@@ -2,12 +2,13 @@
 # ==============================================================================
 # deploy.sh — Safe VPS Deployment for DS16 on Hostinger Ubuntu 24.04
 # Features:
-#   1. Automatic Pre-Deployment PostgreSQL Backup (Zero-Data-Loss)
-#   2. Idempotent, Tracked Database Migrations (schema_migrations)
-#   3. Linux Syntax Validation (node --check)
-#   4. Optimized Frontend Production Build (Chunk Splitting)
-#   5. Zero-Downtime PM2 Graceful Reload
-#   6. Post-Deployment Health Probe & Verification
+#   1. Automatic Pre-Deployment PostgreSQL Backup (Zero-Data-Loss with Hard Abort)
+#   2. Backup of /uploads directory and server/.env configuration
+#   3. Idempotent, Tracked Database Migrations (schema_migrations)
+#   4. Linux Syntax Validation (node --check)
+#   5. Optimized Frontend Production Build (Chunk Splitting)
+#   6. Zero-Downtime PM2 Graceful Reload
+#   7. Post-Deployment Health Probe & Verification
 # Usage:
 #   git pull origin main
 #   bash deploy.sh
@@ -28,25 +29,57 @@ echo "Timestamp: ${TIMESTAMP}"
 echo "Location:  ${APP_DIR}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# 1. Pre-deployment Database Snapshot
-echo "📦 Step 1/6: Creating pre-deployment database backup..."
-if command -v pg_dump > /dev/null 2>&1; then
-    if [ -f "${APP_DIR}/server/.env" ]; then
-        DB_URL=$(grep '^DATABASE_URL=' "${APP_DIR}/server/.env" | cut -d '=' -f2-)
-        if [ -n "$DB_URL" ]; then
-            pg_dump "$DB_URL" > "$BACKUP_FILE" 2>/dev/null || sudo -u postgres pg_dump ds16 > "$BACKUP_FILE" 2>/dev/null || echo "⚠️ Notice: pg_dump via URL failed, falling back..."
-        fi
-    fi
-    if [ -s "$BACKUP_FILE" ]; then
-        echo "✅ Pre-deploy DB snapshot saved to: ${BACKUP_FILE}"
-        # Prune snapshots older than 30 days to prevent disk exhaustion
-        find "$BACKUP_DIR" -type f -name "ds16_pre_deploy_*.sql" -mtime +30 -delete 2>/dev/null || true
-    else
-        echo "⚠️ Warning: Snapshot file empty or skipped, continuing carefully..."
-    fi
-else
-    echo "ℹ️ pg_dump not found in PATH, skipping local snapshot."
+# 1. Pre-deployment Database Snapshot & Asset Archive (Failsafe)
+echo "📦 Step 1/6: Creating pre-deployment database backup and asset snapshot..."
+if ! command -v pg_dump > /dev/null 2>&1; then
+    echo "❌ FATAL: pg_dump command not found in PATH! Aborting deployment to prevent unbacked changes."
+    exit 1
 fi
+
+if [ ! -f "${APP_DIR}/server/.env" ]; then
+    echo "❌ FATAL: server/.env configuration file missing! Aborting deployment."
+    exit 1
+fi
+
+DB_URL=$(grep -E '^DATABASE_URL=' "${APP_DIR}/server/.env" | cut -d '=' -f2- | tr -d '\r' | tr -d ' ' || true)
+if [ -z "$DB_URL" ]; then
+    echo "❌ FATAL: DATABASE_URL not found in server/.env! Aborting deployment."
+    exit 1
+fi
+
+# Execute pg_dump - do not suppress errors
+if ! pg_dump "$DB_URL" > "$BACKUP_FILE" 2>/dev/null; then
+    echo "⚠️ Notice: pg_dump via URL direct failed, trying fallback via postgres system user..."
+    if ! sudo -u postgres pg_dump ds16 > "$BACKUP_FILE" 2>/dev/null; then
+        echo "❌ FATAL: Database backup failed! Deployment aborted. Live data remains untouched."
+        exit 1
+    fi
+fi
+
+# Verify backup file existence and minimum size (must be at least 1 KB)
+if [ ! -f "$BACKUP_FILE" ] || [ $(wc -c < "$BACKUP_FILE") -lt 1000 ]; then
+    echo "❌ FATAL: Snapshot file is missing or suspiciously small (<1KB). Aborting deployment for safety."
+    rm -f "$BACKUP_FILE"
+    exit 1
+fi
+
+echo "✅ Pre-deploy DB snapshot successfully verified: ${BACKUP_FILE} ($(du -h "$BACKUP_FILE" | cut -f1))"
+
+# Backup server/.env and /uploads directory
+ENV_BACKUP="${BACKUP_DIR}/ds16_env_${TIMESTAMP}.env"
+UPLOADS_BACKUP="${BACKUP_DIR}/ds16_uploads_${TIMESTAMP}.tar.gz"
+cp "${APP_DIR}/server/.env" "$ENV_BACKUP" 2>/dev/null || true
+if [ -d "${APP_DIR}/server/uploads" ]; then
+    tar -czf "$UPLOADS_BACKUP" -C "${APP_DIR}/server" uploads 2>/dev/null || true
+fi
+
+# Restrict permissions on backup files (owner read-only)
+chmod 600 "${BACKUP_DIR}"/* 2>/dev/null || true
+
+# Prune snapshots older than 30 days to prevent disk exhaustion
+find "$BACKUP_DIR" -type f -name "ds16_pre_deploy_*.sql" -mtime +30 -delete 2>/dev/null || true
+find "$BACKUP_DIR" -type f -name "ds16_uploads_*.tar.gz" -mtime +30 -delete 2>/dev/null || true
+find "$BACKUP_DIR" -type f -name "ds16_env_*.env" -mtime +30 -delete 2>/dev/null || true
 
 # 2. Server Dependencies & Database Migrations
 echo "🗄️ Step 2/6: Installing backend dependencies and running migrations..."

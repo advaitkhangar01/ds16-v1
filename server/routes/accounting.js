@@ -5,11 +5,17 @@ const { authenticate, requireAdmin, requireAccounting } = require('../middleware
 const checkPeriodLock = require('../middleware/periodLock');
 const { calculatePayrollForEmployee, calculateHourlyRate } = require('../utils/payroll');
 const { logAudit } = require('../utils/auditLogger');
+const {
+  ALLOWED_EXTENSIONS_FLAT,
+  ALLOWED_MIME_TYPES,
+  BLOCKED_EXTENSIONS,
+  FILE_SIZE_LIMITS
+} = require('../utils/constants');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Configure Multer for receipts
+// Configure Multer for receipts with strict extension, MIME, and size caps
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = path.join(__dirname, '..', 'uploads', 'expenses');
@@ -18,10 +24,32 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'receipt-' + uniqueSuffix + path.extname(file.originalname));
+    const safeExt = path.extname(file.originalname).toLowerCase();
+    cb(null, 'receipt-' + uniqueSuffix + safeExt);
   }
 });
-const upload = multer({ storage });
+
+function fileFilter(req, file, cb) {
+  const ext = path.extname(file.originalname).toLowerCase();
+  const mime = file.mimetype;
+
+  if (BLOCKED_EXTENSIONS.includes(ext)) {
+    return cb(new Error(`Blocked file type: ${ext} files are not permitted`), false);
+  }
+  if (!ALLOWED_EXTENSIONS_FLAT.includes(ext)) {
+    return cb(new Error(`Unsupported file type: ${ext} - please upload an allowed format`), false);
+  }
+  if (!ALLOWED_MIME_TYPES.has(mime)) {
+    return cb(new Error(`Invalid MIME type (${mime}) for file: ${file.originalname}`), false);
+  }
+  cb(null, true);
+}
+
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: FILE_SIZE_LIMITS.pdf || 50 * 1024 * 1024 }
+});
 
 // All accounting routes require authentication and admin or accounts privileges
 router.use(authenticate);
