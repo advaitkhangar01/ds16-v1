@@ -53,8 +53,14 @@ async function checkPeriodLock(req, res, next) {
     } else {
       let dateStr = req.body?.date || req.query?.date || req.body?.payment_date;
       
-      // If it's a DELETE operation, query the date from the DB by ID
-      if (!dateStr && req.params.id) {
+      const isInvoicePaymentAction = req.originalUrl.includes('record-payment') || 
+                                     req.originalUrl.includes('mark-paid');
+
+      if (isInvoicePaymentAction) {
+        // Cash collection: The period to lock-check is the payment arrival date, NOT the past bill issuance date
+        dateStr = req.body?.payment_date || req.body?.date || new Date();
+      } else if (!dateStr && req.params.id) {
+        // Deleting or modifying an existing record: query the date from the DB by ID
         const id = parseInt(req.params.id, 10);
         if (!isNaN(id)) {
           if (req.originalUrl.includes('transactions')) {

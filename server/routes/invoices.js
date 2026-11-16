@@ -690,7 +690,7 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, checkPeriodLock, 
         `Invoice ${invoice.invoice_no} - ${invoice.client_name} (Balance Payment)`,
         invoice.project_id,
         invoice.invoice_no,
-        new Date(),
+        req.body?.payment_date || req.body?.date || new Date(),
         req.user.id
       ]
     );
@@ -795,7 +795,7 @@ router.post('/:id/record-payment', authenticate, requireAccounting, checkPeriodL
         `Invoice ${invoice.invoice_no} - ${invoice.client_name} (Partial Payment)`,
         invoice.project_id,
         invoice.invoice_no,
-        new Date(),
+        req.body?.payment_date || req.body?.date || new Date(),
         req.user.id
       ]
     );

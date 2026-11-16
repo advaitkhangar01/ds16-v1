@@ -362,4 +362,83 @@ describe('Monthly Close & Period Lock Subsystem Integration Tests', () => {
       expect(parseFloat(payrollRows[0].net_paid)).toBeGreaterThan(0);
     });
   });
+
+  describe('6. Cross-Period Invoice Payment & Period Lock Isolation', () => {
+    let closedInvoice;
+
+    beforeAll(async () => {
+      // 1. Ensure testMonth (January 2025) is closed
+      await pool.query('DELETE FROM period_unlock_log WHERE month = $1 AND year = $2', [testMonth, testYear]);
+      await pool.query('DELETE FROM monthly_closing_log WHERE month = $1 AND year = $2', [testMonth, testYear]);
+      await pool.query(
+        `INSERT INTO monthly_closing_log (month, year, closed_by, closed_at, snapshot)
+         VALUES ($1, $2, $3, NOW(), '{}'::jsonb)`,
+        [testMonth, testYear, adminUser.id]
+      );
+
+      // 2. Create an invoice billed inside the closed period (January 2025)
+      const invNo = `INV-TEST-${Date.now()}`;
+      const { rows } = await pool.query(
+        `INSERT INTO invoices (invoice_no, project_id, client_name, amount, received_amount, status, date, items, created_by)
+         VALUES ($1, $2, 'Test Cross Period Client', 25000, 0, 'generated', $3, '[]'::jsonb, $4)
+         RETURNING *`,
+        [invNo, dummyProject.id, testDate, adminUser.id]
+      );
+      closedInvoice = rows[0];
+    });
+
+    afterAll(async () => {
+      if (closedInvoice) {
+        await pool.query('DELETE FROM transactions WHERE reference_id = $1', [closedInvoice.invoice_no]);
+        await pool.query('DELETE FROM invoices WHERE id = $1', [closedInvoice.id]);
+      }
+    });
+
+    it('should block backdated payment recording if payment_date is inside the closed period', async () => {
+      const res = await request(app)
+        .post(`/api/invoices/${closedInvoice.id}/record-payment`)
+        .set('Authorization', `Bearer ${adminUser.token}`)
+        .send({
+          amount: 10000,
+          payment_date: '2025-01-20' // January 2025 is closed
+        });
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body.code).toBe('PERIOD_LOCKED');
+    });
+
+    it('should allow payment recording when payment arrives in an open period (e.g. current/open month)', async () => {
+      // Open period date (e.g. current date or non-closed month like 2025-02-15)
+      const openDate = '2025-02-15';
+      const res = await request(app)
+        .post(`/api/invoices/${closedInvoice.id}/record-payment`)
+        .set('Authorization', `Bearer ${adminUser.token}`)
+        .send({
+          amount: 25000,
+          payment_date: openDate
+        });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.invoice.status).toBe('paid');
+      expect(parseFloat(res.body.invoice.received_amount)).toBe(25000);
+
+      // Verify transaction was recorded with open date, NOT the closed January date
+      const { rows: txnRows } = await pool.query(
+        'SELECT * FROM transactions WHERE reference_id = $1',
+        [closedInvoice.invoice_no]
+      );
+      expect(txnRows.length).toBe(1);
+      expect(parseFloat(txnRows[0].amount)).toBe(25000);
+      expect(txnRows[0].type).toBe('income');
+    });
+
+    it('should still block deleting or modifying the invoice because its original issue date is in a closed month', async () => {
+      const res = await request(app)
+        .delete(`/api/invoices/${closedInvoice.id}`)
+        .set('Authorization', `Bearer ${adminUser.token}`);
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body.code).toBe('PERIOD_LOCKED');
+    });
+  });
 });

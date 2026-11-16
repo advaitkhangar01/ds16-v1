@@ -7,6 +7,15 @@ export default function RecordPaymentModal({ invoice, onClose, onSave }) {
   const [amount, setAmount] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const getTodayDate = () => {
+    const now = new Date();
+    const tzOffsetMs = 5.5 * 60 * 60 * 1000;
+    const local = new Date(now.getTime() + tzOffsetMs);
+    return local.toISOString().split('T')[0];
+  };
+
+  const [paymentDate, setPaymentDate] = useState(getTodayDate());
+
   const totalAmount = parseFloat(invoice.amount || 0);
   const alreadyReceived = parseFloat(invoice.received_amount || 0);
   const tdsAmount = parseFloat(invoice.tax_details?.tdsAmount || 0);
@@ -33,7 +42,10 @@ export default function RecordPaymentModal({ invoice, onClose, onSave }) {
 
     setSaving(true);
     try {
-      const { data } = await api.post(`/invoices/${invoice.id}/record-payment`, { amount: paymentVal });
+      const { data } = await api.post(`/invoices/${invoice.id}/record-payment`, { 
+        amount: paymentVal,
+        payment_date: paymentDate
+      });
       toast.success(data.message || 'Payment recorded successfully!');
       if (onSave) onSave();
       onClose();
@@ -99,6 +111,19 @@ export default function RecordPaymentModal({ invoice, onClose, onSave }) {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
+              Payment Date
+            </label>
+            <input
+              type="date"
+              required
+              className="input w-full font-mono text-xs"
+              value={paymentDate}
+              onChange={(e) => setPaymentDate(e.target.value)}
+            />
+          </div>
+
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
               Payment Amount (₹)
