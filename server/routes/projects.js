@@ -6,9 +6,15 @@ const pool = require('../db');
 const { authenticate, requireAdmin, requireAccounting } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
 const { createNotification } = require('../utils/notifier');
+const timelineRoutes = require('./timeline');
+const feasibilityRoutes = require('./feasibility');
 
 // Default stages
 const DEFAULT_STAGES = ['Proposal', 'Design', 'Submission', 'Working', 'Execution'];
+
+// Submodules for Project Timeline and Area & Financial Feasibility
+router.use('/:projectId/timeline', timelineRoutes);
+router.use('/:projectId/feasibility', feasibilityRoutes);
 
 // POST /api/projects
 router.post('/', authenticate, async (req, res) => {

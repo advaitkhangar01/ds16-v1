@@ -17,6 +17,8 @@ import PaymentStagesTab from '../components/projects/PaymentStagesTab';
 import VendorsTab from '../components/projects/VendorsTab';
 import ProjectFinancesTab from '../components/projects/ProjectFinancesTab';
 import InvoiceHistoryTab from '../components/projects/InvoiceHistoryTab';
+import ProjectTimelineTab from '../components/projects/timeline/ProjectTimelineTab';
+import AreaFeasibilityTab from '../components/projects/feasibility/AreaFeasibilityTab';
 
 const STAGE_STATUS = {
   pending: { label: 'Pending', cls: 'badge-absent' },
@@ -61,7 +63,10 @@ export default function ProjectDetail() {
     if (!isAdmin && !isAccounts && ['payments', 'finances', 'invoices'].includes(activeTab)) {
       setActiveTab('overview');
     }
-  }, [isAdmin, isAccounts, activeTab]);
+    if (!isPrivileged && activeTab === 'feasibility') {
+      setActiveTab('overview');
+    }
+  }, [isAdmin, isAccounts, isPrivileged, activeTab]);
   const [showChangeClientModal, setShowChangeClientModal] = useState(false);
   const [showStakeholderModal, setShowStakeholderModal] = useState(false);
   const [editingStakeholder, setEditingStakeholder] = useState(null);
@@ -269,6 +274,8 @@ export default function ProjectDetail() {
             { id: 'overview', label: 'Overview' },
             { id: 'client', label: 'Client & Contacts', count: stakeholders.length },
             { id: 'tasks', label: 'Tasks', count: tasks.length },
+            { id: 'timeline', label: 'Project Timeline' },
+            (isPrivileged || isAdmin || isAccounts) && { id: 'feasibility', label: 'Area & Financial Feasibility' },
             { id: 'documents', label: 'Documents' },
             (isAdmin || isAccounts) && { id: 'payments', label: 'Payment Stages' },
             (isAdmin || isAccounts) && { id: 'finances', label: 'Accounts' },
@@ -630,6 +637,23 @@ export default function ProjectDetail() {
           </div>
         )}
 
+        {activeTab === 'timeline' && (
+          <ProjectTimelineTab
+            projectId={id}
+            user={user}
+            isAdmin={isAdmin}
+            isManagement={isPrivileged || user?.role === 'civil_engineer'}
+          />
+        )}
+        {(isPrivileged || isAdmin || isAccounts) && activeTab === 'feasibility' && (
+          <AreaFeasibilityTab
+            projectId={id}
+            user={user}
+            isAdmin={isAdmin}
+            isAccounts={isAccounts}
+            isPrivileged={isPrivileged}
+          />
+        )}
         {activeTab === 'documents' && <DocumentsTab projectId={id} currentUser={user} />}
         {(isAdmin || isAccounts) && activeTab === 'payments' && <PaymentStagesTab projectId={id} project={project} />}
         {(isAdmin || isAccounts) && activeTab === 'finances' && <ProjectFinancesTab projectId={id} />}
