@@ -4,6 +4,14 @@ import { Plus, Trash2, Building2, Calculator, Layers, RefreshCw, Car } from 'luc
 
 const ROAD_WIDTHS = [9, 12, 15, 18, 24];
 
+const ROAD_WIDTH_TDR_MAP = {
+  9: { regular: 0.40, slum: 0.20 },
+  12: { regular: 0.65, slum: 0.325 },
+  15: { regular: 0.80, slum: 0.40 },
+  18: { regular: 0.90, slum: 0.45 },
+  24: { regular: 1.10, slum: 0.50 }
+};
+
 export default function AreaStatementForm({
   statement,
   floors,
@@ -12,61 +20,38 @@ export default function AreaStatementForm({
   onUpdateFloor,
   onDeleteFloor,
   unitDisplay,
-  isPrivileged
+  isPrivileged,
+  isAddingFloor = false
 }) {
   const isSqft = unitDisplay === 'sq_ft';
   const unitLabel = isSqft ? 'sq ft' : 'sq m';
 
-  // Road-width & Gunthewari rate helper
+  // Road-width & Dual TDR helper (Regular + Slum TDR concurrently loaded)
   const roadWidth = parseFloat(statement.road_width_m);
-  const isGunthewari = Boolean(statement.is_gunthewari);
   let resolvedTdrBadge = null;
-  if (!isNaN(roadWidth) && [9, 12, 15, 18, 24].includes(roadWidth)) {
-    const rateMap = {
-      9: { regular: 0.40, gunthewari: 0.20 },
-      12: { regular: 0.65, gunthewari: 0.325 },
-      15: { regular: 0.80, gunthewari: 0.40 },
-      18: { regular: 0.90, gunthewari: 0.45 },
-      24: { regular: 1.10, gunthewari: 0.50 }
-    };
-    const rate = isGunthewari ? rateMap[roadWidth].gunthewari : rateMap[roadWidth].regular;
-    resolvedTdrBadge = `${rate} (${isGunthewari ? 'Gunthewari' : 'Regular'} @ ${roadWidth}m)`;
+  if (!isNaN(roadWidth) && ROAD_WIDTH_TDR_MAP[roadWidth]) {
+    const rates = ROAD_WIDTH_TDR_MAP[roadWidth];
+    resolvedTdrBadge = `Regular TDR: ${rates.regular} | Slum TDR: ${rates.slum} (@ ${roadWidth}m road)`;
   }
 
   const handleRoadWidthChange = (val) => {
     const parsed = val ? parseFloat(val) : null;
-    const rateMap = {
-      9: { regular: 0.40, gunthewari: 0.20 },
-      12: { regular: 0.65, gunthewari: 0.325 },
-      15: { regular: 0.80, gunthewari: 0.40 },
-      18: { regular: 0.90, gunthewari: 0.45 },
-      24: { regular: 1.10, gunthewari: 0.50 }
-    };
-    let newRegularTdr = statement.regular_tdr_factor;
-    if (parsed && rateMap[parsed]) {
-      newRegularTdr = isGunthewari ? rateMap[parsed].gunthewari : rateMap[parsed].regular;
+    let newRegularTdr = 0;
+    let newSlumTdr = 0;
+    if (parsed && ROAD_WIDTH_TDR_MAP[parsed]) {
+      newRegularTdr = ROAD_WIDTH_TDR_MAP[parsed].regular;
+      newSlumTdr = ROAD_WIDTH_TDR_MAP[parsed].slum;
     }
     onUpdateStatement({
       road_width_m: parsed,
-      regular_tdr_factor: newRegularTdr
+      regular_tdr_factor: newRegularTdr,
+      slum_tdr_factor: newSlumTdr
     });
   };
 
   const handleGunthewariToggle = (gunthewariVal) => {
-    const rateMap = {
-      9: { regular: 0.40, gunthewari: 0.20 },
-      12: { regular: 0.65, gunthewari: 0.325 },
-      15: { regular: 0.80, gunthewari: 0.40 },
-      18: { regular: 0.90, gunthewari: 0.45 },
-      24: { regular: 1.10, gunthewari: 0.50 }
-    };
-    let newRegularTdr = statement.regular_tdr_factor;
-    if (roadWidth && rateMap[roadWidth]) {
-      newRegularTdr = gunthewariVal ? rateMap[roadWidth].gunthewari : rateMap[roadWidth].regular;
-    }
     onUpdateStatement({
-      is_gunthewari: gunthewariVal,
-      regular_tdr_factor: newRegularTdr
+      is_gunthewari: gunthewariVal
     });
   };
 
@@ -101,64 +86,28 @@ export default function AreaStatementForm({
 
   return (
     <div className="space-y-6">
-      {/* 1. Base Plot Dimensions */}
+      {/* 1. Base Plot Dimensions — Plot Area (sq m) is the single retained baseline input */}
       <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
         <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
           <Building2 size={14} className="text-[#E05A1E]" />
           Plot & Survey Baseline Inputs
         </h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-600">Plot Area ({unitLabel})</label>
-            <input
-              type="number"
-              step="0.01"
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-              value={statement.plot_area_sqm || ''}
-              onChange={(e) => onUpdateStatement({ plot_area_sqm: e.target.value })}
-              disabled={!isPrivileged}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-600">D.P. Road / Reservation Deductions ({unitLabel})</label>
-            <input
-              type="number"
-              step="0.01"
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-              value={statement.dp_deductions_sqm || 0}
-              onChange={(e) => onUpdateStatement({ dp_deductions_sqm: e.target.value })}
-              disabled={!isPrivileged}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-600">Existing Built-up Area Deduction ({unitLabel})</label>
-            <input
-              type="number"
-              step="0.01"
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-              value={statement.existing_builtup_area_sqm || 0}
-              onChange={(e) => onUpdateStatement({ existing_builtup_area_sqm: e.target.value })}
-              disabled={!isPrivileged}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-600">Margin / Setback Requirement (m)</label>
-            <input
-              type="number"
-              step="0.01"
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-              value={statement.margin_meters || 0}
-              onChange={(e) => onUpdateStatement({ margin_meters: e.target.value })}
-              disabled={!isPrivileged}
-            />
-          </div>
+        <div className="max-w-sm space-y-1">
+          <label className="text-[11px] font-semibold text-slate-700">Plot Area ({unitLabel})</label>
+          <input
+            type="number"
+            step="0.01"
+            placeholder="e.g. 500"
+            className="w-full text-xs bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 font-bold focus:outline-none focus:border-[#E05A1E] shadow-2xs"
+            value={statement.plot_area_sqm || ''}
+            onChange={(e) => onUpdateStatement({ plot_area_sqm: e.target.value })}
+            disabled={!isPrivileged}
+          />
+          <p className="text-[10px] text-muted">Primary baseline for all FSI potential and permissible area calculations</p>
         </div>
       </div>
 
-      {/* 2. Building Use, Road Width & Gunthewari Classification */}
+      {/* 2. Building Use, Road Width & Plot Classification */}
       <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
         <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
           <Building2 size={14} className="text-[#E05A1E]" />
@@ -194,7 +143,7 @@ export default function AreaStatementForm({
               <option value="gunthewari">Gunthewari Scheme Plot</option>
             </select>
             <span className="text-[10px] text-muted">
-              {statement.is_gunthewari ? 'Gunthewari TDR rates active' : 'Standard Regular TDR rates active'}
+              {statement.is_gunthewari ? 'Gunthewari status active' : 'Regular Development plot active'}
             </span>
           </div>
 
@@ -213,14 +162,14 @@ export default function AreaStatementForm({
             </select>
             {resolvedTdrBadge && (
               <span className="text-[10px] text-[#E05A1E] font-medium block">
-                ★ TDR: {resolvedTdrBadge}
+                ★ {resolvedTdrBadge}
               </span>
             )}
           </div>
         </div>
       </div>
 
-      {/* 3. Regulatory & FSI Factors (Dual TDR) */}
+      {/* 3. Regulatory & FSI Factors (Dual TDR Automatically Derived) */}
       <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
         <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center justify-between">
           <span className="flex items-center gap-1.5">
@@ -257,29 +206,23 @@ export default function AreaStatementForm({
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] font-semibold text-slate-600">Regular TDR Factor</label>
-            <input
-              type="number"
-              step="0.001"
-              placeholder="e.g. 0.40"
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-              value={statement.regular_tdr_factor ?? ''}
-              onChange={(e) => onUpdateStatement({ regular_tdr_factor: e.target.value })}
-              disabled={!isPrivileged}
-            />
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-semibold text-slate-600">Regular TDR Factor</label>
+              <span className="text-[9px] text-[#E05A1E] font-medium">Derived</span>
+            </div>
+            <div className="w-full text-xs bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 font-bold font-mono">
+              {regTdr.toFixed(3)}
+            </div>
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] font-semibold text-slate-600">Slum TDR Factor</label>
-            <input
-              type="number"
-              step="0.001"
-              placeholder="e.g. 0.20"
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-              value={statement.slum_tdr_factor ?? ''}
-              onChange={(e) => onUpdateStatement({ slum_tdr_factor: e.target.value })}
-              disabled={!isPrivileged}
-            />
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-semibold text-slate-600">Slum TDR Factor</label>
+              <span className="text-[9px] text-[#E05A1E] font-medium">Derived</span>
+            </div>
+            <div className="w-full text-xs bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 font-bold font-mono">
+              {slumTdr.toFixed(3)}
+            </div>
           </div>
         </div>
       </div>
@@ -300,10 +243,11 @@ export default function AreaStatementForm({
             <button
               type="button"
               onClick={onAddFloor}
-              className="btn-primary text-xs py-1 px-2.5"
+              disabled={isAddingFloor}
+              className={`btn-primary text-xs py-1 px-2.5 flex items-center gap-1.5 ${isAddingFloor ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
               <Plus size={13} />
-              Add Floor
+              {isAddingFloor ? 'Adding Floor...' : 'Add Floor'}
             </button>
           )}
         </div>

@@ -29,6 +29,7 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [isAddingFloor, setIsAddingFloor] = useState(false);
 
   // Fetch feasibility bundle
   const fetchData = useCallback(async () => {
@@ -148,7 +149,8 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
     // Live financial recalculation
     const rr = parseFloat(fin.rr_rate_per_sqm) || 0;
     const effectivePline = floorPlineSum > 0 ? floorPlineSum : proposedPline;
-    const costConst = effectivePline * (parseFloat(fin.cost_of_construction_rate) || 0);
+    const constRate = parseFloat(fin.cost_of_construction_rate) || parseFloat(fin.estimated_cost_b_rate) || 0;
+    const costConst = effectivePline * constRate;
     const costTdr = totalTdr * (parseFloat(fin.tdr_purchase_factor) || 0.55) * rr;
     const plotCost = parseFloat(fin.cost_of_plot) || (plotable * (parseFloat(fin.cost_of_plot_rate_per_sqm) || 0));
     const basementCost = (parseFloat(fin.basement_area_sqm) || 0) * (parseFloat(fin.basement_rate_per_sqm) || 0);
@@ -165,13 +167,31 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
 
     const totalCost = statSum + costTdr + minorNoc + costConst + basementCost + rentCost + parkingCost + plotCost;
 
-    let receiptsSum = 0;
-    u.forEach(un => {
-      const c = parseFloat(un.carpet_area_sqm) || 0;
-      const sup = (c * 10.764) + (parseFloat(un.super_buildup_loading_sqft) || 0);
-      const pr = sup * (parseFloat(un.rate_per_sqft) || 0);
-      receiptsSum += pr * (parseInt(un.unit_count, 10) || 1);
+    // Floor-wise receipts calculation
+    let floorReceiptsSum = 0;
+    f.forEach(fl => {
+      const sale = parseFloat(fl.builtup_for_sale_sqm) || 0;
+      const rate = parseFloat(fl.rate_per_sqm) || 0;
+      const units = parseInt(fl.no_of_units, 10) || 0;
+      const cost1Unit = parseFloat(fl.cost_for_1_unit) || (units > 0 ? (sale * rate) / units : 0);
+      if (rate > 0 && sale > 0) {
+        floorReceiptsSum += (sale * rate);
+      } else if (cost1Unit > 0 && units > 0) {
+        floorReceiptsSum += (cost1Unit * units);
+      }
     });
+
+    let receiptsSum = 0;
+    if (floorReceiptsSum > 0) {
+      receiptsSum = floorReceiptsSum;
+    } else {
+      u.forEach(un => {
+        const c = parseFloat(un.carpet_area_sqm) || 0;
+        const sup = (c * 10.764) + (parseFloat(un.super_buildup_loading_sqft) || 0);
+        const pr = sup * (parseFloat(un.rate_per_sqft) || 0);
+        receiptsSum += pr * (parseInt(un.unit_count, 10) || 1);
+      });
+    }
 
     const netProf = receiptsSum - totalCost;
 
@@ -200,10 +220,20 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
   };
 
   const handleAddFloor = async () => {
+    if (isAddingFloor) return;
+    setIsAddingFloor(true);
     try {
+      const nextOrder = floors.length + 1;
+      let defaultName = `Floor ${nextOrder}`;
+      if (nextOrder === 1) defaultName = 'Ground Floor';
+      else if (nextOrder === 2) defaultName = '1st Floor';
+      else if (nextOrder === 3) defaultName = '2nd Floor';
+      else if (nextOrder === 4) defaultName = '3rd Floor';
+      else defaultName = `${nextOrder - 1}th Floor`;
+
       const res = await api.post(`/projects/${projectId}/feasibility/area/floors`, {
-        floor_name: `Floor ${floors.length + 1}`,
-        floor_type: 'HABITABLE',
+        floor_name: defaultName,
+        floor_type: 'habitable',
         height_meters: 3.0,
         pline_area_sqm: 0,
         lobby_area_sqm: 0,
@@ -211,14 +241,19 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
         builtup_for_sale_sqm: 0,
         no_of_units: 1,
         area_for_1_unit: 0,
+        rate_per_sqm: parseFloat(financial.rr_rate_per_sqm) || 0,
+        cost_for_1_unit: 0,
         is_lobby_overridden: false
       });
       const newFloors = [...floors, res.data.floor];
       setFloors(newFloors);
       recalculateLive(statement, newFloors, financial, salableUnits, statutoryCharges);
-      toast.success('Floor added');
-    } catch {
-      toast.error('Failed to add floor');
+      toast.success(`${res.data.floor?.floor_name || 'Floor'} added`);
+    } catch (err) {
+      console.error('Error adding floor:', err);
+      toast.error(err.response?.data?.error || 'Failed to add floor');
+    } finally {
+      setIsAddingFloor(false);
     }
   };
 
@@ -611,21 +646,25 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
                 onDeleteFloor={handleDeleteFloor}
                 unitDisplay={unitDisplay}
                 isPrivileged={isPrivileged}
+                isAddingFloor={isAddingFloor}
               />
             )}
 
             {activeSubSection === 'financial' && (
               <FinancialViabilityForm
                 financial={financial}
-                salableUnits={salableUnits}
+                floors={floors}
                 statutoryCharges={statutoryCharges}
+                salableUnits={salableUnits}
                 onUpdateFinancial={handleUpdateFinancial}
-                onAddSalableUnit={handleAddSalableUnit}
-                onUpdateSalableUnit={handleUpdateSalableUnit}
-                onDeleteSalableUnit={handleDeleteSalableUnit}
+                onUpdateFloor={handleUpdateFloor}
+                onAddFloor={handleAddFloor}
+                onDeleteFloor={handleDeleteFloor}
                 onUpdateStatutoryCharge={handleUpdateStatutoryCharge}
                 onArchiveStatutoryCharge={handleArchiveStatutoryCharge}
+                unitDisplay={unitDisplay}
                 isPrivileged={isPrivileged}
+                isAddingFloor={isAddingFloor}
               />
             )}
           </div>

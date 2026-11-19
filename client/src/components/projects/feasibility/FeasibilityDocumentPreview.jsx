@@ -512,47 +512,70 @@ export default function FeasibilityDocumentPreview({
             {/* SECTION I — SALABLE INVENTORY & REVENUE REALIZATION */}
             <div className="space-y-2">
               <div className="bg-slate-800 text-white px-3.5 py-2 font-bold rounded-t text-xs uppercase tracking-wider flex items-center justify-between">
-                <span>Section I — Salable Inventory & Revenue Realization</span>
-                <span className="text-[10px] text-slate-300 font-normal">Carpet Area + Super Built-up Loading</span>
+                <span>Section I — Floor-wise Salable Inventory & Revenue Realization</span>
+                <span className="text-[10px] text-slate-300 font-normal">Sourced from Table 3 Area Schedule</span>
               </div>
 
               <table className="w-full border-collapse border border-slate-300 text-left text-xs">
                 <thead>
                   <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                    <th className="border border-slate-300 px-3 py-1.5">Unit Description</th>
-                    <th className="border border-slate-300 px-2.5 py-1.5 text-right w-28">Carpet (sq ft)</th>
-                    <th className="border border-slate-300 px-2.5 py-1.5 text-right w-28">Super (sq ft)</th>
-                    <th className="border border-slate-300 px-2.5 py-1.5 text-center w-20">Count</th>
-                    <th className="border border-slate-300 px-2.5 py-1.5 text-right w-28">Rate (₹/sq ft)</th>
+                    <th className="border border-slate-300 px-3 py-1.5">Floor Level</th>
+                    <th className="border border-slate-300 px-2.5 py-1.5 text-center w-16">Units</th>
+                    <th className="border border-slate-300 px-2.5 py-1.5 text-right w-28">Sale Area ({unitLabel})</th>
+                    <th className="border border-slate-300 px-2.5 py-1.5 text-right w-28">Area / Unit</th>
+                    <th className="border border-slate-300 px-2.5 py-1.5 text-right w-28">Price / {unitLabel} (₹)</th>
+                    <th className="border border-slate-300 px-2.5 py-1.5 text-right w-32">Cost / Unit (₹)</th>
                     <th className="border border-slate-300 px-3 py-1.5 text-right w-36">Total Realization (₹)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {salableUnits.length === 0 ? (
+                  {floors.filter(f => f.floor_type !== 'parking' && parseFloat(f.builtup_for_sale_sqm) > 0).length === 0 && salableUnits.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="border border-slate-300 py-8 text-center text-slate-400 italic">
-                        No salable units configured yet. Configure unit inventory in the Financial Viability form.
+                      <td colSpan="7" className="border border-slate-300 py-8 text-center text-slate-400 italic">
+                        No salable floors configured yet. Configure floor saleable areas in Area Statement or Financial Viability.
                       </td>
                     </tr>
+                  ) : floors.filter(f => f.floor_type !== 'parking' && parseFloat(f.builtup_for_sale_sqm) > 0).length > 0 ? (
+                    floors.filter(f => f.floor_type !== 'parking' && parseFloat(f.builtup_for_sale_sqm) > 0).map((fl, idx) => {
+                      const units = parseInt(fl.no_of_units, 10) || 0;
+                      const saleSqm = parseFloat(fl.builtup_for_sale_sqm) || 0;
+                      const area1Unit = units > 0 ? (saleSqm / units) : 0;
+                      const rate = parseFloat(fl.rate_per_sqm) || 0;
+                      const cost1Unit = area1Unit > 0 && rate > 0 ? (area1Unit * rate) : (parseFloat(fl.cost_for_1_unit) || 0);
+                      const realization = rate > 0 ? (saleSqm * rate) : (cost1Unit * units);
+
+                      return (
+                        <tr key={fl.id || idx}>
+                          <td className="border border-slate-300 px-3 py-1 font-medium text-slate-800">{fl.floor_name}</td>
+                          <td className="border border-slate-300 px-2.5 py-1 text-center font-mono font-bold">{units}</td>
+                          <td className="border border-slate-300 px-2.5 py-1 text-right font-mono">{formatNumber(saleSqm * unitFactor)}</td>
+                          <td className="border border-slate-300 px-2.5 py-1 text-right font-mono">{formatNumber(area1Unit * unitFactor)}</td>
+                          <td className="border border-slate-300 px-2.5 py-1 text-right font-mono">{rate > 0 ? formatINR(rate) : '—'}</td>
+                          <td className="border border-slate-300 px-2.5 py-1 text-right font-mono font-semibold text-[#E05A1E]">{formatINR(cost1Unit)}</td>
+                          <td className="border border-slate-300 px-3 py-1 text-right font-mono font-bold text-emerald-800">{formatINR(realization)}</td>
+                        </tr>
+                      );
+                    })
                   ) : (
                     salableUnits.map((u, idx) => (
                       <tr key={idx}>
                         <td className="border border-slate-300 px-3 py-1 font-medium text-slate-800">{u.unit_name}</td>
-                        <td className="border border-slate-300 px-2.5 py-1 text-right font-mono">{formatNumber(u.carpet_area_sqft)}</td>
-                        <td className="border border-slate-300 px-2.5 py-1 text-right font-mono">{formatNumber(u.super_buildup_area_sqft)}</td>
                         <td className="border border-slate-300 px-2.5 py-1 text-center font-mono font-bold">{u.unit_count}</td>
+                        <td className="border border-slate-300 px-2.5 py-1 text-right font-mono">{formatNumber(u.carpet_area_sqft)}</td>
+                        <td className="border border-slate-300 px-2.5 py-1 text-right font-mono">—</td>
                         <td className="border border-slate-300 px-2.5 py-1 text-right font-mono">{formatINR(u.rate_per_sqft)}</td>
+                        <td className="border border-slate-300 px-2.5 py-1 text-right font-mono font-semibold text-[#E05A1E]">{formatINR(u.unit_price)}</td>
                         <td className="border border-slate-300 px-3 py-1 text-right font-mono font-bold text-emerald-800">{formatINR(u.total_amount)}</td>
                       </tr>
                     ))
                   )}
                   <tr className="bg-emerald-50 font-bold border-t-2 border-slate-400">
-                    <td className="border border-slate-300 px-3 py-1.5 text-emerald-950 font-extrabold">GROSS ESTIMATED RECEIPTS</td>
-                    <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono text-emerald-950">{formatNumber(financialMetrics.totalSalableCarpetSqft)}</td>
-                    <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono text-emerald-950">{formatNumber(financialMetrics.totalSalableSuperSqft)}</td>
-                    <td className="border border-slate-300 px-2.5 py-1.5 text-center font-mono text-slate-400">—</td>
-                    <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono text-slate-400">—</td>
-                    <td className="border border-slate-300 px-3 py-1.5 text-right font-mono text-emerald-950 font-extrabold text-sm">{formatINR(financialMetrics.totalReceipts)}</td>
+                    <td className="border border-slate-300 px-3 py-1.5 text-emerald-950 font-extrabold" colSpan="6">
+                      GROSS ESTIMATED REALIZATION / RECEIPTS (SECTION I)
+                    </td>
+                    <td className="border border-slate-300 px-3 py-1.5 text-right font-mono text-emerald-950 font-extrabold text-sm">
+                      {formatINR(financialMetrics.totalReceipts)}
+                    </td>
                   </tr>
                 </tbody>
               </table>
