@@ -450,7 +450,8 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`DS16_Feasibility_${project?.name || 'Report'}.pdf`);
+      const docType = activeSubSection === 'area' ? 'Area_Statement' : 'Financial_Viability';
+      pdf.save(`DS16_${docType}_${project?.name || 'Report'}.pdf`);
       toast.success('Feasibility report exported to PDF');
     } catch (err) {
       console.error('PDF export error:', err);
@@ -643,6 +644,7 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
               areaMetrics={areaMetrics}
               financialMetrics={financialMetrics}
               unitDisplay={unitDisplay}
+              activeSheet={activeSubSection}
             />
           </div>
         </div>

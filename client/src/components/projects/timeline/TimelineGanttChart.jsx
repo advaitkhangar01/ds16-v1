@@ -1,6 +1,6 @@
 // client/src/components/projects/timeline/TimelineGanttChart.jsx
 import React, { useState, useMemo, useRef } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Search, Filter, AlertCircle, Clock, CheckCircle2 } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Search, Filter, AlertCircle, Clock, CheckCircle2, Maximize2, Minimize2 } from 'lucide-react';
 
 const STAGES = [
   'All Stages',
@@ -16,6 +16,7 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
   const [search, setSearch] = useState('');
   const [selectedStage, setSelectedStage] = useState('All Stages');
   const [selectedStatus, setSelectedStatus] = useState('All Statuses');
+  const [isExpanded, setIsExpanded] = useState(false);
   const scrollContainerRef = useRef(null);
 
   // Filter tasks
@@ -123,7 +124,7 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
   };
 
   return (
-    <div className="card space-y-4 p-4">
+    <div className={`card space-y-4 p-4 transition-all ${isExpanded ? 'fixed inset-4 z-50 overflow-auto bg-white shadow-2xl border-2 border-[#E05A1E]/30 rounded-2xl' : ''}`}>
       {/* Controls Bar */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 border-b border-[#F0F0F0] pb-3">
         <div className="flex items-center gap-2 flex-wrap">
@@ -188,21 +189,30 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
             <Calendar size={13} />
             Today
           </button>
+
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            title={isExpanded ? "Exit Expanded View" : "Maximize Gantt Chart"}
+            className="text-xs font-semibold px-2.5 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-900 hover:text-white rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            {isExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            <span className="hidden sm:inline">{isExpanded ? "Collapse" : "Expand"}</span>
+          </button>
         </div>
       </div>
 
       {/* Gantt Container */}
-      <div className="flex border border-[#EBEBEB] rounded-xl overflow-hidden bg-white shadow-soft-sm">
-        {/* Left Task Tree Column */}
-        <div className="w-64 md:w-80 flex-shrink-0 border-r border-[#EBEBEB] bg-slate-50/70 z-10">
-          <div className="h-10 border-b border-[#EBEBEB] px-3.5 flex items-center justify-between text-xs font-bold text-slate-700 bg-slate-100/80">
-            <span>Task ({filteredTasks.length})</span>
-            <span className="text-[10px] text-muted">Duration</span>
+      <div className={`flex border border-[#EBEBEB] rounded-xl overflow-hidden bg-white shadow-soft-sm ${isExpanded ? 'h-[calc(100vh-180px)]' : 'min-h-[680px]'}`}>
+        {/* Left Task Tree Column - Enlarged width for complete visibility */}
+        <div className="w-80 sm:w-96 md:w-[420px] flex-shrink-0 border-r border-[#EBEBEB] bg-slate-50/70 z-10 flex flex-col">
+          <div className="h-11 border-b border-[#EBEBEB] px-4 flex items-center justify-between text-xs font-bold text-slate-700 bg-slate-100/90 flex-shrink-0">
+            <span>Activity / Construction Zone ({filteredTasks.length})</span>
+            <span className="text-[10px] text-muted">Days</span>
           </div>
 
-          <div className="divide-y divide-slate-100 max-h-[550px] overflow-y-auto">
+          <div className="divide-y divide-slate-100 overflow-y-auto flex-1">
             {filteredTasks.length === 0 ? (
-              <div className="p-6 text-center text-xs text-muted">
+              <div className="p-8 text-center text-xs text-muted">
                 No scheduled activities match criteria
               </div>
             ) : (
@@ -210,19 +220,19 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
                 <div
                   key={t.id || idx}
                   onClick={() => onSelectTask && onSelectTask(t)}
-                  className="h-11 px-3.5 flex items-center justify-between hover:bg-orange-50/50 cursor-pointer transition-colors group"
+                  className="h-12 px-4 flex items-center justify-between hover:bg-orange-50/60 cursor-pointer transition-colors group"
                 >
-                  <div className="truncate pr-2">
-                    <p className="text-xs font-semibold text-slate-800 truncate group-hover:text-[#E05A1E] flex items-center gap-1">
+                  <div className="truncate pr-3">
+                    <p className="text-xs font-semibold text-slate-800 truncate group-hover:text-[#E05A1E] flex items-center gap-1.5">
                       {Boolean(t.is_milestone || t.metadata?.is_trigger_milestone) && (
-                        <span className="text-amber-500 font-bold" title="3rd-Floor Slab Trigger">★</span>
+                        <span className="text-amber-500 font-bold text-sm" title="3rd-Floor Slab Trigger">★</span>
                       )}
                       <span className="truncate">{t.task_name}</span>
                     </p>
-                    <p className="text-[10px] text-muted flex items-center gap-1.5">
-                      <span>{t.floor_zone || t.construction_stage}</span>
+                    <p className="text-[10px] text-muted flex items-center gap-2 mt-0.5">
+                      <span className="font-medium text-slate-600 bg-slate-200/60 px-1.5 py-0.5 rounded">{t.floor_zone || t.construction_stage}</span>
                       {Boolean(t.is_milestone || t.metadata?.is_trigger_milestone) && (
-                        <span className="text-amber-700 font-bold bg-amber-50 px-1 rounded text-[9px]">Trigger</span>
+                        <span className="text-amber-700 font-bold bg-amber-100/80 px-1.5 py-0.5 rounded text-[9px]">Trigger</span>
                       )}
                       {t.is_overdue && (
                         <span className="text-red-600 font-bold flex items-center gap-0.5">
@@ -231,7 +241,7 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
                       )}
                     </p>
                   </div>
-                  <span className="text-[11px] font-mono text-slate-500 whitespace-nowrap bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                  <span className="text-[11px] font-mono text-slate-600 whitespace-nowrap bg-white px-2 py-1 rounded border border-slate-200 shadow-2xs font-semibold">
                     {t.duration_days}d
                   </span>
                 </div>
@@ -243,14 +253,14 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
         {/* Right Horizontal Gantt Chart Scrollable Area */}
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-x-auto relative max-h-[590px]"
+          className="flex-1 overflow-x-auto relative overflow-y-auto flex flex-col"
         >
           {/* Header Months */}
-          <div className="h-10 border-b border-[#EBEBEB] relative bg-slate-100/80" style={{ width: timelineWidth }}>
+          <div className="h-11 border-b border-[#EBEBEB] relative bg-slate-100/90 flex-shrink-0" style={{ width: timelineWidth }}>
             {calendarIntervals.map((interval, i) => (
               <div
                 key={i}
-                className="absolute top-0 bottom-0 border-r border-slate-200 px-2 flex items-center text-[11px] font-bold text-slate-600 truncate"
+                className="absolute top-0 bottom-0 border-r border-slate-200 px-3 flex items-center text-[11px] font-bold text-slate-700 truncate tracking-wide"
                 style={{ left: interval.left, width: interval.width }}
               >
                 {interval.label}
@@ -259,7 +269,7 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
           </div>
 
           {/* Timeline Body Rows */}
-          <div className="relative divide-y divide-slate-100" style={{ width: timelineWidth }}>
+          <div className="relative divide-y divide-slate-100 flex-1" style={{ width: timelineWidth }}>
             {/* Today Line */}
             {todayOffset !== null && (
               <div
@@ -282,11 +292,11 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
               const barWidth = Math.max(dayWidth, taskSpanDays * dayWidth);
 
               return (
-                <div key={t.id || idx} className="h-11 relative flex items-center hover:bg-slate-50/50">
+                <div key={t.id || idx} className="h-12 relative flex items-center hover:bg-slate-50/50">
                   {/* Task Bar */}
                   <div
                     onClick={() => onSelectTask && onSelectTask(t)}
-                    className={`absolute h-7 rounded-md border shadow-soft-sm cursor-pointer transition-all hover:brightness-105 hover:scale-[1.01] flex items-center px-2 text-[11px] font-medium truncate ${getStatusColor(t.status, t.is_overdue)}`}
+                    className={`absolute h-8 rounded-lg border shadow-soft-sm cursor-pointer transition-all hover:brightness-105 hover:scale-[1.01] flex items-center px-2.5 text-[11px] font-semibold truncate ${getStatusColor(t.status, t.is_overdue)}`}
                     style={{ left: barLeft, width: barWidth }}
                     title={`${t.task_name} (${t.planned_start_date} to ${t.planned_finish_date}) - ${t.status}`}
                   >

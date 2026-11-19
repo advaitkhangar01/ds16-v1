@@ -89,13 +89,26 @@ router.get('/config', authenticate, checkProjectAccess(), async (req, res) => {
 // Save or update building timeline configuration
 router.post('/config', authenticate, checkProjectAccess(), requireManagement, async (req, res) => {
   const projectId = parseInt(req.params.projectId, 10);
-  const { floors_above_ground, ground_floor_config, has_terrace_tank_slab, parking_rooms_config, building_type, stages, settings, parking_floors } = req.body;
+  const {
+    floors_above_ground,
+    ground_floor_config,
+    has_terrace_tank_slab,
+    parking_rooms_config,
+    building_type,
+    stages,
+    settings,
+    parking_floors,
+    basement_count,
+    upper_parking_count,
+    has_stilt_parking,
+    has_lift
+  } = req.body;
 
   try {
     const { rows } = await pool.query(
       `INSERT INTO timeline_configurations 
-        (project_id, floors_above_ground, ground_floor_config, has_terrace_tank_slab, parking_rooms_config, building_type, stages, settings, parking_floors, created_by, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+        (project_id, floors_above_ground, ground_floor_config, has_terrace_tank_slab, parking_rooms_config, building_type, stages, settings, parking_floors, basement_count, upper_parking_count, has_stilt_parking, has_lift, created_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
        ON CONFLICT (project_id) DO UPDATE SET
          floors_above_ground = EXCLUDED.floors_above_ground,
          ground_floor_config = EXCLUDED.ground_floor_config,
@@ -105,6 +118,10 @@ router.post('/config', authenticate, checkProjectAccess(), requireManagement, as
          stages = COALESCE(EXCLUDED.stages, timeline_configurations.stages),
          settings = COALESCE(EXCLUDED.settings, timeline_configurations.settings),
          parking_floors = COALESCE(EXCLUDED.parking_floors, timeline_configurations.parking_floors),
+         basement_count = EXCLUDED.basement_count,
+         upper_parking_count = EXCLUDED.upper_parking_count,
+         has_stilt_parking = EXCLUDED.has_stilt_parking,
+         has_lift = EXCLUDED.has_lift,
          updated_at = NOW()
        RETURNING *`,
       [
@@ -117,6 +134,10 @@ router.post('/config', authenticate, checkProjectAccess(), requireManagement, as
         stages ? JSON.stringify(stages) : null,
         settings ? JSON.stringify(settings) : '{}',
         parking_floors ? JSON.stringify(parking_floors) : '[]',
+        Math.max(0, parseInt(basement_count, 10) || 0),
+        Math.max(0, parseInt(upper_parking_count, 10) || 0),
+        has_stilt_parking !== false,
+        has_lift !== false,
         req.user.id
       ]
     );
@@ -148,14 +169,18 @@ router.post('/generate-draft', authenticate, checkProjectAccess(), requireManage
     const { rows: projRows } = await client.query('SELECT start_date FROM projects WHERE id = $1', [projectId]);
     const { rows: confRows } = await client.query('SELECT * FROM timeline_configurations WHERE project_id = $1', [projectId]);
 
-    const config = confRows[0] || {
-      floors_above_ground: req.body.floors_above_ground || 4,
-      ground_floor_config: req.body.ground_floor_config || 'parking_and_rooms',
-      has_terrace_tank_slab: req.body.has_terrace_tank_slab !== false,
-      start_date: req.body.start_date || projRows[0]?.start_date || new Date().toISOString().split('T')[0]
+    const config = {
+      ...(confRows[0] || {}),
+      floors_above_ground: req.body.floors_above_ground || confRows[0]?.floors_above_ground || 4,
+      ground_floor_config: req.body.ground_floor_config || confRows[0]?.ground_floor_config || 'parking_and_rooms',
+      has_terrace_tank_slab: req.body.has_terrace_tank_slab !== undefined ? req.body.has_terrace_tank_slab : (confRows[0]?.has_terrace_tank_slab !== false),
+      basement_count: req.body.basement_count !== undefined ? parseInt(req.body.basement_count, 10) : (confRows[0]?.basement_count || 0),
+      upper_parking_count: req.body.upper_parking_count !== undefined ? parseInt(req.body.upper_parking_count, 10) : (confRows[0]?.upper_parking_count || 0),
+      has_stilt_parking: req.body.has_stilt_parking !== undefined ? Boolean(req.body.has_stilt_parking) : (confRows[0]?.has_stilt_parking !== false),
+      has_lift: req.body.has_lift !== undefined ? Boolean(req.body.has_lift) : (confRows[0]?.has_lift !== false),
+      parking_floors: req.body.parking_floors || confRows[0]?.parking_floors || [],
+      start_date: req.body.start_date || confRows[0]?.start_date || projRows[0]?.start_date || new Date().toISOString().split('T')[0]
     };
-
-    if (req.body.start_date) config.start_date = req.body.start_date;
 
     // Generate activities
     const draftActivities = generateDraftActivities(config);

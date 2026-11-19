@@ -57,6 +57,23 @@ function generateDraftActivities(config) {
   const hasTankSlab = config.has_terrace_tank_slab !== false;
   const startDateStr = config.start_date || formatDateStr(new Date());
 
+  // Configurable Basements & Parking Levels
+  let basementCount = parseInt(config.basement_count, 10);
+  if (isNaN(basementCount)) {
+    const pFloors = Array.isArray(config.parking_floors) ? config.parking_floors : [];
+    basementCount = pFloors.filter(f => f.type === 'basement_1' || f.type === 'basement_2' || f.type?.includes?.('basement')).length;
+  }
+  basementCount = Math.max(0, basementCount);
+
+  let upperParkingCount = parseInt(config.upper_parking_count, 10);
+  if (isNaN(upperParkingCount)) {
+    const pFloors = Array.isArray(config.parking_floors) ? config.parking_floors : [];
+    upperParkingCount = pFloors.some(f => f.type === 'upper_parking') ? 1 : 0;
+  }
+  upperParkingCount = Math.max(0, upperParkingCount);
+
+  const hasLift = config.has_lift !== false;
+
   let currentDate = parseDateStr(startDateStr);
   const tasks = [];
   let taskOrder = 1;
@@ -91,79 +108,215 @@ function generateDraftActivities(config) {
     planned_finish_date: formatDateStr(siteClearFinish)
   });
 
-  const excavDuration = 15;
-  const excavStart = addCalendarDays(tSiteClear.planned_finish_date, 1);
-  const excavFinish = addCalendarDays(excavStart, excavDuration - 1);
-  const tExcavation = pushTask({
-    temp_id: `draft-${taskOrder}`,
-    task_name: 'Earthwork Excavation for Foundations & Footings',
-    category: 'Site Preparation & Excavation',
-    construction_stage: 'Substructure',
-    floor_zone: 'Foundation Level',
-    duration_days: excavDuration,
-    order_index: taskOrder++,
-    predecessors: [{ predecessor_id: tSiteClear.temp_id, type: 'FS', lag: 0 }],
-    planned_start_date: formatDateStr(excavStart),
-    planned_finish_date: formatDateStr(excavFinish)
-  });
+  let prevSubstructureTask = tSiteClear;
+  let tExcavation;
+  let tPCC;
+  let tFootings;
+  let tPlinth;
 
-  const pccDuration = 7;
-  const pccStart = addCalendarDays(tExcavation.planned_finish_date, 1);
-  const pccFinish = addCalendarDays(pccStart, pccDuration - 1);
-  const tPCC = pushTask({
-    temp_id: `draft-${taskOrder}`,
-    task_name: 'PCC Bed Concreting & Anti-Termite Treatment',
-    category: 'Foundation & Substructure',
-    construction_stage: 'Substructure',
-    floor_zone: 'Foundation Level',
-    duration_days: pccDuration,
-    order_index: taskOrder++,
-    predecessors: [{ predecessor_id: tExcavation.temp_id, type: 'FS', lag: 0 }],
-    planned_start_date: formatDateStr(pccStart),
-    planned_finish_date: formatDateStr(pccFinish)
-  });
+  if (basementCount === 0) {
+    // STANDARD SUBSTRUCTURE WITHOUT BASEMENTS
+    const excavDuration = 15;
+    const excavStart = addCalendarDays(prevSubstructureTask.planned_finish_date, 1);
+    const excavFinish = addCalendarDays(excavStart, excavDuration - 1);
+    tExcavation = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'Earthwork Excavation for Foundations & Footings',
+      category: 'Site Preparation & Excavation',
+      construction_stage: 'Substructure',
+      floor_zone: 'Foundation Level',
+      duration_days: excavDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: prevSubstructureTask.temp_id, type: 'FS', lag: 0 }],
+      planned_start_date: formatDateStr(excavStart),
+      planned_finish_date: formatDateStr(excavFinish)
+    });
 
-  const footingsDuration = 14;
-  const footingsStart = addCalendarDays(tPCC.planned_finish_date, 1);
-  const footingsFinish = addCalendarDays(footingsStart, footingsDuration - 1);
-  const tFootings = pushTask({
-    temp_id: `draft-${taskOrder}`,
-    task_name: 'RCC Column Footings / Raft Reinforcement & Pouring',
-    category: 'Foundation & Substructure',
-    construction_stage: 'Substructure',
-    floor_zone: 'Foundation Level',
-    duration_days: footingsDuration,
-    order_index: taskOrder++,
-    predecessors: [{ predecessor_id: tPCC.temp_id, type: 'FS', lag: 0 }],
-    planned_start_date: formatDateStr(footingsStart),
-    planned_finish_date: formatDateStr(footingsFinish)
-  });
+    const pccDuration = 7;
+    const pccStart = addCalendarDays(tExcavation.planned_finish_date, 1);
+    const pccFinish = addCalendarDays(pccStart, pccDuration - 1);
+    tPCC = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'PCC Bed Concreting & Anti-Termite Treatment',
+      category: 'Foundation & Substructure',
+      construction_stage: 'Substructure',
+      floor_zone: 'Foundation Level',
+      duration_days: pccDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: tExcavation.temp_id, type: 'FS', lag: 0 }],
+      planned_start_date: formatDateStr(pccStart),
+      planned_finish_date: formatDateStr(pccFinish)
+    });
 
-  const plinthDuration = 12;
-  const plinthStart = addCalendarDays(tFootings.planned_finish_date, 1);
-  const plinthFinish = addCalendarDays(plinthStart, plinthDuration - 1);
-  const tPlinth = pushTask({
-    temp_id: `draft-${taskOrder}`,
-    task_name: 'Plinth Beams Casting, Earth Backfilling & Compaction',
-    category: 'Foundation & Substructure',
-    construction_stage: 'Substructure',
-    floor_zone: 'Plinth Level',
-    duration_days: plinthDuration,
-    order_index: taskOrder++,
-    predecessors: [{ predecessor_id: tFootings.temp_id, type: 'FS', lag: 0 }],
-    planned_start_date: formatDateStr(plinthStart),
-    planned_finish_date: formatDateStr(plinthFinish)
-  });
+    const footingsDuration = 14;
+    const footingsStart = addCalendarDays(tPCC.planned_finish_date, 1);
+    const footingsFinish = addCalendarDays(footingsStart, footingsDuration - 1);
+    tFootings = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'RCC Column Footings / Raft Reinforcement & Pouring',
+      category: 'Foundation & Substructure',
+      construction_stage: 'Substructure',
+      floor_zone: 'Foundation Level',
+      duration_days: footingsDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: tPCC.temp_id, type: 'FS', lag: 0 }],
+      planned_start_date: formatDateStr(footingsStart),
+      planned_finish_date: formatDateStr(footingsFinish)
+    });
+
+    const plinthDuration = 12;
+    const plinthStart = addCalendarDays(tFootings.planned_finish_date, 1);
+    const plinthFinish = addCalendarDays(plinthStart, plinthDuration - 1);
+    tPlinth = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'Plinth Beams Casting, Earth Backfilling & Compaction',
+      category: 'Foundation & Substructure',
+      construction_stage: 'Substructure',
+      floor_zone: 'Plinth Level',
+      duration_days: plinthDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: tFootings.temp_id, type: 'FS', lag: 0 }],
+      planned_start_date: formatDateStr(plinthStart),
+      planned_finish_date: formatDateStr(plinthFinish)
+    });
+
+    prevSubstructureTask = tPlinth;
+  } else {
+    // SUBSTRUCTURE WITH CONFIGURABLE BASEMENTS (B1, B2, ...)
+    const excavDuration = 18 + (basementCount * 7);
+    const excavStart = addCalendarDays(prevSubstructureTask.planned_finish_date, 1);
+    const excavFinish = addCalendarDays(excavStart, excavDuration - 1);
+    tExcavation = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: `Deep Excavation & Shoring / Piling (${basementCount} Basement Levels)`,
+      category: 'Site Preparation & Excavation',
+      construction_stage: 'Substructure',
+      floor_zone: `Basement ${basementCount} Level`,
+      duration_days: excavDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: prevSubstructureTask.temp_id, type: 'FS', lag: 0 }],
+      planned_start_date: formatDateStr(excavStart),
+      planned_finish_date: formatDateStr(excavFinish),
+      metadata: { basement_count: basementCount }
+    });
+
+    const pccDuration = 8;
+    const pccStart = addCalendarDays(tExcavation.planned_finish_date, 1);
+    const pccFinish = addCalendarDays(pccStart, pccDuration - 1);
+    tPCC = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'PCC Bedding & Heavy-duty Sub-raft Waterproofing Membrane',
+      category: 'Foundation & Substructure',
+      construction_stage: 'Substructure',
+      floor_zone: `Basement ${basementCount} Level`,
+      duration_days: pccDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: tExcavation.temp_id, type: 'FS', lag: 0 }],
+      planned_start_date: formatDateStr(pccStart),
+      planned_finish_date: formatDateStr(pccFinish)
+    });
+
+    const raftDuration = 18;
+    const raftStart = addCalendarDays(tPCC.planned_finish_date, 1);
+    const raftFinish = addCalendarDays(raftStart, raftDuration - 1);
+    tFootings = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'RCC Raft Foundation, Water Sump & Sub-structure Base Pouring',
+      category: 'Foundation & Substructure',
+      construction_stage: 'Substructure',
+      floor_zone: `Basement ${basementCount} Level`,
+      duration_days: raftDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: tPCC.temp_id, type: 'FS', lag: 0 }],
+      planned_start_date: formatDateStr(raftStart),
+      planned_finish_date: formatDateStr(raftFinish)
+    });
+
+    let prevBasementTask = tFootings;
+
+    // Floor-by-floor basement slabs and retaining walls (from deepest level up to Basement 1)
+    for (let b = basementCount; b >= 1; b--) {
+      const bZone = `Basement ${b}`;
+      const retDuration = 15;
+      const retStart = addCalendarDays(prevBasementTask.planned_finish_date, 1);
+      const retFinish = addCalendarDays(retStart, retDuration - 1);
+      const tRetaining = pushTask({
+        temp_id: `draft-${taskOrder}`,
+        task_name: `${bZone} — RCC Peripheral Retaining Wall Casting & External Waterproofing`,
+        category: 'Foundation & Substructure',
+        construction_stage: 'Substructure',
+        floor_zone: bZone,
+        duration_days: retDuration,
+        order_index: taskOrder++,
+        predecessors: [{ predecessor_id: prevBasementTask.temp_id, type: 'FS', lag: 0 }],
+        planned_start_date: formatDateStr(retStart),
+        planned_finish_date: formatDateStr(retFinish),
+        metadata: { basement_level: b, floor_type: `BASEMENT_${b}` }
+      });
+
+      const bSlabDuration = 16;
+      const bSlabStart = addCalendarDays(tRetaining.planned_finish_date, 1);
+      const bSlabFinish = addCalendarDays(bSlabStart, bSlabDuration - 1);
+      const tBSlab = pushTask({
+        temp_id: `draft-${taskOrder}`,
+        task_name: `${bZone} — RCC Columns & Suspended Basement Floor Slab Casting`,
+        category: 'RCC Structural Construction',
+        construction_stage: 'Substructure',
+        floor_zone: bZone,
+        duration_days: bSlabDuration,
+        order_index: taskOrder++,
+        predecessors: [{ predecessor_id: tRetaining.temp_id, type: 'FS', lag: 0 }],
+        planned_start_date: formatDateStr(bSlabStart),
+        planned_finish_date: formatDateStr(bSlabFinish),
+        metadata: { basement_level: b, floor_type: `BASEMENT_${b}`, is_basement_slab: true }
+      });
+
+      prevBasementTask = tBSlab;
+    }
+
+    const plinthDuration = 12;
+    const plinthStart = addCalendarDays(prevBasementTask.planned_finish_date, 1);
+    const plinthFinish = addCalendarDays(plinthStart, plinthDuration - 1);
+    tPlinth = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'Plinth Beams Casting, Earth Backfilling & Ground Grade Slab Concreting',
+      category: 'Foundation & Substructure',
+      construction_stage: 'Substructure',
+      floor_zone: 'Plinth Level',
+      duration_days: plinthDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: prevBasementTask.temp_id, type: 'FS', lag: 0 }],
+      planned_start_date: formatDateStr(plinthStart),
+      planned_finish_date: formatDateStr(plinthFinish)
+    });
+
+    prevSubstructureTask = tPlinth;
+  }
+
+  // LIFT PIT (Substructure task when Lift is enabled)
+  let tLiftPit = null;
+  if (hasLift) {
+    const liftPitDuration = 10;
+    const liftPitStart = addCalendarDays(tPCC.planned_start_date, 2);
+    const liftPitFinish = addCalendarDays(liftPitStart, liftPitDuration - 1);
+    tLiftPit = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'Lift Pit Excavation, Reinforced Pit Base & Box-Type Waterproofing',
+      category: 'Foundation & Substructure',
+      construction_stage: 'Substructure',
+      floor_zone: 'Foundation Level',
+      duration_days: liftPitDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: tPCC.temp_id, type: 'FS', lag: 0 }],
+      planned_start_date: formatDateStr(liftPitStart),
+      planned_finish_date: formatDateStr(liftPitFinish),
+      metadata: { is_lift_task: true, lift_component: 'PIT' }
+    });
+  }
 
   // --- STAGE 2: RCC SUPERSTRUCTURE & SLABS ---
-  // Structural slab activities generated floor by floor
-  // 1. Ground-floor slab (Slab 1)
-  // 2. First-floor slab (Slab 2)
-  // 3. Second-floor slab (Slab 3)
-  // 4. Third-floor slab (Slab 4)
-  // ... and upper slabs up to N
   const slabTasks = [];
-  let prevSlabTask = tPlinth;
+  let prevSlabTask = prevSubstructureTask;
 
   // Ground Floor Roof Slab (Slab 1)
   const gndSlabDuration = 16;
@@ -185,14 +338,38 @@ function generateDraftActivities(config) {
   slabTasks.push(tGroundSlab);
   prevSlabTask = tGroundSlab;
 
-  // Track the 3rd floor slab activity (Slab representing 3rd floor columns & slab casting)
+  // Upper-Floor Parking (Podium) Slabs
+  const upperParkingTasks = [];
+  for (let p = 1; p <= upperParkingCount; p++) {
+    const pDuration = 18;
+    const pStart = addCalendarDays(prevSlabTask.planned_finish_date, 1);
+    const pFinish = addCalendarDays(pStart, pDuration - 1);
+    const tParkingSlab = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: `RCC Slab: Podium / Upper Parking ${p} Columns & Floor Slab Casting`,
+      category: 'RCC Structural Construction',
+      construction_stage: 'Superstructure & Slab',
+      floor_zone: `Upper Parking ${p}`,
+      duration_days: pDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: prevSlabTask.temp_id, type: 'FS', lag: 0 }],
+      planned_start_date: formatDateStr(pStart),
+      planned_finish_date: formatDateStr(pFinish),
+      metadata: { is_upper_parking_slab: true, parking_level: p, floor_type: 'UPPER_PARKING' }
+    });
+    upperParkingTasks.push(tParkingSlab);
+    slabTasks.push(tParkingSlab);
+    prevSlabTask = tParkingSlab;
+  }
+
+  // Track the 3rd floor slab activity (representing 3rd floor columns & slab casting)
   let tSlab3rdFloor = null;
 
-  // Upper Floor Slabs (Floors 1 to N)
+  // Upper Habitable Floor Slabs (Floors 1 to N)
   for (let i = 1; i <= N; i++) {
     const isTopRoof = (i === N);
     const floorLabel = i === 1 ? '1st Floor' : i === 2 ? '2nd Floor' : i === 3 ? '3rd Floor' : `${i}th Floor`;
-    const slabNumber = i + 1;
+    const slabNumber = i + 1 + upperParkingCount;
     const slabTitle = isTopRoof 
       ? `RCC Slab ${slabNumber}: ${floorLabel} Final Roof Slab Casting` 
       : `RCC Slab ${slabNumber}: ${floorLabel} Columns & Floor Slab Casting`;
@@ -234,17 +411,19 @@ function generateDraftActivities(config) {
     prevSlabTask = tFloorSlab;
   }
 
-  // Additional Terrace Water Tank Slab if configured (N+2 slab stage)
-  // NOTE: The additional terrace/water-tank slab does NOT change the 3rd-floor slab trigger!
+  // Terrace Water Tank Slab (N+2 rule)
   let tTankSlab = null;
   if (hasTankSlab) {
-    const tankSlabNumber = N + 2;
+    const tankSlabNumber = N + 2 + upperParkingCount;
     const tankDuration = 20;
     const tankStart = addCalendarDays(prevSlabTask.planned_finish_date, 1);
     const tankFinish = addCalendarDays(tankStart, tankDuration - 1);
+    const tankTitle = hasLift
+      ? `RCC Slab ${tankSlabNumber}: Overhead Water Tank & Lift Machine Room Slab`
+      : `RCC Slab ${tankSlabNumber}: Overhead Water Tank Slab`;
     tTankSlab = pushTask({
       temp_id: `draft-${taskOrder}`,
-      task_name: `RCC Slab ${tankSlabNumber}: Overhead Water Tank & Lift Machine Room Slab`,
+      task_name: tankTitle,
       category: 'RCC Structural Construction',
       construction_stage: 'Superstructure & Slab',
       floor_zone: 'Terrace Level',
@@ -567,6 +746,145 @@ function generateDraftActivities(config) {
     planned_start_date: formatDateStr(siteDevStart),
     planned_finish_date: formatDateStr(siteDevFinish)
   });
+
+  // --- LIFT / ELEVATOR SYSTEM (When hasLift is enabled) ---
+  if (hasLift) {
+    // 1. Lift Well Shaft (RCC Shear Wall)
+    const liftShaftDuration = 35;
+    const liftShaftStart = addCalendarDays(tGroundSlab.planned_finish_date, 5);
+    const liftShaftFinish = addCalendarDays(liftShaftStart, liftShaftDuration - 1);
+    const tLiftShaft = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'RCC Lift Shaft & Shear Wall Construction (Ground to Terrace)',
+      category: 'Elevator & Core Works',
+      construction_stage: 'Superstructure & Slab',
+      floor_zone: 'Core / Shaft',
+      duration_days: liftShaftDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: tGroundSlab.temp_id, type: 'FS', lag: 5 }],
+      planned_start_date: formatDateStr(liftShaftStart),
+      planned_finish_date: formatDateStr(liftShaftFinish),
+      metadata: { is_lift_task: true, lift_component: 'SHAFT' }
+    });
+
+    // 2. Machine Room Pedestals & Hoist Beam (Terrace level)
+    const topSlabTask = tTankSlab || slabTasks[slabTasks.length - 1];
+    const mrDuration = 12;
+    const mrStart = addCalendarDays(topSlabTask.planned_finish_date, 1);
+    const mrFinish = addCalendarDays(mrStart, mrDuration - 1);
+    const tLiftMR = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'Lift Machine Room Equipment Pedestals & Overhead Hoist Beam Installation',
+      category: 'Finishing & Services',
+      construction_stage: 'Finishing & Services',
+      floor_zone: 'Terrace Level',
+      duration_days: mrDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: topSlabTask.temp_id, type: 'FS', lag: 0 }],
+      planned_start_date: formatDateStr(mrStart),
+      planned_finish_date: formatDateStr(mrFinish),
+      metadata: { is_lift_task: true, lift_component: 'MACHINE_ROOM' }
+    });
+
+    // 3. Mechanical Guide Rails & Car Installation
+    const liftMechDuration = 20;
+    const liftMechStart = addCalendarDays(tLiftMR.planned_finish_date, 3);
+    const liftMechFinish = addCalendarDays(liftMechStart, liftMechDuration - 1);
+    const tLiftMech = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'Elevator Installation: Guide Rails, Counterweights, Car Assembly & Traction Motor',
+      category: 'Finishing & Services',
+      construction_stage: 'Finishing & Services',
+      floor_zone: 'Core / Shaft',
+      duration_days: liftMechDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: tLiftMR.temp_id, type: 'FS', lag: 3 }],
+      planned_start_date: formatDateStr(liftMechStart),
+      planned_finish_date: formatDateStr(liftMechFinish),
+      metadata: { is_lift_task: true, lift_component: 'MECHANICAL' }
+    });
+
+    // 4. Electrical Control Panel, Wiring & Landing Doors
+    const liftElecDuration = 14;
+    const liftElecStart = addCalendarDays(tLiftMech.planned_start_date, 10);
+    const liftElecFinish = addCalendarDays(liftElecStart, liftElecDuration - 1);
+    const tLiftElec = pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'Elevator Electrical: Microprocessor Control Panel, Cabling & Landing Door Integration',
+      category: 'Electrical & Low Voltage',
+      construction_stage: 'Finishing & Services',
+      floor_zone: 'All Floors',
+      duration_days: liftElecDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: tLiftMech.temp_id, type: 'FS', lag: 0 }],
+      planned_start_date: formatDateStr(liftElecStart),
+      planned_finish_date: formatDateStr(liftElecFinish),
+      metadata: { is_lift_task: true, lift_component: 'ELECTRICAL' }
+    });
+
+    // 5. Testing, Licensing & Commissioning
+    const liftTestDuration = 10;
+    const liftTestStart = addCalendarDays(liftElecFinish, 2);
+    const liftTestFinish = addCalendarDays(liftTestStart, liftTestDuration - 1);
+    pushTask({
+      temp_id: `draft-${taskOrder}`,
+      task_name: 'Elevator Safety Inspection, Government Licensing & Final Handover Commissioning',
+      category: 'Testing, Commissioning & Handover',
+      construction_stage: 'Handover',
+      floor_zone: 'Core / Shaft',
+      duration_days: liftTestDuration,
+      order_index: taskOrder++,
+      predecessors: [{ predecessor_id: tLiftElec.temp_id, type: 'FS', lag: 2 }],
+      planned_start_date: formatDateStr(liftTestStart),
+      planned_finish_date: formatDateStr(liftTestFinish),
+      metadata: { is_lift_task: true, lift_component: 'COMMISSIONING' }
+    });
+  }
+
+  // --- BASEMENT & PARKING FINISHES ---
+  if (basementCount > 0) {
+    for (let b = 1; b <= basementCount; b++) {
+      const bZone = `Basement ${b}`;
+      const bFinDuration = 15;
+      const bFinStart = addCalendarDays(tExtPlaster.planned_finish_date, 2);
+      const bFinFinish = addCalendarDays(bFinStart, bFinDuration - 1);
+      pushTask({
+        temp_id: `draft-${taskOrder}`,
+        task_name: `${bZone} — Sump Pump Drainage, Mechanical Ventilation Ducting & Epoxy Flooring`,
+        category: 'Finishing & Services',
+        construction_stage: 'Finishing & Services',
+        floor_zone: bZone,
+        duration_days: bFinDuration,
+        order_index: taskOrder++,
+        predecessors: [{ predecessor_id: tExtPlaster.temp_id, type: 'FS', lag: 2 }],
+        planned_start_date: formatDateStr(bFinStart),
+        planned_finish_date: formatDateStr(bFinFinish),
+        metadata: { basement_level: b, floor_type: `BASEMENT_${b}` }
+      });
+    }
+  }
+
+  if (upperParkingCount > 0) {
+    for (let p = 1; p <= upperParkingCount; p++) {
+      const pZone = `Upper Parking ${p}`;
+      const pFinDuration = 14;
+      const pFinStart = addCalendarDays(tExtPlaster.planned_finish_date, 3);
+      const pFinFinish = addCalendarDays(pFinStart, pFinDuration - 1);
+      pushTask({
+        temp_id: `draft-${taskOrder}`,
+        task_name: `${pZone} — Heavy-duty Epoxy Floor Coating, Ramp Safety Railings & Traffic Signage`,
+        category: 'Finishing & Services',
+        construction_stage: 'Finishing & Services',
+        floor_zone: pZone,
+        duration_days: pFinDuration,
+        order_index: taskOrder++,
+        predecessors: [{ predecessor_id: tExtPlaster.temp_id, type: 'FS', lag: 3 }],
+        planned_start_date: formatDateStr(pFinStart),
+        planned_finish_date: formatDateStr(pFinFinish),
+        metadata: { parking_level: p, floor_type: 'UPPER_PARKING' }
+      });
+    }
+  }
 
   // Testing & Commissioning
   const testDuration = 14;

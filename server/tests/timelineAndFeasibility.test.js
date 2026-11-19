@@ -174,6 +174,74 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       expect(formatDateStr(addCalendarDays('2028-02-28', 1))).toBe('2028-02-29');
       expect(formatDateStr(addCalendarDays('2028-02-29', 1))).toBe('2028-03-01');
     });
+
+    it('generates configurable basement levels, upper parking floors, and elevator installation', () => {
+      const acts = generateDraftActivities({
+        floors_above_ground: 4,
+        basement_count: 2,
+        upper_parking_count: 1,
+        has_lift: true,
+        has_terrace_tank_slab: true,
+        start_date: '2026-09-01'
+      });
+
+      // 1. Basements
+      const deepEx = acts.find(a => a.task_name.includes('Deep Excavation & Shoring'));
+      expect(deepEx).toBeDefined();
+      expect(deepEx.task_name).toContain('2 Basement Levels');
+
+      const raft = acts.find(a => a.task_name.includes('RCC Raft Foundation'));
+      expect(raft).toBeDefined();
+
+      const b2Retaining = acts.find(a => a.task_name.includes('Basement 2') && a.task_name.includes('Retaining Wall'));
+      expect(b2Retaining).toBeDefined();
+      const b2Slab = acts.find(a => a.task_name.includes('Basement 2') && a.task_name.includes('Basement Floor Slab'));
+      expect(b2Slab).toBeDefined();
+
+      const b1Retaining = acts.find(a => a.task_name.includes('Basement 1') && a.task_name.includes('Retaining Wall'));
+      expect(b1Retaining).toBeDefined();
+      const b1Slab = acts.find(a => a.task_name.includes('Basement 1') && a.task_name.includes('Basement Floor Slab'));
+      expect(b1Slab).toBeDefined();
+
+      // 2. Upper floor parking
+      const upperParkSlab = acts.find(a => a.task_name.includes('Podium / Upper Parking') && a.task_name.includes('Floor Slab Casting'));
+      expect(upperParkSlab).toBeDefined();
+
+      const parkFinishes = acts.find(a => a.task_name.includes('Upper Parking') && a.task_name.includes('Epoxy Floor Coating'));
+      expect(parkFinishes).toBeDefined();
+
+      // 3. Elevator system
+      const liftPit = acts.find(a => a.task_name.includes('Lift Pit') && a.task_name.includes('Waterproofing'));
+      expect(liftPit).toBeDefined();
+
+      const liftShaft = acts.find(a => a.task_name.includes('RCC Lift Shaft'));
+      expect(liftShaft).toBeDefined();
+
+      const liftComm = acts.find(a => a.task_name.includes('Elevator Safety Inspection'));
+      expect(liftComm).toBeDefined();
+
+      // 4. Structural trigger milestone integrity
+      const triggerMilestone = acts.find(a => a.metadata?.is_trigger_milestone);
+      expect(triggerMilestone).toBeDefined();
+      expect(triggerMilestone.floor_zone).toBe('3rd Floor');
+
+      const groundBrick = acts.find(a => a.metadata?.is_ground_brickwork);
+      expect(groundBrick).toBeDefined();
+      expect(groundBrick.predecessors[0].predecessor_id).toBe(triggerMilestone.temp_id);
+    });
+
+    it('omits elevator system tasks when has_lift is false', () => {
+      const acts = generateDraftActivities({
+        floors_above_ground: 3,
+        basement_count: 0,
+        upper_parking_count: 0,
+        has_lift: false,
+        start_date: '2026-09-01'
+      });
+
+      const liftTasks = acts.filter(a => a.task_name.toLowerCase().includes('elevator') || a.task_name.toLowerCase().includes('lift'));
+      expect(liftTasks.length).toBe(0);
+    });
   });
 
   // ==========================================
