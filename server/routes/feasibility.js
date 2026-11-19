@@ -5,7 +5,7 @@ const router = require('express').Router({ mergeParams: true });
 const pool = require('../db');
 const { authenticate, canViewFinancials } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
-const { calculateAreaMetrics, calculateFinancialMetrics } = require('../services/feasibilityEngine');
+const { calculateAreaMetrics, calculateFinancialMetrics, ROAD_WIDTH_TDR_MAP } = require('../services/feasibilityEngine');
 
 // Check financial privileges
 const requireFeasibilityAccess = (req, res, next) => {
@@ -53,8 +53,8 @@ router.get('/', authenticate, checkProjectAccess(), requireFeasibilityAccess, as
       const defaultPlotArea = parseFloat(projRows[0].area_sq_ft) ? (parseFloat(projRows[0].area_sq_ft) / 10.764) : 0;
       const { rows: [newStmt] } = await client.query(
         `INSERT INTO project_area_statements 
-          (project_id, plot_area_sqm, city_survey_area_sqm, site_area_sqm, dp_deductions_sqm, existing_builtup_area_sqm, dividing_factor, basic_fsi_factor, paid_fsi_factor, tdr_factor, proposed_tdr_factor, created_by)
-         VALUES ($1, $2, $2, $2, 0, 0, 1.6, 1.1, 0.5, 0.65, 0, $3)
+          (project_id, plot_area_sqm, city_survey_area_sqm, site_area_sqm, dp_deductions_sqm, existing_builtup_area_sqm, dividing_factor, basic_fsi_factor, paid_fsi_factor, tdr_factor, proposed_tdr_factor, building_use, regular_tdr_factor, slum_tdr_factor, is_gunthewari, road_width_m, created_by)
+         VALUES ($1, $2, $2, $2, 0, 0, 1.6, 1.1, 0.5, 0.65, 0, 'Residential', 0, 0, false, null, $3)
          RETURNING *`,
         [projectId, Math.round(defaultPlotArea * 100) / 100, req.user.id]
       );
@@ -86,36 +86,35 @@ router.get('/', authenticate, checkProjectAccess(), requireFeasibilityAccess, as
 
       // Seed statutory charge catalog structure (regulatory formula basis without sample amounts)
       const defaultStatutory = [
-        { code: 'PLAN_REGISTRATION', name: 'PLAN REGISTRATION FEES', basis: 'fixed_rate_per_sqm', mult: 5.90 },
-        { code: 'SECURITY_DEPOSIT', name: 'SECURITY DEPOSIT (MAX RS 75,000.00)', basis: 'pct_of_cost_a', mult: 0.01, cap: 75000.00 },
-        { code: 'STACKING_CHARGES', name: 'STACKING CHARGES (MAX RS 50,000.00)', basis: 'pct_of_cost_a', mult: 0.005, cap: 50000.00 },
-        { code: 'ANCILLARY_CHARGES', name: 'ANCILLARY AREA (10% OF RR)', basis: 'pct_of_rr', mult: 0.10 },
-        { code: 'SEWER_CONNECTION', name: 'SEWER CONNECTION CHARGES', basis: 'fixed_rate_per_sqm', mult: 2.50 },
-        { code: 'DEVELOPMENT_CHARGES', name: 'DEVELOPMENT CHARGES (2% OF RR)', basis: 'pct_of_rr', mult: 0.02 },
-        { code: 'PREMIUM_FSI', name: 'PREMIUM FSI CHARGES (40% OF RR)', basis: 'pct_of_rr', mult: 0.40 },
-        { code: 'TREE_PLANTATION', name: 'TREE PLANTATION (RS 500 / 74.32 SQM)', basis: 'custom', mult: 500.00, cap: 25000.00 },
-        { code: 'HERITAGE_FUND', name: 'HERITAGE FUND (2% OF DEV CHARGES)', basis: 'pct_of_dev', mult: 0.02 },
-        { code: 'LABOUR_WELFARE_CESS', name: 'LABOUR WELFARE CESS (1% OF RR CONST)', basis: 'pct_of_rr_cost_b', mult: 0.01 },
-        { code: 'TDR_LOADING_CHARGES', name: 'TDR LOADING CHARGES (3% OF RR)', basis: 'pct_of_rr', mult: 0.03 },
-        { code: 'AMALGAMATION', name: 'AMALGAMATION CHARGES (RS 200/SQM)', basis: 'fixed_rate_per_sqm', mult: 200.00 },
-        { code: 'LABOUR_WELFARE_PARKING', name: 'LABOUR WELFARE ON PARKING AREA', basis: 'pct_of_parking_cost', mult: 0.01 }
+        { code: 'PLAN_REGISTRATION', name: 'PLAN REGISTRATION FEES', basis: 'fixed_rate_per_sqm', mult: 5.90, rr_pct: null },
+        { code: 'SECURITY_DEPOSIT', name: 'SECURITY DEPOSIT (MAX RS 75,000.00)', basis: 'pct_of_cost_a', mult: 0.01, cap: 75000.00, rr_pct: null },
+        { code: 'STACKING_CHARGES', name: 'STACKING CHARGES (MAX RS 50,000.00)', basis: 'pct_of_cost_a', mult: 0.005, cap: 50000.00, rr_pct: null },
+        { code: 'ANCILLARY_CHARGES', name: 'ANCILLARY AREA CHARGES', basis: 'pct_of_rr', mult: 0.10, rr_pct: 10.00 },
+        { code: 'SEWER_CONNECTION', name: 'SEWER CONNECTION CHARGES', basis: 'fixed_rate_per_sqm', mult: 2.50, rr_pct: null },
+        { code: 'DEVELOPMENT_CHARGES', name: 'DEVELOPMENT CHARGES', basis: 'pct_of_rr', mult: 0.02, rr_pct: 2.00 },
+        { code: 'PREMIUM_FSI', name: 'PREMIUM FSI CHARGES', basis: 'pct_of_rr', mult: 0.40, rr_pct: 40.00 },
+        { code: 'TREE_PLANTATION', name: 'TREE PLANTATION (RS 500 / 74.32 SQM)', basis: 'custom', mult: 500.00, cap: 25000.00, rr_pct: null },
+        { code: 'HERITAGE_FUND', name: 'HERITAGE FUND (2% OF DEV CHARGES)', basis: 'pct_of_dev', mult: 0.02, rr_pct: null },
+        { code: 'LABOUR_WELFARE_CESS', name: 'LABOUR WELFARE CESS (1% OF RR CONST)', basis: 'pct_of_rr_cost_b', mult: 0.01, rr_pct: null },
+        { code: 'TDR_LOADING_CHARGES', name: 'TDR LOADING CHARGES', basis: 'pct_of_rr', mult: 0.03, rr_pct: 3.00 },
+        { code: 'LABOUR_WELFARE_PARKING', name: 'LABOUR WELFARE ON PARKING AREA', basis: 'pct_of_parking_cost', mult: 0.01, rr_pct: null }
       ];
 
       for (let idx = 0; idx < defaultStatutory.length; idx++) {
         const item = defaultStatutory[idx];
         await client.query(
           `INSERT INTO project_statutory_charges
-            (financial_viability_id, charge_code, charge_name, calculation_basis, rate_multiplier, max_cap, order_index)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [financial.id, item.code, item.name, item.basis, item.mult, item.cap || null, idx + 1]
+            (financial_viability_id, charge_code, charge_name, calculation_basis, rate_multiplier, max_cap, rr_percentage, order_index, is_enabled)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)`,
+          [financial.id, item.code, item.name, item.basis, item.mult, item.cap || null, item.rr_pct, idx + 1]
         );
       }
       // Note: Salable unit inventory is not pre-seeded with sample units. Starts empty for the user to configure.
     }
 
-    // 5. Fetch statutory charges & salable units
+    // 5. Fetch statutory charges & salable units (excluding soft-deleted charges)
     const { rows: statutoryCharges } = await client.query(
-      'SELECT * FROM project_statutory_charges WHERE financial_viability_id = $1 ORDER BY order_index ASC, id ASC',
+      'SELECT * FROM project_statutory_charges WHERE financial_viability_id = $1 AND is_deleted = FALSE ORDER BY order_index ASC, id ASC',
       [financial.id]
     );
 
@@ -165,13 +164,35 @@ router.put('/area', authenticate, checkProjectAccess(), requireFeasibilityEdit, 
     paid_fsi_factor,
     tdr_factor,
     proposed_tdr_factor,
+    regular_tdr_factor,
+    slum_tdr_factor,
+    is_gunthewari,
+    road_width_m,
+    building_use,
     ancillary_commercial_pct,
     ancillary_residential_pct,
     unit_display
   } = req.body;
 
+  // Strict Road-Width Validation Rule (REQ-K)
+  const validRoadWidths = [9, 12, 15, 18, 24];
+  if (road_width_m !== undefined && road_width_m !== null && road_width_m !== '') {
+    const parsedWidth = parseFloat(road_width_m);
+    if (!validRoadWidths.includes(parsedWidth)) {
+      return res.status(400).json({ error: 'Invalid road width. Supported road widths are strictly 9m, 12m, 15m, 18m, or 24m.' });
+    }
+  }
+
   try {
     const { rows: [existing] } = await pool.query('SELECT * FROM project_area_statements WHERE project_id = $1', [projectId]);
+
+    const parsedWidth = road_width_m !== undefined ? (road_width_m === null || road_width_m === '' ? null : parseFloat(road_width_m)) : (existing?.road_width_m ?? null);
+    const gunthFlag = is_gunthewari !== undefined ? Boolean(is_gunthewari) : Boolean(existing?.is_gunthewari);
+
+    let resolvedRegularTdr = regular_tdr_factor !== undefined ? (regular_tdr_factor === null || regular_tdr_factor === '' ? null : parseFloat(regular_tdr_factor)) : null;
+    if (resolvedRegularTdr === null && parsedWidth && ROAD_WIDTH_TDR_MAP[parsedWidth]) {
+      resolvedRegularTdr = gunthFlag ? ROAD_WIDTH_TDR_MAP[parsedWidth].gunthewari : ROAD_WIDTH_TDR_MAP[parsedWidth].regular;
+    }
 
     const { rows: [updated] } = await pool.query(
       `UPDATE project_area_statements SET
@@ -186,11 +207,16 @@ router.put('/area', authenticate, checkProjectAccess(), requireFeasibilityEdit, 
         paid_fsi_factor = COALESCE($9, paid_fsi_factor),
         tdr_factor = COALESCE($10, tdr_factor),
         proposed_tdr_factor = COALESCE($11, proposed_tdr_factor),
-        ancillary_commercial_pct = COALESCE($12, ancillary_commercial_pct),
-        ancillary_residential_pct = COALESCE($13, ancillary_residential_pct),
-        unit_display = COALESCE($14, unit_display),
+        regular_tdr_factor = COALESCE($12, regular_tdr_factor),
+        slum_tdr_factor = COALESCE($13, slum_tdr_factor),
+        is_gunthewari = COALESCE($14, is_gunthewari),
+        road_width_m = $15,
+        building_use = COALESCE($16, building_use),
+        ancillary_commercial_pct = COALESCE($17, ancillary_commercial_pct),
+        ancillary_residential_pct = COALESCE($18, ancillary_residential_pct),
+        unit_display = COALESCE($19, unit_display),
         updated_at = NOW()
-       WHERE project_id = $15
+       WHERE project_id = $20
        RETURNING *`,
       [
         plot_area_sqm !== undefined ? parseFloat(plot_area_sqm) : null,
@@ -204,6 +230,11 @@ router.put('/area', authenticate, checkProjectAccess(), requireFeasibilityEdit, 
         paid_fsi_factor !== undefined ? parseFloat(paid_fsi_factor) : null,
         tdr_factor !== undefined ? parseFloat(tdr_factor) : null,
         proposed_tdr_factor !== undefined ? parseFloat(proposed_tdr_factor) : null,
+        resolvedRegularTdr,
+        slum_tdr_factor !== undefined ? parseFloat(slum_tdr_factor) : null,
+        is_gunthewari !== undefined ? Boolean(is_gunthewari) : null,
+        parsedWidth,
+        building_use ? building_use.trim() : null,
         ancillary_commercial_pct !== undefined ? parseFloat(ancillary_commercial_pct) : null,
         ancillary_residential_pct !== undefined ? parseFloat(ancillary_residential_pct) : null,
         unit_display || null,
@@ -229,7 +260,20 @@ router.put('/area', authenticate, checkProjectAccess(), requireFeasibilityEdit, 
 // Add dynamic floor row
 router.post('/area/floors', authenticate, checkProjectAccess(), requireFeasibilityEdit, async (req, res) => {
   const projectId = parseInt(req.params.projectId, 10);
-  const { floor_name, floor_order, height_meters, pline_area_sqm, lobby_area_sqm, builtup_for_owners_sqm, builtup_for_sale_sqm, usage_type, remarks } = req.body;
+  const {
+    floor_name,
+    floor_order,
+    height_meters,
+    pline_area_sqm,
+    lobby_area_sqm,
+    is_lobby_overridden,
+    builtup_for_owners_sqm,
+    builtup_for_sale_sqm,
+    usage_type,
+    floor_type,
+    no_of_units,
+    remarks
+  } = req.body;
 
   try {
     const { rows: [stmt] } = await pool.query('SELECT id FROM project_area_statements WHERE project_id = $1', [projectId]);
@@ -240,21 +284,35 @@ router.post('/area/floors', authenticate, checkProjectAccess(), requireFeasibili
       [stmt.id]
     );
 
+    const pline = parseFloat(pline_area_sqm) || 0;
+    const isOverride = Boolean(is_lobby_overridden);
+    const lobby = isOverride
+      ? (parseFloat(lobby_area_sqm) || 0)
+      : Math.round(pline * 0.15 * 100) / 100;
+
+    const units = no_of_units !== undefined ? Math.max(0, parseInt(no_of_units, 10) || 0) : 1;
+    const sale = parseFloat(builtup_for_sale_sqm) || 0;
+    const areaFor1Unit = units > 0 ? Math.round((sale / units) * 10000) / 10000 : 0;
+
     const { rows: [newFloor] } = await pool.query(
       `INSERT INTO project_area_floors
-        (area_statement_id, floor_name, floor_order, height_meters, pline_area_sqm, lobby_area_sqm, builtup_for_owners_sqm, builtup_for_sale_sqm, usage_type, remarks)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        (area_statement_id, floor_name, floor_order, height_meters, pline_area_sqm, lobby_area_sqm, is_lobby_overridden, builtup_for_owners_sqm, builtup_for_sale_sqm, usage_type, floor_type, no_of_units, area_for_1_unit, remarks)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING *`,
       [
         stmt.id,
         (floor_name || 'New Floor').trim(),
         floor_order || maxOrder.next_order,
         parseFloat(height_meters) || 2.85,
-        parseFloat(pline_area_sqm) || 0,
-        parseFloat(lobby_area_sqm) || 0,
+        pline,
+        lobby,
+        isOverride,
         builtup_for_owners_sqm !== undefined ? parseFloat(builtup_for_owners_sqm) : null,
-        parseFloat(builtup_for_sale_sqm) || 0,
+        sale,
         usage_type || 'Residential',
+        floor_type || 'habitable',
+        units,
+        areaFor1Unit,
         remarks || null
       ]
     );
@@ -271,39 +329,80 @@ router.post('/area/floors', authenticate, checkProjectAccess(), requireFeasibili
 router.put('/area/floors/:floorId', authenticate, checkProjectAccess(), requireFeasibilityEdit, async (req, res) => {
   const projectId = parseInt(req.params.projectId, 10);
   const floorId = parseInt(req.params.floorId, 10);
-  const { floor_name, floor_order, height_meters, pline_area_sqm, lobby_area_sqm, builtup_for_owners_sqm, builtup_for_sale_sqm, usage_type, remarks } = req.body;
+  const {
+    floor_name,
+    floor_order,
+    height_meters,
+    pline_area_sqm,
+    lobby_area_sqm,
+    is_lobby_overridden,
+    builtup_for_owners_sqm,
+    builtup_for_sale_sqm,
+    usage_type,
+    floor_type,
+    no_of_units,
+    remarks
+  } = req.body;
 
   try {
+    const { rows: [existing] } = await pool.query(
+      `SELECT * FROM project_area_floors WHERE id = $1 AND area_statement_id = (SELECT id FROM project_area_statements WHERE project_id = $2)`,
+      [floorId, projectId]
+    );
+    if (!existing) return res.status(404).json({ error: 'Floor record not found' });
+
+    const pline = pline_area_sqm !== undefined ? parseFloat(pline_area_sqm) : parseFloat(existing.pline_area_sqm) || 0;
+    const isOverride = is_lobby_overridden !== undefined ? Boolean(is_lobby_overridden) : Boolean(existing.is_lobby_overridden);
+    
+    // Auto-compute lobby if not overridden
+    let lobby = existing.lobby_area_sqm;
+    if (isOverride) {
+      if (lobby_area_sqm !== undefined) lobby = parseFloat(lobby_area_sqm) || 0;
+    } else {
+      lobby = Math.round(pline * 0.15 * 100) / 100;
+    }
+
+    const sale = builtup_for_sale_sqm !== undefined ? (parseFloat(builtup_for_sale_sqm) || 0) : (parseFloat(existing.builtup_for_sale_sqm) || 0);
+    const units = no_of_units !== undefined ? Math.max(0, parseInt(no_of_units, 10) || 0) : (parseInt(existing.no_of_units, 10) || 1);
+    const areaFor1Unit = units > 0 ? Math.round((sale / units) * 10000) / 10000 : 0;
+
     const { rows: [updatedFloor] } = await pool.query(
       `UPDATE project_area_floors SET
         floor_name = COALESCE($1, floor_name),
         floor_order = COALESCE($2, floor_order),
         height_meters = COALESCE($3, height_meters),
-        pline_area_sqm = COALESCE($4, pline_area_sqm),
-        lobby_area_sqm = COALESCE($5, lobby_area_sqm),
-        builtup_for_owners_sqm = $6,
-        builtup_for_sale_sqm = COALESCE($7, builtup_for_sale_sqm),
-        usage_type = COALESCE($8, usage_type),
-        remarks = COALESCE($9, remarks),
+        pline_area_sqm = $4,
+        lobby_area_sqm = $5,
+        is_lobby_overridden = $6,
+        builtup_for_owners_sqm = $7,
+        builtup_for_sale_sqm = $8,
+        usage_type = COALESCE($9, usage_type),
+        floor_type = COALESCE($10, floor_type),
+        no_of_units = $11,
+        area_for_1_unit = $12,
+        remarks = COALESCE($13, remarks),
         updated_at = NOW()
-       WHERE id = $10 AND area_statement_id = (SELECT id FROM project_area_statements WHERE project_id = $11)
+       WHERE id = $14 AND area_statement_id = (SELECT id FROM project_area_statements WHERE project_id = $15)
        RETURNING *`,
       [
         floor_name ? floor_name.trim() : null,
         floor_order !== undefined ? parseInt(floor_order, 10) : null,
         height_meters !== undefined ? parseFloat(height_meters) : null,
-        pline_area_sqm !== undefined ? parseFloat(pline_area_sqm) : null,
-        lobby_area_sqm !== undefined ? parseFloat(lobby_area_sqm) : null,
+        pline,
+        lobby,
+        isOverride,
         builtup_for_owners_sqm !== undefined ? parseFloat(builtup_for_owners_sqm) : null,
-        builtup_for_sale_sqm !== undefined ? parseFloat(builtup_for_sale_sqm) : null,
+        sale,
         usage_type || null,
+        floor_type || null,
+        units,
+        areaFor1Unit,
         remarks !== undefined ? remarks : null,
         floorId,
         projectId
       ]
     );
 
-    if (!updatedFloor) return res.status(404).json({ error: 'Floor record not found' });
     res.json({ floor: updatedFloor, message: 'Floor updated successfully' });
   } catch (err) {
     console.error('Error updating floor:', err);
@@ -570,7 +669,98 @@ router.delete('/financial/salable-units/:unitId', authenticate, checkProjectAcce
   }
 });
 
-// 10. POST /api/projects/:projectId/feasibility/snapshots
+// 10. PATCH /api/projects/:projectId/feasibility/statutory/:chargeId
+// Update statutory charge enable/disable toggle, configurable RR percentage, or custom amount
+router.patch('/statutory/:chargeId', authenticate, checkProjectAccess(), requireFeasibilityEdit, async (req, res) => {
+  const projectId = parseInt(req.params.projectId, 10);
+  const chargeId = parseInt(req.params.chargeId, 10);
+  const { is_enabled, rr_percentage, amount, is_custom, charge_name } = req.body;
+
+  try {
+    const { rows: [existing] } = await pool.query(
+      `SELECT c.* FROM project_statutory_charges c
+       JOIN project_financial_viabilities f ON f.id = c.financial_viability_id
+       WHERE c.id = $1 AND f.project_id = $2`,
+      [chargeId, projectId]
+    );
+
+    if (!existing) return res.status(404).json({ error: 'Statutory charge not found' });
+
+    const { rows: [updated] } = await pool.query(
+      `UPDATE project_statutory_charges SET
+        is_enabled = COALESCE($1, is_enabled),
+        rr_percentage = CASE WHEN $2::numeric IS NOT NULL THEN $2::numeric ELSE rr_percentage END,
+        amount = COALESCE($3, amount),
+        is_custom = COALESCE($4, is_custom),
+        charge_name = COALESCE($5, charge_name)
+       WHERE id = $6
+       RETURNING *`,
+      [
+        is_enabled !== undefined ? Boolean(is_enabled) : null,
+        rr_percentage !== undefined ? (rr_percentage === null || rr_percentage === '' ? null : parseFloat(rr_percentage)) : null,
+        amount !== undefined ? parseFloat(amount) : null,
+        is_custom !== undefined ? Boolean(is_custom) : null,
+        charge_name ? charge_name.trim() : null,
+        chargeId
+      ]
+    );
+
+    // Audit log
+    await pool.query(
+      `INSERT INTO feasibility_audit_logs (project_id, user_id, action, module, entity_type, old_value, new_value)
+       VALUES ($1, $2, 'UPDATE_STATUTORY_CHARGE', 'financial', 'project_statutory_charges', $3, $4)`,
+      [projectId, req.user.id, JSON.stringify(existing), JSON.stringify(updated)]
+    );
+
+    res.json({ charge: updated, message: 'Statutory charge updated successfully' });
+  } catch (err) {
+    console.error('Error updating statutory charge:', err);
+    res.status(500).json({ error: 'Failed to update statutory charge' });
+  }
+});
+
+// 11. DELETE /api/projects/:projectId/feasibility/statutory/:chargeId
+// Soft-delete / Archive statutory charge preserving historical snapshots and audit trail (REQ-C confirmed)
+router.delete('/statutory/:chargeId', authenticate, checkProjectAccess(), requireFeasibilityEdit, async (req, res) => {
+  const projectId = parseInt(req.params.projectId, 10);
+  const chargeId = parseInt(req.params.chargeId, 10);
+
+  try {
+    const { rows: [existing] } = await pool.query(
+      `SELECT c.* FROM project_statutory_charges c
+       JOIN project_financial_viabilities f ON f.id = c.financial_viability_id
+       WHERE c.id = $1 AND f.project_id = $2`,
+      [chargeId, projectId]
+    );
+
+    if (!existing) return res.status(404).json({ error: 'Statutory charge not found' });
+
+    // Perform soft-deletion
+    const { rows: [archived] } = await pool.query(
+      `UPDATE project_statutory_charges SET
+        is_deleted = TRUE,
+        is_enabled = FALSE,
+        deleted_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [chargeId]
+    );
+
+    // Audit log
+    await pool.query(
+      `INSERT INTO feasibility_audit_logs (project_id, user_id, action, module, entity_type, old_value, new_value)
+       VALUES ($1, $2, 'ARCHIVE_STATUTORY_CHARGE', 'financial', 'project_statutory_charges', $3, $4)`,
+      [projectId, req.user.id, JSON.stringify(existing), JSON.stringify(archived)]
+    );
+
+    res.json({ charge: archived, message: 'Statutory charge archived successfully' });
+  } catch (err) {
+    console.error('Error archiving statutory charge:', err);
+    res.status(500).json({ error: 'Failed to archive statutory charge' });
+  }
+});
+
+// 12. POST /api/projects/:projectId/feasibility/financial/snapshots
 // Save an immutable calculation snapshot
 router.post('/snapshots', authenticate, checkProjectAccess(), requireFeasibilityEdit, async (req, res) => {
   const projectId = parseInt(req.params.projectId, 10);
@@ -639,7 +829,7 @@ router.get('/export', authenticate, checkProjectAccess(), requireFeasibilityAcce
 
     const { rows: [financial] } = await pool.query('SELECT * FROM project_financial_viabilities WHERE project_id = $1', [projectId]);
     const { rows: statutory } = financial
-      ? await pool.query('SELECT * FROM project_statutory_charges WHERE financial_viability_id = $1 ORDER BY order_index ASC', [financial.id])
+      ? await pool.query('SELECT * FROM project_statutory_charges WHERE financial_viability_id = $1 AND is_deleted = FALSE ORDER BY order_index ASC', [financial.id])
       : { rows: [] };
     const { rows: salable } = financial
       ? await pool.query('SELECT * FROM project_salable_units WHERE financial_viability_id = $1 ORDER BY order_index ASC', [financial.id])

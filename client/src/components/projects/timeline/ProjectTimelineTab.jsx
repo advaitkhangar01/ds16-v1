@@ -83,8 +83,12 @@ export default function ProjectTimelineTab({ projectId, user, isAdmin, isManagem
   const handleUpdateTaskStatus = async (taskId, newStatus) => {
     try {
       const res = await api.patch(`/projects/${projectId}/timeline/tasks/${taskId}`, { status: newStatus });
-      setTasks(prev => prev.map(t => t.id === taskId ? res.data.task : t));
-      toast.success(`Task status updated to ${newStatus}`);
+      if (res.data.forecast_adjustment) {
+        await fetchData();
+      } else {
+        setTasks(prev => prev.map(t => t.id === taskId ? res.data.task : t));
+      }
+      toast.success(res.data.message || `Task status updated to ${newStatus}`);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to update task status');
     }

@@ -62,19 +62,32 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
   }, [fetchData]);
 
   // Recalculate metrics client-side whenever inputs change for instant preview responsiveness
-  const recalculateLive = (newStmt, newFloors, newFin, newUnits) => {
+  const recalculateLive = (newStmt, newFloors, newFin, newUnits, newStatutory) => {
     const s = newStmt || statement;
     const f = newFloors || floors;
     const fin = newFin || financial;
     const u = newUnits || salableUnits;
+    const scList = newStatutory || statutoryCharges;
 
     // Fast client-side mirror
     const plot = parseFloat(s.plot_area_sqm) || 0;
-    const basicFsi = plot * (parseFloat(s.basic_fsi_factor) || 1.1);
-    const paidFsi = plot * (parseFloat(s.paid_fsi_factor) || 0.5);
-    const tdr = plot * (parseFloat(s.proposed_tdr_factor) || 0.545);
-    const totalBuiltup = basicFsi + paidFsi + tdr;
-    const ancillary = totalBuiltup * (parseFloat(s.ancillary_residential_pct) || 0.6);
+    const dp = parseFloat(s.dp_deductions_sqm) || 0;
+    const plotable = Math.max(0, plot - dp);
+
+    const basicFsi = plotable * (parseFloat(s.basic_fsi_factor) || 1.1);
+    const paidFsi = plotable * (parseFloat(s.paid_fsi_factor) || 0.5);
+
+    const regTdrFactor = parseFloat(s.regular_tdr_factor) || 0;
+    const slumTdrFactor = parseFloat(s.slum_tdr_factor) || 0;
+    const regTdr = plotable * regTdrFactor;
+    const slumTdr = plotable * slumTdrFactor;
+    const totalTdr = regTdr + slumTdr;
+
+    const totalBuiltup = basicFsi + paidFsi + totalTdr;
+    const ancillaryPct = s.building_use === 'COMMERCIAL'
+      ? 0.8
+      : (parseFloat(s.ancillary_residential_pct) || 0.6);
+    const ancillary = totalBuiltup * ancillaryPct;
     const proposedPline = totalBuiltup + ancillary;
 
     let floorPlineSum = 0;
@@ -102,16 +115,22 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
     const divFactor = parseFloat(s.dividing_factor) || 1.6;
     const baseDiv = divFactor > 0 ? (floorPlineSum / divFactor) : 0;
     const derivedAnc = Math.max(0, floorPlineSum - baseDiv);
-    const paidReq = Math.max(0, baseDiv - basicFsi - (plot * 0.3));
+    const paidReq = Math.max(0, baseDiv - basicFsi - (plotable * 0.3));
 
     const updatedArea = {
       ...areaMetrics,
-      plotableAreaSqm: plot,
+      plotAreaSqm: plot,
+      dpDeductionsSqm: dp,
+      plotableAreaSqm: plotable,
       permissibleFsiSqm: basicFsi,
       proposedBasicFsiSqm: basicFsi,
       permissiblePaidFsiSqm: paidFsi,
       proposedPaidFsiSqm: paidFsi,
-      proposedTdrSqm: tdr,
+      permissibleRegularTdrSqm: regTdr,
+      proposedRegularTdrSqm: regTdr,
+      permissibleSlumTdrSqm: slumTdr,
+      proposedSlumTdrSqm: slumTdr,
+      proposedTdrSqm: totalTdr,
       proposedTotalBuiltupSqm: totalBuiltup,
       proposedAncillaryResSqm: ancillary,
       proposedPlineTotalSqm: proposedPline,
@@ -127,29 +146,30 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
     setAreaMetrics(updatedArea);
 
     // Live financial recalculation
-    const rr = parseFloat(fin.rr_rate_per_sqm) || 24340;
+    const rr = parseFloat(fin.rr_rate_per_sqm) || 0;
     const effectivePline = floorPlineSum > 0 ? floorPlineSum : proposedPline;
-    const costConst = effectivePline * (parseFloat(fin.cost_of_construction_rate) || 20000);
-    const costTdr = tdr * 0.55 * rr;
-    const plotCost = parseFloat(fin.cost_of_plot) || (plot * (parseFloat(fin.cost_of_plot_rate_per_sqm) || 30000));
-    const basementCost = (parseFloat(fin.basement_area_sqm) || 0) * (parseFloat(fin.basement_rate_per_sqm) || 5500);
-    const rentCost = (parseInt(fin.rent_tenements, 10) || 3) * (parseFloat(fin.rent_per_tenement_per_month) || 15000) * (parseInt(fin.rent_months, 10) || 24);
-    const parkingCost = (parseInt(fin.stacked_parking_slots, 10) || 10) * (parseFloat(fin.stacked_parking_cost_per_slot) || 200000);
-    const minorNoc = (parseFloat(fin.minor_expenses) || 234233) + (parseFloat(fin.bpms_staff_charges) || 100000) + (parseFloat(fin.airport_noc) || 25000) + (parseFloat(fin.fire_noc) || 500000) + (parseFloat(fin.entertainment_charges) || 300000);
+    const costConst = effectivePline * (parseFloat(fin.cost_of_construction_rate) || 0);
+    const costTdr = totalTdr * (parseFloat(fin.tdr_purchase_factor) || 0.55) * rr;
+    const plotCost = parseFloat(fin.cost_of_plot) || (plotable * (parseFloat(fin.cost_of_plot_rate_per_sqm) || 0));
+    const basementCost = (parseFloat(fin.basement_area_sqm) || 0) * (parseFloat(fin.basement_rate_per_sqm) || 0);
+    const rentCost = (parseInt(fin.rent_tenements, 10) || 0) * (parseFloat(fin.rent_per_tenement_per_month) || 0) * (parseInt(fin.rent_months, 10) || 0);
+    const parkingCost = (parseInt(fin.stacked_parking_slots, 10) || 0) * (parseFloat(fin.stacked_parking_cost_per_slot) || 0);
+    const minorNoc = (parseFloat(fin.minor_expenses) || 0) + (parseFloat(fin.bpms_staff_charges) || 0) + (parseFloat(fin.airport_noc) || 0) + (parseFloat(fin.fire_noc) || 0) + (parseFloat(fin.entertainment_charges) || 0);
 
     let statSum = 0;
-    statutoryCharges.forEach(sc => {
-      statSum += parseFloat(sc.calculated_amount ?? sc.amount) || 0;
+    scList.forEach(sc => {
+      if (sc.is_enabled !== false && !sc.is_deleted && sc.charge_name !== 'AMALGAMATION') {
+        statSum += parseFloat(sc.calculated_amount ?? sc.amount) || 0;
+      }
     });
-    if (statSum === 0) statSum = 3227294; // fallback
 
     const totalCost = statSum + costTdr + minorNoc + costConst + basementCost + rentCost + parkingCost + plotCost;
 
     let receiptsSum = 0;
     u.forEach(un => {
       const c = parseFloat(un.carpet_area_sqm) || 0;
-      const sup = (c * 10.764) + (parseFloat(un.super_buildup_loading_sqft) || 300);
-      const pr = sup * (parseFloat(un.rate_per_sqft) || 6000);
+      const sup = (c * 10.764) + (parseFloat(un.super_buildup_loading_sqft) || 0);
+      const pr = sup * (parseFloat(un.rate_per_sqft) || 0);
       receiptsSum += pr * (parseInt(un.unit_count, 10) || 1);
     });
 
@@ -176,22 +196,26 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
   const handleUpdateStatement = (updates) => {
     const updated = { ...statement, ...updates };
     setStatement(updated);
-    recalculateLive(updated, floors, financial, salableUnits);
+    recalculateLive(updated, floors, financial, salableUnits, statutoryCharges);
   };
 
   const handleAddFloor = async () => {
     try {
       const res = await api.post(`/projects/${projectId}/feasibility/area/floors`, {
-        floor_name: `Floor ${floors.length + 1} P Line Area`,
+        floor_name: `Floor ${floors.length + 1}`,
+        floor_type: 'HABITABLE',
         height_meters: 3.0,
-        pline_area_sqm: 135.86,
-        lobby_area_sqm: 19.64,
-        builtup_for_owners_sqm: 116.22,
-        builtup_for_sale_sqm: 0
+        pline_area_sqm: 0,
+        lobby_area_sqm: 0,
+        builtup_for_owners_sqm: 0,
+        builtup_for_sale_sqm: 0,
+        no_of_units: 1,
+        area_for_1_unit: 0,
+        is_lobby_overridden: false
       });
       const newFloors = [...floors, res.data.floor];
       setFloors(newFloors);
-      recalculateLive(statement, newFloors, financial, salableUnits);
+      recalculateLive(statement, newFloors, financial, salableUnits, statutoryCharges);
       toast.success('Floor added');
     } catch {
       toast.error('Failed to add floor');
@@ -201,7 +225,7 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
   const handleUpdateFloor = (id, updates) => {
     const newFloors = floors.map(f => f.id === id ? { ...f, ...updates } : f);
     setFloors(newFloors);
-    recalculateLive(statement, newFloors, financial, salableUnits);
+    recalculateLive(statement, newFloors, financial, salableUnits, statutoryCharges);
   };
 
   const handleDeleteFloor = async (id) => {
@@ -209,7 +233,7 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
       await api.delete(`/projects/${projectId}/feasibility/area/floors/${id}`);
       const newFloors = floors.filter(f => f.id !== id);
       setFloors(newFloors);
-      recalculateLive(statement, newFloors, financial, salableUnits);
+      recalculateLive(statement, newFloors, financial, salableUnits, statutoryCharges);
       toast.success('Floor removed');
     } catch {
       toast.error('Failed to remove floor');
@@ -219,21 +243,54 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
   const handleUpdateFinancial = (updates) => {
     const updated = { ...financial, ...updates };
     setFinancial(updated);
-    recalculateLive(statement, floors, updated, salableUnits);
+    recalculateLive(statement, floors, updated, salableUnits, statutoryCharges);
+  };
+
+  const handleUpdateStatutoryCharge = (id, updates) => {
+    const newCharges = statutoryCharges.map(sc => {
+      if (sc.id === id) {
+        const updated = { ...sc, ...updates };
+        if (updates.rr_percentage !== undefined) {
+          const rr = parseFloat(financial.rr_rate_per_sqm) || 0;
+          const pline = areaMetrics.totalProposedPlineSqm || areaMetrics.proposedPlineTotalSqm || 0;
+          const pct = parseFloat(updates.rr_percentage) || 0;
+          updated.calculated_amount = (pline * rr * (pct / 100));
+          updated.amount = updated.calculated_amount;
+        }
+        return updated;
+      }
+      return sc;
+    });
+    setStatutoryCharges(newCharges);
+    recalculateLive(statement, floors, financial, salableUnits, newCharges);
+  };
+
+  const handleArchiveStatutoryCharge = async (id) => {
+    try {
+      await api.delete(`/projects/${projectId}/feasibility/statutory/${id}`);
+      const newCharges = statutoryCharges.map(sc => 
+        sc.id === id ? { ...sc, is_deleted: true, is_enabled: false } : sc
+      );
+      setStatutoryCharges(newCharges);
+      recalculateLive(statement, floors, financial, salableUnits, newCharges);
+      toast.success('Statutory charge archived');
+    } catch {
+      toast.error('Failed to archive statutory charge');
+    }
   };
 
   const handleAddSalableUnit = async () => {
     try {
       const res = await api.post(`/projects/${projectId}/feasibility/financial/salable-units`, {
-        unit_name: `Residential Unit Type ${String.fromCharCode(65 + salableUnits.length)}`,
-        carpet_area_sqm: 286.50,
-        super_buildup_loading_sqft: 300,
-        unit_count: 3,
-        rate_per_sqft: 6000
+        unit_name: `Unit Type ${String.fromCharCode(65 + salableUnits.length)}`,
+        carpet_area_sqm: 0,
+        super_buildup_loading_sqft: 0,
+        unit_count: 1,
+        rate_per_sqft: 0
       });
       const newUnits = [...salableUnits, res.data.unit];
       setSalableUnits(newUnits);
-      recalculateLive(statement, floors, financial, newUnits);
+      recalculateLive(statement, floors, financial, newUnits, statutoryCharges);
       toast.success('Salable unit added');
     } catch {
       toast.error('Failed to add salable unit');
@@ -243,7 +300,7 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
   const handleUpdateSalableUnit = (id, updates) => {
     const newUnits = salableUnits.map(u => u.id === id ? { ...u, ...updates } : u);
     setSalableUnits(newUnits);
-    recalculateLive(statement, floors, financial, newUnits);
+    recalculateLive(statement, floors, financial, newUnits, statutoryCharges);
   };
 
   const handleDeleteSalableUnit = async (id) => {
@@ -251,7 +308,7 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
       await api.delete(`/projects/${projectId}/feasibility/financial/salable-units/${id}`);
       const newUnits = salableUnits.filter(u => u.id !== id);
       setSalableUnits(newUnits);
-      recalculateLive(statement, floors, financial, newUnits);
+      recalculateLive(statement, floors, financial, newUnits, statutoryCharges);
       toast.success('Salable unit removed');
     } catch {
       toast.error('Failed to remove salable unit');
@@ -274,7 +331,17 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
       }
       // 3. Save financial parameters
       await api.put(`/projects/${projectId}/feasibility/financial`, financial);
-      // 4. Save salable unit updates
+      // 4. Save statutory charge updates
+      for (const sc of statutoryCharges) {
+        if (sc.id && !sc.is_deleted) {
+          await api.patch(`/projects/${projectId}/feasibility/statutory/${sc.id}`, {
+            is_enabled: sc.is_enabled,
+            rr_percentage: sc.rr_percentage,
+            amount: sc.calculated_amount ?? sc.amount
+          });
+        }
+      }
+      // 5. Save salable unit updates
       for (const un of salableUnits) {
         if (un.id) {
           await api.put(`/projects/${projectId}/feasibility/financial/salable-units/${un.id}`, un);
@@ -291,7 +358,7 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
   };
 
   const handleCreateSnapshot = async () => {
-    const name = window.prompt('Enter snapshot name:', `Baseline Feasibility ${new Date().toLocaleDateString('en-GB')}`);
+    const name = window.prompt('Enter snapshot name:', `Feasibility Snapshot ${new Date().toLocaleDateString('en-GB')}`);
     if (!name) return;
     try {
       const res = await api.post(`/projects/${projectId}/feasibility/snapshots`, {
@@ -308,25 +375,33 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
 
   // Export to Excel Workbook
   const handleExportExcel = () => {
-    const areaRows = [
+    // Table 1: Plot Area Statement
+    const plotAreaRows = [
       { 'Particulars': 'Area of Plot', 'Permissible': statement.plot_area_sqm, 'Proposed': statement.plot_area_sqm },
-      { 'Particulars': 'D.P. Deductions', 'Permissible': statement.dp_deductions_sqm, 'Proposed': 0 },
-      { 'Particulars': 'Plotable Area', 'Permissible': areaMetrics.plotableAreaSqm, 'Proposed': areaMetrics.plotableAreaSqm },
-      { 'Particulars': 'Basic FSI (1.1)', 'Permissible': areaMetrics.permissibleFsiSqm, 'Proposed': areaMetrics.proposedBasicFsiSqm },
-      { 'Particulars': 'Paid FSI (0.5)', 'Permissible': areaMetrics.permissiblePaidFsiSqm, 'Proposed': areaMetrics.proposedPaidFsiSqm },
-      { 'Particulars': 'TDR Area', 'Permissible': areaMetrics.permissibleTdrSqm, 'Proposed': areaMetrics.proposedTdrSqm },
-      { 'Particulars': 'Total Builtup Area', 'Permissible': areaMetrics.permissibleTotalBuiltupSqm, 'Proposed': areaMetrics.proposedTotalBuiltupSqm },
-      { 'Particulars': 'Ancillary Area (60%)', 'Permissible': areaMetrics.permissibleAncillaryResSqm, 'Proposed': areaMetrics.proposedAncillaryResSqm },
-      { 'Particulars': 'Total Permissible P-Line Area', 'Permissible': areaMetrics.permissiblePlineTotalSqm, 'Proposed': areaMetrics.proposedPlineTotalSqm }
+      { 'Particulars': 'D.P. Deductions', 'Permissible': statement.dp_deductions_sqm || 0, 'Proposed': 0 },
+      { 'Particulars': 'Plotable Area', 'Permissible': areaMetrics.plotableAreaSqm, 'Proposed': areaMetrics.plotableAreaSqm }
     ];
 
+    // Table 2: Permissible vs Proposed FSI Potential
+    const fsiRows = [
+      { 'Particulars': `Basic FSI (${statement.basic_fsi_factor || 1.1})`, 'Permissible': areaMetrics.permissibleFsiSqm, 'Proposed': areaMetrics.proposedBasicFsiSqm },
+      { 'Particulars': `Paid FSI (${statement.paid_fsi_factor || 0.5})`, 'Permissible': areaMetrics.permissiblePaidFsiSqm, 'Proposed': areaMetrics.proposedPaidFsiSqm },
+      { 'Particulars': `Regular TDR (${statement.regular_tdr_factor || 0})`, 'Permissible': areaMetrics.permissibleRegularTdrSqm || 0, 'Proposed': areaMetrics.proposedRegularTdrSqm || 0 },
+      { 'Particulars': `Slum TDR (${statement.slum_tdr_factor || 0})`, 'Permissible': areaMetrics.permissibleSlumTdrSqm || 0, 'Proposed': areaMetrics.proposedSlumTdrSqm || 0 },
+      { 'Particulars': 'Total Permissible / Proposed Builtup Area', 'Permissible': areaMetrics.proposedTotalBuiltupSqm, 'Proposed': areaMetrics.proposedTotalBuiltupSqm },
+      { 'Particulars': `Ancillary Area (${statement.building_use === 'COMMERCIAL' ? '80%' : '60%'})`, 'Permissible': areaMetrics.proposedAncillaryResSqm, 'Proposed': areaMetrics.proposedAncillaryResSqm },
+      { 'Particulars': 'Total Proposed P-Line Area', 'Permissible': areaMetrics.proposedPlineTotalSqm, 'Proposed': areaMetrics.totalProposedPlineSqm }
+    ];
+
+    // Floor breakdown: 7-column sequence
     const floorRows = floors.map(f => ({
-      'Floor Name': f.floor_name,
+      'Floor Level': f.floor_name,
       'Height (m)': f.height_meters,
-      'P-Line Area': f.pline_area_sqm,
-      'Lobby Area': f.lobby_area_sqm,
-      'Builtup for Owners': f.builtup_for_owners_sqm,
-      'Builtup for Sale': f.builtup_for_sale_sqm
+      'P-Line Area (sq m)': f.pline_area_sqm,
+      'Lobby Area (sq m)': f.lobby_area_sqm,
+      'Built-up for Sale (sq m)': f.builtup_for_sale_sqm,
+      'No. Of Units': f.no_of_units || 1,
+      'Area For 1 Unit': f.area_for_1_unit || (f.no_of_units > 0 ? ((f.builtup_for_sale_sqm || 0) / f.no_of_units).toFixed(2) : '0.00')
     }));
 
     const finRows = [
@@ -344,11 +419,13 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
     ];
 
     const wb = XLSX.utils.book_new();
-    const wsArea = XLSX.utils.json_to_sheet(areaRows);
+    const wsPlot = XLSX.utils.json_to_sheet(plotAreaRows);
+    const wsFsi = XLSX.utils.json_to_sheet(fsiRows);
     const wsFloors = XLSX.utils.json_to_sheet(floorRows);
     const wsFin = XLSX.utils.json_to_sheet(finRows);
 
-    XLSX.utils.book_append_sheet(wb, wsArea, 'Area Statement');
+    XLSX.utils.book_append_sheet(wb, wsPlot, 'Plot Area Statement');
+    XLSX.utils.book_append_sheet(wb, wsFsi, 'FSI Potential');
     XLSX.utils.book_append_sheet(wb, wsFloors, 'Floor Breakdown');
     XLSX.utils.book_append_sheet(wb, wsFin, 'Financial Viability');
 
@@ -540,10 +617,13 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
               <FinancialViabilityForm
                 financial={financial}
                 salableUnits={salableUnits}
+                statutoryCharges={statutoryCharges}
                 onUpdateFinancial={handleUpdateFinancial}
                 onAddSalableUnit={handleAddSalableUnit}
                 onUpdateSalableUnit={handleUpdateSalableUnit}
                 onDeleteSalableUnit={handleDeleteSalableUnit}
+                onUpdateStatutoryCharge={handleUpdateStatutoryCharge}
+                onArchiveStatutoryCharge={handleArchiveStatutoryCharge}
                 isPrivileged={isPrivileged}
               />
             )}

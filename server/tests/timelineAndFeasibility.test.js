@@ -152,6 +152,7 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
           expect(triggerMilestones.length).toBe(0);
           expect(groundBrick.metadata.is_manually_scheduled).toBe(true);
           expect(groundBrick.metadata.has_structural_trigger).toBe(false);
+          expect(groundBrick.predecessors.length).toBe(0); // G+2 or fewer: no false structural predecessor or hidden lag
         }
       }
     });
@@ -498,6 +499,130 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       );
       expect(formatDateStr(revertedBrick.forecast_start_date)).toBe(baselineStart);
     });
+
+    it('safely preserves Ground Floor Brickwork dates if work is already physically started', async () => {
+      // Find 3rd floor slab and ground floor brickwork
+      const { rows: [slab3rd] } = await pool.query(
+        "SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_draft = FALSE AND metadata->>'milestone_code' = 'SLAB_3RD_FLOOR' LIMIT 1",
+        [testProject.id]
+      );
+      const { rows: [groundBrick] } = await pool.query(
+        "SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_draft = FALSE AND metadata->>'is_ground_brickwork' = 'true' LIMIT 1",
+        [testProject.id]
+      );
+
+      // Mark ground brickwork as In Progress with physical actual_start_date
+      await pool.query(
+        "UPDATE timeline_tasks SET status = 'In Progress', actual_start_date = '2027-04-01' WHERE id = $1",
+        [groundBrick.id]
+      );
+
+      // Now complete the 3rd floor slab
+      const res = await request(app)
+        .patch(`/api/projects/${testProject.id}/timeline/tasks/${slab3rd.id}`)
+        .set('Authorization', `Bearer ${testUsers.civil_engineer.token}`)
+        .send({
+          status: 'Completed',
+          actual_finish_date: '2027-04-20'
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.forecast_adjustment).toBeDefined();
+      expect(res.body.forecast_adjustment.skipped).toBe(true);
+      expect(res.body.forecast_adjustment.reason).toContain('already physically commenced');
+
+      // Verify DB: brickwork actual dates and status are NOT modified
+      const { rows: [checkedBrick] } = await pool.query(
+        'SELECT * FROM timeline_tasks WHERE id = $1',
+        [groundBrick.id]
+      );
+      expect(checkedBrick.status).toBe('In Progress');
+      expect(formatDateStr(checkedBrick.actual_start_date)).toBe('2027-04-01');
+
+      // Cleanup: revert brickwork to Not Started
+      await pool.query(
+        "UPDATE timeline_tasks SET status = 'Not Started', actual_start_date = NULL WHERE id = $1",
+        [groundBrick.id]
+      );
+    });
+
+    it('preserves manual management override on Ground Floor Brickwork and does not overwrite it on milestone completion or reopening', async () => {
+      const { rows: [slab3rd] } = await pool.query(
+        "SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_draft = FALSE AND metadata->>'milestone_code' = 'SLAB_3RD_FLOOR' LIMIT 1",
+        [testProject.id]
+      );
+      const { rows: [groundBrick] } = await pool.query(
+        "SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_draft = FALSE AND metadata->>'is_ground_brickwork' = 'true' LIMIT 1",
+        [testProject.id]
+      );
+
+      // Management manually overrides forecast dates on ground floor brickwork
+      const overrideRes = await request(app)
+        .patch(`/api/projects/${testProject.id}/timeline/tasks/${groundBrick.id}`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`)
+        .send({
+          forecast_start_date: '2027-06-01',
+          forecast_finish_date: '2027-06-22'
+        });
+
+      expect(overrideRes.status).toBe(200);
+
+      // Complete 3rd floor slab
+      const slabRes = await request(app)
+        .patch(`/api/projects/${testProject.id}/timeline/tasks/${slab3rd.id}`)
+        .set('Authorization', `Bearer ${testUsers.civil_engineer.token}`)
+        .send({
+          status: 'Completed',
+          actual_finish_date: '2027-04-18'
+        });
+
+      expect(slabRes.status).toBe(200);
+      expect(slabRes.body.forecast_adjustment.skipped).toBe(true);
+      expect(slabRes.body.forecast_adjustment.reason).toContain('explicit management schedule override');
+
+      // Verify manual override dates were NOT overwritten
+      const { rows: [checkedBrick] } = await pool.query(
+        'SELECT * FROM timeline_tasks WHERE id = $1',
+        [groundBrick.id]
+      );
+      expect(formatDateStr(checkedBrick.forecast_start_date)).toBe('2027-06-01');
+
+      // Reopening completed slab also preserves the manual override
+      const reopenRes = await request(app)
+        .patch(`/api/projects/${testProject.id}/timeline/tasks/${slab3rd.id}`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`)
+        .send({ status: 'In Progress' });
+
+      expect(reopenRes.status).toBe(200);
+      const { rows: [reopenedBrick] } = await pool.query(
+        'SELECT * FROM timeline_tasks WHERE id = $1',
+        [groundBrick.id]
+      );
+      expect(formatDateStr(reopenedBrick.forecast_start_date)).toBe('2027-06-01');
+    });
+
+    it('verifies generic milestone does not trigger brickwork forecast recalculation', async () => {
+      // Create a generic milestone on 3rd floor
+      const { rows: [genericMilestone] } = await pool.query(
+        `INSERT INTO timeline_tasks 
+          (project_id, task_name, category, construction_stage, floor_zone, planned_start_date, planned_finish_date, is_milestone, metadata, duration_days, is_draft, created_by)
+         VALUES ($1, '3rd Floor Generic QA Milestone', 'Testing, Commissioning & Handover', 'Finishing & Services', '3rd Floor', '2027-05-01', '2027-05-01', TRUE, '{"generic": true}', 1, FALSE, $2)
+         RETURNING *`,
+        [testProject.id, testUsers.admin.id]
+      );
+
+      // Complete the generic milestone
+      const res = await request(app)
+        .patch(`/api/projects/${testProject.id}/timeline/tasks/${genericMilestone.id}`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`)
+        .send({
+          status: 'Completed',
+          actual_finish_date: '2027-05-01'
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.forecast_adjustment).toBeNull(); // Generic milestone MUST NOT trigger brickwork recalculation!
+    });
   });
 
   // ==========================================
@@ -688,6 +813,209 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       expect(res.body.financial_viability).toBeDefined();
       expect(res.body.financial_viability.statutory_demand_section_a).toBeDefined();
       expect(res.body.financial_viability.viability_summary.projected_net_profit).toBeDefined();
+    });
+  });
+
+  // ==========================================
+  // SECTION 5: REFINEMENTS REQ-A THROUGH REQ-K VERIFICATION SUITE
+  // ==========================================
+  describe('Feasibility Refinements REQ-A through REQ-K', () => {
+    it('REQ-A: persists parking floors in timeline configuration and handles non-saleable floors in area metrics', async () => {
+      // 1. Save parking floors configuration
+      const configRes = await request(app)
+        .post(`/api/projects/${testProject.id}/timeline/config`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`)
+        .send({
+          floors_above_ground: 4,
+          parking_floors: ['BASEMENT_1', 'STILT']
+        });
+
+      expect(configRes.status).toBe(200);
+      expect(configRes.body.config.parking_floors).toEqual(['BASEMENT_1', 'STILT']);
+
+      // 2. Check area metrics calculation treats parking floors as non-saleable
+      const stmt = { plot_area_sqm: 300, basic_fsi_factor: 1.1 };
+      const fls = [
+        { floor_name: 'Basement 1', floor_type: 'BASEMENT_1', pline_area_sqm: 100, builtup_for_sale_sqm: 50 },
+        { floor_name: 'Stilt Parking', floor_type: 'STILT', pline_area_sqm: 100, builtup_for_sale_sqm: 50 },
+        { floor_name: 'First Floor', floor_type: 'HABITABLE', pline_area_sqm: 100, builtup_for_sale_sqm: 85 }
+      ];
+      const metrics = calculateAreaMetrics(stmt, fls);
+      expect(metrics.totalBuiltupForSaleSqm).toBe(85); // Only habitable floor counted
+    });
+
+    it('REQ-B: supports dual TDR with independent regular and slum factors', () => {
+      const stmt = {
+        plot_area_sqm: 200,
+        dp_deductions_sqm: 0,
+        basic_fsi_factor: 1.1,
+        paid_fsi_factor: 0.5,
+        regular_tdr_factor: 0.40,
+        slum_tdr_factor: 0.20,
+        ancillary_residential_pct: 0.60
+      };
+      const metrics = calculateAreaMetrics(stmt, []);
+
+      // Regular TDR = 200 * 0.40 = 80
+      expect(metrics.permissibleRegularTdrSqm).toBe(80);
+      expect(metrics.proposedRegularTdrSqm).toBe(80);
+      // Slum TDR = 200 * 0.20 = 40
+      expect(metrics.permissibleSlumTdrSqm).toBe(40);
+      expect(metrics.proposedSlumTdrSqm).toBe(40);
+      // Total TDR = 80 + 40 = 120
+      expect(metrics.proposedTdrSqm).toBe(120);
+      // Total Builtup = (200 * 1.1) + (200 * 0.5) + 120 = 220 + 100 + 120 = 440
+      expect(metrics.proposedTotalBuiltupSqm).toBe(440);
+    });
+
+    it('REQ-D: applies 80% ancillary for Commercial and 60% for Residential buildings', () => {
+      const resStmt = {
+        plot_area_sqm: 100,
+        basic_fsi_factor: 1.0,
+        paid_fsi_factor: 0,
+        regular_tdr_factor: 0,
+        slum_tdr_factor: 0,
+        building_use: 'RESIDENTIAL'
+      };
+      const resMetrics = calculateAreaMetrics(resStmt, []);
+      // Total Builtup = 100. Ancillary @ 60% = 60
+      expect(resMetrics.ancillaryPct).toBe(0.60);
+      expect(resMetrics.proposedAncillaryResSqm).toBe(60);
+
+      const commStmt = {
+        ...resStmt,
+        building_use: 'COMMERCIAL'
+      };
+      const commMetrics = calculateAreaMetrics(commStmt, []);
+      // Total Builtup = 100. Ancillary @ 80% = 80
+      expect(commMetrics.ancillaryPct).toBe(0.80);
+      expect(commMetrics.proposedAncillaryResSqm).toBe(80);
+    });
+
+    it('REQ-F: auto-calculates 15% lobby area and preserves manual overrides', () => {
+      // 1. Auto 15% lobby
+      const fl1 = { pline_area_sqm: 200, is_lobby_overridden: false };
+      const m1 = calculateAreaMetrics({ plot_area_sqm: 100 }, [fl1]);
+      expect(m1.evaluatedFloors[0].lobby_area_sqm).toBe(30); // 15% of 200
+
+      // 2. Overridden lobby preserved
+      const fl2 = { pline_area_sqm: 200, lobby_area_sqm: 45, is_lobby_overridden: true };
+      const m2 = calculateAreaMetrics({ plot_area_sqm: 100 }, [fl2]);
+      expect(m2.evaluatedFloors[0].lobby_area_sqm).toBe(45); // manual override retained
+    });
+
+    it('REQ-H: calculates area for 1 unit and safely handles zero or negative unit counts', () => {
+      const flNormal = { builtup_for_sale_sqm: 150, no_of_units: 3 };
+      const mNormal = calculateAreaMetrics({ plot_area_sqm: 100 }, [flNormal]);
+      expect(mNormal.evaluatedFloors[0].area_for_1_unit).toBe(50); // 150 / 3
+
+      const flZero = { builtup_for_sale_sqm: 150, no_of_units: 0 };
+      const mZero = calculateAreaMetrics({ plot_area_sqm: 100 }, [flZero]);
+      expect(mZero.evaluatedFloors[0].area_for_1_unit).toBe(0); // Zero division protected
+
+      const flNegative = { builtup_for_sale_sqm: 150, no_of_units: -2 };
+      const mNeg = calculateAreaMetrics({ plot_area_sqm: 100 }, [flNegative]);
+      expect(mNeg.evaluatedFloors[0].area_for_1_unit).toBe(0); // Negative protected
+    });
+
+    it('REQ-K: enforces strict 5-tier Gunthewari road-width matrix and rejects invalid widths with 400', async () => {
+      // Valid width 12m with Gunthewari
+      const validRes = await request(app)
+        .put(`/api/projects/${testProject.id}/feasibility/area`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`)
+        .send({
+          road_width_m: 12,
+          is_gunthewari: true
+        });
+
+      expect(validRes.status).toBe(200);
+      expect(parseFloat(validRes.body.statement.road_width_m)).toBe(12);
+      expect(validRes.body.statement.is_gunthewari).toBe(true);
+      expect(parseFloat(validRes.body.statement.regular_tdr_factor)).toBe(0.325); // Gunthewari 12m rate
+
+      // Valid width 24m without Gunthewari (Regular)
+      const valid24 = await request(app)
+        .put(`/api/projects/${testProject.id}/feasibility/area`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`)
+        .send({
+          road_width_m: 24,
+          is_gunthewari: false
+        });
+
+      expect(valid24.status).toBe(200);
+      expect(parseFloat(valid24.body.statement.regular_tdr_factor)).toBe(1.10); // Regular 24m rate
+
+      // Invalid road width e.g. 10m -> 400 Bad Request
+      const invalidRes = await request(app)
+        .put(`/api/projects/${testProject.id}/feasibility/area`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`)
+        .send({
+          road_width_m: 10
+        });
+
+      expect(invalidRes.status).toBe(400);
+      expect(invalidRes.body.error).toContain('Invalid road width');
+    });
+
+    it('REQ-C, REQ-E & REQ-J: toggles statutory charges, recalculates on RR %, soft-deletes, and excludes Amalgamation', async () => {
+      // Get feasibility data to retrieve statutory charges
+      const feasRes = await request(app)
+        .get(`/api/projects/${testProject.id}/feasibility`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`);
+
+      const charges = feasRes.body.statutoryCharges;
+      expect(charges.length).toBeGreaterThan(0);
+
+      // Verify Amalgamation is not active
+      const amalgCharge = charges.find(c => c.charge_name === 'AMALGAMATION');
+      if (amalgCharge) {
+        expect(amalgCharge.is_enabled).toBe(false);
+      }
+
+      const activeCharge = charges.find(c => c.charge_name !== 'AMALGAMATION');
+      expect(activeCharge).toBeDefined();
+
+      // 1. Update RR percentage on active charge
+      const patchRes = await request(app)
+        .patch(`/api/projects/${testProject.id}/feasibility/statutory/${activeCharge.id}`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`)
+        .send({
+          is_enabled: true,
+          rr_percentage: 3.5
+        });
+
+      expect(patchRes.status).toBe(200);
+      expect(parseFloat(patchRes.body.charge.rr_percentage)).toBe(3.5);
+      expect(patchRes.body.charge.is_enabled).toBe(true);
+
+      // 2. Disable charge and verify exclusion from demand
+      const disableRes = await request(app)
+        .patch(`/api/projects/${testProject.id}/feasibility/statutory/${activeCharge.id}`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`)
+        .send({
+          is_enabled: false
+        });
+
+      expect(disableRes.status).toBe(200);
+      expect(disableRes.body.charge.is_enabled).toBe(false);
+
+      // Verify calculateFinancialMetrics excludes disabled charge
+      const finMetrics = calculateFinancialMetrics(
+        { rr_rate_per_sqm: 25000 },
+        [{ id: activeCharge.id, is_enabled: false, amount: 500000 }],
+        [],
+        { totalProposedPlineSqm: 500 }
+      );
+      expect(finMetrics.totalStatutoryDemandA).toBe(0); // Excluded!
+
+      // 3. Soft-delete charge
+      const deleteRes = await request(app)
+        .delete(`/api/projects/${testProject.id}/feasibility/statutory/${activeCharge.id}`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`);
+
+      expect(deleteRes.status).toBe(200);
+      expect(deleteRes.body.charge.is_deleted).toBe(true);
+      expect(deleteRes.body.charge.is_enabled).toBe(false);
     });
   });
 });

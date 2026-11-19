@@ -11,6 +11,7 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
     has_terrace_tank_slab: true,
     parking_rooms_config: 'Standard',
     building_type: 'Residential Apartment',
+    parking_floors: [],
     start_date: new Date().toISOString().split('T')[0]
   });
   const [templates, setTemplates] = useState([]);
@@ -26,10 +27,22 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
         has_terrace_tank_slab: config.has_terrace_tank_slab !== false,
         parking_rooms_config: config.parking_rooms_config || 'Standard',
         building_type: config.building_type || 'Residential Apartment',
+        parking_floors: Array.isArray(config.parking_floors) ? config.parking_floors : [],
         start_date: config.start_date || new Date().toISOString().split('T')[0]
       });
     }
   }, [config]);
+
+  const toggleParkingFloor = (type, name) => {
+    setFormData(prev => {
+      const current = prev.parking_floors || [];
+      const exists = current.some(f => f.type === type);
+      const updated = exists 
+        ? current.filter(f => f.type !== type)
+        : [...current, { type, name }];
+      return { ...prev, parking_floors: updated };
+    });
+  };
 
   useEffect(() => {
     api.get(`/projects/${projectId}/timeline/templates`)
@@ -215,16 +228,42 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Parking & Services Provision</label>
-            <input
-              type="text"
-              placeholder="e.g. 10 Stacks, DG Backup, Transformer"
-              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-              value={formData.parking_rooms_config}
-              onChange={(e) => setFormData({ ...formData, parking_rooms_config: e.target.value })}
-              disabled={!isManagement}
-            />
+          <div className="space-y-1.5 md:col-span-2 lg:col-span-3 pt-2 border-t border-slate-100">
+            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
+              <span>Parking Floors Configuration</span>
+              <span className="text-[11px] font-normal text-slate-500 lowercase">
+                (Non-FSI / non-saleable builtup: B1, B2, Stilt, Podium Parking)
+              </span>
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+              {[
+                { type: 'basement_2', name: 'Basement 2' },
+                { type: 'basement_1', name: 'Basement 1' },
+                { type: 'stilt', name: 'Stilt Parking' },
+                { type: 'upper_parking', name: 'Upper-floor Parking (Podium)' }
+              ].map(opt => {
+                const isChecked = (formData.parking_floors || []).some(f => f.type === opt.type);
+                return (
+                  <label
+                    key={opt.type}
+                    className={`flex items-center gap-2 p-2.5 rounded-lg border text-xs font-medium cursor-pointer transition-all ${
+                      isChecked
+                        ? 'bg-orange-50/70 border-orange-200 text-orange-950 font-semibold'
+                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggleParkingFloor(opt.type, opt.name)}
+                      disabled={!isManagement}
+                      className="rounded text-[#E05A1E] focus:ring-[#E05A1E]"
+                    />
+                    <span>{opt.name}</span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
         </form>
 

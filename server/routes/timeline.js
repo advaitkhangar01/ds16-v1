@@ -89,13 +89,13 @@ router.get('/config', authenticate, checkProjectAccess(), async (req, res) => {
 // Save or update building timeline configuration
 router.post('/config', authenticate, checkProjectAccess(), requireManagement, async (req, res) => {
   const projectId = parseInt(req.params.projectId, 10);
-  const { floors_above_ground, ground_floor_config, has_terrace_tank_slab, parking_rooms_config, building_type, stages, settings } = req.body;
+  const { floors_above_ground, ground_floor_config, has_terrace_tank_slab, parking_rooms_config, building_type, stages, settings, parking_floors } = req.body;
 
   try {
     const { rows } = await pool.query(
       `INSERT INTO timeline_configurations 
-        (project_id, floors_above_ground, ground_floor_config, has_terrace_tank_slab, parking_rooms_config, building_type, stages, settings, created_by, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+        (project_id, floors_above_ground, ground_floor_config, has_terrace_tank_slab, parking_rooms_config, building_type, stages, settings, parking_floors, created_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
        ON CONFLICT (project_id) DO UPDATE SET
          floors_above_ground = EXCLUDED.floors_above_ground,
          ground_floor_config = EXCLUDED.ground_floor_config,
@@ -104,6 +104,7 @@ router.post('/config', authenticate, checkProjectAccess(), requireManagement, as
          building_type = EXCLUDED.building_type,
          stages = COALESCE(EXCLUDED.stages, timeline_configurations.stages),
          settings = COALESCE(EXCLUDED.settings, timeline_configurations.settings),
+         parking_floors = COALESCE(EXCLUDED.parking_floors, timeline_configurations.parking_floors),
          updated_at = NOW()
        RETURNING *`,
       [
@@ -115,6 +116,7 @@ router.post('/config', authenticate, checkProjectAccess(), requireManagement, as
         building_type || 'Residential Apartment',
         stages ? JSON.stringify(stages) : null,
         settings ? JSON.stringify(settings) : '{}',
+        parking_floors ? JSON.stringify(parking_floors) : '[]',
         req.user.id
       ]
     );
@@ -613,6 +615,7 @@ router.patch('/tasks/:taskId', authenticate, checkProjectAccess(), async (req, r
     // Build update fields safely
     const updates = [];
     const params = [taskId, projectId];
+    const existingMeta = typeof existingTask.metadata === 'string' ? JSON.parse(existingTask.metadata || '{}') : (existingTask.metadata || {});
 
     if (canManage) {
       if (task_name !== undefined) { params.push(task_name.trim()); updates.push(`task_name = $${params.length}`); }
@@ -627,7 +630,20 @@ router.patch('/tasks/:taskId', authenticate, checkProjectAccess(), async (req, r
       if (req.body.forecast_start_date !== undefined) { params.push(req.body.forecast_start_date); updates.push(`forecast_start_date = $${params.length}`); }
       if (req.body.forecast_finish_date !== undefined) { params.push(req.body.forecast_finish_date); updates.push(`forecast_finish_date = $${params.length}`); }
       if (req.body.is_milestone !== undefined) { params.push(Boolean(req.body.is_milestone)); updates.push(`is_milestone = $${params.length}`); }
-      if (req.body.metadata !== undefined) { params.push(JSON.stringify(req.body.metadata)); updates.push(`metadata = $${params.length}`); }
+
+      let updatedMeta = req.body.metadata !== undefined
+        ? (typeof req.body.metadata === 'string' ? JSON.parse(req.body.metadata) : req.body.metadata)
+        : { ...existingMeta };
+
+      // If management explicitly modifies planned or forecast dates for ground-floor brickwork, mark manual override
+      if (existingMeta.is_ground_brickwork && (planned_start_date !== undefined || planned_finish_date !== undefined || req.body.forecast_start_date !== undefined || req.body.forecast_finish_date !== undefined)) {
+        updatedMeta.is_manually_overridden = true;
+      }
+
+      if (req.body.metadata !== undefined || updatedMeta.is_manually_overridden !== existingMeta.is_manually_overridden) {
+        params.push(JSON.stringify(updatedMeta));
+        updates.push(`metadata = $${params.length}`);
+      }
     }
 
     // Status and actual dates can be updated by either management or assigned staff
@@ -674,13 +690,10 @@ router.patch('/tasks/:taskId', authenticate, checkProjectAccess(), async (req, r
     `;
     const { rows: [updatedTask] } = await client.query(updateQuery, params);
 
-    // Dynamic Construction Trigger: Third-Floor Slab completion event
-    const existingMeta = typeof existingTask.metadata === 'string' ? JSON.parse(existingTask.metadata || '{}') : (existingTask.metadata || {});
+    // Dynamic Construction Trigger: Third-Floor Slab completion event (strict semantic check)
     const is3rdFloorSlabMilestone = Boolean(
-      existingTask.is_milestone ||
-      existingMeta.is_trigger_milestone ||
       existingMeta.milestone_code === 'SLAB_3RD_FLOOR' ||
-      (existingTask.category === 'RCC Structural Construction' && existingTask.floor_zone === '3rd Floor' && existingTask.task_name.includes('3rd Floor'))
+      (existingMeta.is_trigger_milestone === true && existingMeta.slab_floor === 3)
     );
 
     let forecastAdjustmentResult = null;
@@ -718,11 +731,48 @@ router.patch('/tasks/:taskId', authenticate, checkProjectAccess(), async (req, r
           );
 
           if (groundBrick) {
+            const brickMeta = typeof groundBrick.metadata === 'string' ? JSON.parse(groundBrick.metadata || '{}') : (groundBrick.metadata || {});
             const isPhysicallyStarted = Boolean(groundBrick.actual_start_date || ['In Progress', 'Completed'].includes(groundBrick.status));
+            const isManuallyOverridden = Boolean(brickMeta.is_manually_overridden);
             const currentForecastStart = groundBrick.forecast_start_date ? formatDateStr(groundBrick.forecast_start_date) : formatDateStr(groundBrick.planned_start_date);
 
-            // Only update forecast if brickwork has NOT physically started AND date has changed (idempotency)
-            if (!isPhysicallyStarted && currentForecastStart !== revisedBrickworkStart) {
+            if (isPhysicallyStarted) {
+              forecastAdjustmentResult = {
+                ground_brickwork_task_id: groundBrick.id,
+                skipped: true,
+                reason: 'Ground Floor Brickwork has already physically commenced on site'
+              };
+              await client.query(
+                `INSERT INTO timeline_audit_history 
+                  (project_id, task_id, user_id, action, old_value, new_value)
+                 VALUES ($1, $2, $3, 'FORECAST_RECALCULATION_SKIPPED', $4, $5)`,
+                [
+                  projectId,
+                  groundBrick.id,
+                  req.user.id,
+                  JSON.stringify({ status: groundBrick.status, actual_start_date: groundBrick.actual_start_date }),
+                  JSON.stringify({ reason: 'Ground Floor Brickwork has already physically commenced on site', trigger_task_id: taskId })
+                ]
+              );
+            } else if (isManuallyOverridden) {
+              forecastAdjustmentResult = {
+                ground_brickwork_task_id: groundBrick.id,
+                skipped: true,
+                reason: 'Ground Floor Brickwork has an explicit management schedule override'
+              };
+              await client.query(
+                `INSERT INTO timeline_audit_history 
+                  (project_id, task_id, user_id, action, old_value, new_value)
+                 VALUES ($1, $2, $3, 'FORECAST_RECALCULATION_SKIPPED', $4, $5)`,
+                [
+                  projectId,
+                  groundBrick.id,
+                  req.user.id,
+                  JSON.stringify({ metadata: brickMeta }),
+                  JSON.stringify({ reason: 'Ground Floor Brickwork has an explicit management schedule override', trigger_task_id: taskId })
+                ]
+              );
+            } else if (currentForecastStart !== revisedBrickworkStart) {
               const revisedBrickworkFinish = formatDateStr(addCalendarDays(revisedBrickworkStart, groundBrick.duration_days - 1));
 
               await client.query(
@@ -764,7 +814,7 @@ router.patch('/tasks/:taskId', authenticate, checkProjectAccess(), async (req, r
             }
           }
         } else if (existingTask.status === 'Completed' && updatedTask.status !== 'Completed') {
-          // Reopening completed 3rd floor slab: revert Ground Floor Brickwork forecast back to planned baseline if not started
+          // Reopening completed 3rd floor slab: revert Ground Floor Brickwork forecast back to planned baseline IF NOT physically started AND NOT manually overridden
           const { rows: [groundBrick] } = await client.query(
             `SELECT * FROM timeline_tasks
              WHERE project_id = $1
@@ -779,34 +829,53 @@ router.patch('/tasks/:taskId', authenticate, checkProjectAccess(), async (req, r
             [projectId, updatedTask.is_draft]
           );
 
-          if (groundBrick && !groundBrick.actual_start_date && groundBrick.status === 'Not Started') {
-            const baselineStart = formatDateStr(groundBrick.planned_start_date);
-            const baselineFinish = formatDateStr(groundBrick.planned_finish_date);
+          if (groundBrick) {
+            const brickMeta = typeof groundBrick.metadata === 'string' ? JSON.parse(groundBrick.metadata || '{}') : (groundBrick.metadata || {});
+            const isPhysicallyStarted = Boolean(groundBrick.actual_start_date || groundBrick.status !== 'Not Started');
+            const isManuallyOverridden = Boolean(brickMeta.is_manually_overridden);
 
-            await client.query(
-              `UPDATE timeline_tasks
-               SET forecast_start_date = planned_start_date, forecast_finish_date = planned_finish_date, updated_at = NOW()
-               WHERE id = $1`,
-              [groundBrick.id]
-            );
+            if (!isPhysicallyStarted && !isManuallyOverridden) {
+              const baselineStart = formatDateStr(groundBrick.planned_start_date);
+              const baselineFinish = formatDateStr(groundBrick.planned_finish_date);
 
-            await client.query(
-              `INSERT INTO timeline_audit_history 
-                (project_id, task_id, user_id, action, old_value, new_value)
-               VALUES ($1, $2, $3, 'REVERT_FORECAST_ON_MILESTONE_REOPEN', $4, $5)`,
-              [
-                projectId,
-                groundBrick.id,
-                req.user.id,
-                JSON.stringify({ forecast_start_date: formatDateStr(groundBrick.forecast_start_date) }),
-                JSON.stringify({ forecast_start_date: baselineStart, reason: '3rd Floor Slab reopened' })
-              ]
-            );
+              await client.query(
+                `UPDATE timeline_tasks
+                 SET forecast_start_date = planned_start_date, forecast_finish_date = planned_finish_date, updated_at = NOW()
+                 WHERE id = $1`,
+                [groundBrick.id]
+              );
 
-            forecastAdjustmentResult = {
-              ground_brickwork_task_id: groundBrick.id,
-              reverted_to_baseline: baselineStart
-            };
+              await client.query(
+                `INSERT INTO timeline_audit_history 
+                  (project_id, task_id, user_id, action, old_value, new_value)
+                 VALUES ($1, $2, $3, 'REVERT_FORECAST_ON_MILESTONE_REOPEN', $4, $5)`,
+                [
+                  projectId,
+                  groundBrick.id,
+                  req.user.id,
+                  JSON.stringify({ forecast_start_date: formatDateStr(groundBrick.forecast_start_date) }),
+                  JSON.stringify({ forecast_start_date: baselineStart, reason: '3rd Floor Slab reopened' })
+                ]
+              );
+
+              forecastAdjustmentResult = {
+                ground_brickwork_task_id: groundBrick.id,
+                reverted_to_baseline: baselineStart
+              };
+            } else if (isManuallyOverridden) {
+              await client.query(
+                `INSERT INTO timeline_audit_history 
+                  (project_id, task_id, user_id, action, old_value, new_value)
+                 VALUES ($1, $2, $3, 'REVERT_FORECAST_PRESERVED_OVERRIDE', $4, $5)`,
+                [
+                  projectId,
+                  groundBrick.id,
+                  req.user.id,
+                  JSON.stringify({ metadata: brickMeta }),
+                  JSON.stringify({ reason: 'Manual schedule override preserved on 3rd Floor Slab reopen', trigger_task_id: taskId })
+                ]
+              );
+            }
           }
         }
       }

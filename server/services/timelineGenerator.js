@@ -221,6 +221,7 @@ function generateDraftActivities(config) {
         floor_level: i,
         is_trigger_milestone: is3rdFloorSlab,
         milestone_code: is3rdFloorSlab ? 'SLAB_3RD_FLOOR' : null,
+        milestone_purpose: is3rdFloorSlab ? 'TRIGGER_GROUND_BRICKWORK' : null,
         milestone_label: is3rdFloorSlab ? 'Third-Floor Slab Completion Milestone' : null
       }
     });
@@ -306,10 +307,7 @@ function generateDraftActivities(config) {
         });
       } else {
         // G+2 or fewer: Keep ground-floor brickwork dates management-controlled (no automatic 3rd floor trigger)
-        const parentSlab = slabTasks[0] || tGroundSlab;
-        const manualStart = addCalendarDays(parentSlab.planned_finish_date, 14);
-        const manualFinish = addCalendarDays(manualStart, brickDuration - 1);
-
+        // No hidden 14-day lag, no false structural dependency; management determines schedule
         tBrick = pushTask({
           temp_id: `draft-${taskOrder}`,
           task_name: `${zone} - Brickwork & Internal Partition Masonry`,
@@ -318,13 +316,9 @@ function generateDraftActivities(config) {
           floor_zone: zone,
           duration_days: brickDuration,
           order_index: taskOrder++,
-          predecessors: [{
-            predecessor_id: parentSlab.temp_id,
-            type: 'FS',
-            lag: 14
-          }],
-          planned_start_date: formatDateStr(manualStart),
-          planned_finish_date: formatDateStr(manualFinish),
+          predecessors: [],
+          planned_start_date: formatDateStr(currentDate),
+          planned_finish_date: formatDateStr(addCalendarDays(currentDate, brickDuration - 1)),
           is_milestone: false,
           metadata: {
             is_ground_brickwork: true,

@@ -5,6 +5,18 @@
 const SQM_TO_SQFT = 10.764;
 
 /**
+ * Road-width based TDR Factor matrix for Gunthewari and Regular plots
+ * Strictly enforced - no interpolation
+ */
+const ROAD_WIDTH_TDR_MAP = {
+  9: { regular: 0.40, gunthewari: 0.20 },
+  12: { regular: 0.65, gunthewari: 0.325 },
+  15: { regular: 0.80, gunthewari: 0.40 },
+  18: { regular: 0.90, gunthewari: 0.45 },
+  24: { regular: 1.10, gunthewari: 0.50 }
+};
+
+/**
  * Calculate derived Area Statement metrics from inputs and floor rows
  * @param {Object} statement Area statement database record
  * @param {Array} floors List of floor records
@@ -15,12 +27,46 @@ function calculateAreaMetrics(statement = {}, floors = []) {
   const dpDeductions = parseFloat(statement.dp_deductions_sqm) || 0;
   const existingBuiltup = parseFloat(statement.existing_builtup_area_sqm) || 0;
 
-  const basicFsiFactor = parseFloat(statement.basic_fsi_factor) || 1.1;
-  const paidFsiFactor = parseFloat(statement.paid_fsi_factor) || 0.5;
-  const tdrFactor = parseFloat(statement.tdr_factor) || 0.65;
-  const proposedTdrFactor = parseFloat(statement.proposed_tdr_factor) || 0;
-  const ancillaryResPct = parseFloat(statement.ancillary_residential_pct) || 0.60;
-  const ancillaryCommPct = parseFloat(statement.ancillary_commercial_pct) || 0.80;
+  const basicFsiFactor = statement.basic_fsi_factor !== undefined && !isNaN(parseFloat(statement.basic_fsi_factor))
+    ? parseFloat(statement.basic_fsi_factor)
+    : 1.1;
+  const paidFsiFactor = statement.paid_fsi_factor !== undefined && !isNaN(parseFloat(statement.paid_fsi_factor))
+    ? parseFloat(statement.paid_fsi_factor)
+    : 0.5;
+
+  // Dual TDR: Regular TDR & Slum TDR
+  let regularTdrFactor = parseFloat(statement.regular_tdr_factor);
+  let slumTdrFactor = parseFloat(statement.slum_tdr_factor);
+
+  // If road width is specified, determine road-width suggested factor if regular_tdr_factor is not explicitly overridden
+  const roadWidth = parseFloat(statement.road_width_m);
+  const isGunthewari = Boolean(statement.is_gunthewari);
+  let suggestedRoadTdrFactor = null;
+  if (!isNaN(roadWidth) && ROAD_WIDTH_TDR_MAP[roadWidth]) {
+    suggestedRoadTdrFactor = isGunthewari ? ROAD_WIDTH_TDR_MAP[roadWidth].gunthewari : ROAD_WIDTH_TDR_MAP[roadWidth].regular;
+    if (isNaN(regularTdrFactor) || statement.regular_tdr_factor === null || statement.regular_tdr_factor === undefined) {
+      regularTdrFactor = suggestedRoadTdrFactor;
+    }
+  }
+
+  if (isNaN(regularTdrFactor)) {
+    regularTdrFactor = parseFloat(statement.proposed_tdr_factor) || 0;
+  }
+  if (isNaN(slumTdrFactor)) {
+    slumTdrFactor = 0;
+  }
+
+  const permissibleTdrFactor = parseFloat(statement.tdr_factor) || 0.65;
+  const totalProposedTdrFactor = regularTdrFactor + slumTdrFactor;
+
+  // Ancillary Percentage by Building Use: Commercial = 80%, Residential = 60%
+  const rawBuildingUse = statement.building_use || 'Residential';
+  const buildingUse = rawBuildingUse.charAt(0).toUpperCase() + rawBuildingUse.slice(1).toLowerCase();
+  const isCommercial = rawBuildingUse.toLowerCase() === 'commercial';
+  const applicableAncillaryPct = isCommercial
+    ? (parseFloat(statement.ancillary_commercial_pct) || 0.80)
+    : (parseFloat(statement.ancillary_residential_pct) || 0.60);
+
   const dividingFactor = parseFloat(statement.dividing_factor) || 1.6;
 
   // 1. Plotable Area
@@ -34,9 +80,11 @@ function calculateAreaMetrics(statement = {}, floors = []) {
   const permissiblePaidFsiSqm = plotableAreaSqm * paidFsiFactor;
   const proposedPaidFsiSqm = permissiblePaidFsiSqm;
 
-  // 4. TDR
-  const permissibleTdrSqm = plotableAreaSqm * tdrFactor;
-  const proposedTdrSqm = plotableAreaSqm * proposedTdrFactor;
+  // 4. Dual TDR Calculations
+  const permissibleTdrSqm = plotableAreaSqm * permissibleTdrFactor;
+  const regularTdrSqm = plotableAreaSqm * regularTdrFactor;
+  const slumTdrSqm = plotableAreaSqm * slumTdrFactor;
+  const proposedTdrSqm = regularTdrSqm + slumTdrSqm;
 
   // 5. Total Builtup Area (B + C + D)
   const permissibleTotalBuiltupSqm = permissibleFsiSqm + permissiblePaidFsiSqm + permissibleTdrSqm;
@@ -46,9 +94,9 @@ function calculateAreaMetrics(statement = {}, floors = []) {
   const permissibleTotalFsi = plotableAreaSqm > 0 ? permissibleTotalBuiltupSqm / plotableAreaSqm : 0;
   const proposedTotalFsi = plotableAreaSqm > 0 ? proposedTotalBuiltupSqm / plotableAreaSqm : 0;
 
-  // 7. Ancillary Area (60% residential)
-  const permissibleAncillaryResSqm = permissibleTotalBuiltupSqm * ancillaryResPct;
-  const proposedAncillaryResSqm = proposedTotalBuiltupSqm * ancillaryResPct;
+  // 7. Ancillary Area (60% residential / 80% commercial)
+  const permissibleAncillaryResSqm = permissibleTotalBuiltupSqm * applicableAncillaryPct;
+  const proposedAncillaryResSqm = proposedTotalBuiltupSqm * applicableAncillaryPct;
 
   // 8. Total Permissible P-Line Area (Builtup + Ancillary)
   const permissiblePlineTotalSqm = permissibleTotalBuiltupSqm + permissibleAncillaryResSqm;
@@ -60,17 +108,36 @@ function calculateAreaMetrics(statement = {}, floors = []) {
   let totalBuiltupForOwnersSqm = 0;
   let totalBuiltupForSaleSqm = 0;
   let totalHeightMeters = 0;
+  let totalUnitsCount = 0;
 
   const evaluatedFloors = (floors || []).map((floor, idx) => {
     const pline = parseFloat(floor.pline_area_sqm) || 0;
-    const lobby = parseFloat(floor.lobby_area_sqm) || 0;
     const height = parseFloat(floor.height_meters) || 0;
-    const sale = parseFloat(floor.builtup_for_sale_sqm) || 0;
+    const floorTypeUpper = (floor.floor_type || '').toUpperCase();
+    const isParking = ['PARKING', 'BASEMENT_1', 'BASEMENT_2', 'STILT', 'UPPER_PARKING'].includes(floorTypeUpper) || 
+                      (floor.usage_type && floor.usage_type.toLowerCase().includes('parking')) ||
+                      (floor.floor_name && floor.floor_name.toLowerCase().includes('parking'));
     
-    // Builtup for Owners = P-Line Area - Lobby Area (Ground floor owners is 0 unless overridden)
+    // Automatic Lobby Area: 15% of P-Line area unless manually overridden
+    const isLobbyOverridden = Boolean(floor.is_lobby_overridden);
+    let lobby = parseFloat(floor.lobby_area_sqm);
+    if (!isLobbyOverridden || isNaN(lobby)) {
+      lobby = Math.round(pline * 0.15 * 100) / 100;
+    }
+
+    // Builtup for Sale: Parking floors do not contribute to saleable area unless commercial
+    let sale = isParking ? 0 : (parseFloat(floor.builtup_for_sale_sqm) || 0);
+
+    // Number of units and Area for 1 unit
+    let noOfUnits = parseInt(floor.no_of_units, 10);
+    if (isNaN(noOfUnits)) noOfUnits = isParking ? 0 : 1;
+    
+    const areaFor1Unit = noOfUnits > 0 ? Math.round((sale / noOfUnits) * 10000) / 10000 : 0;
+
+    // Builtup for Owners = P-Line Area - Lobby Area (Ground floor/parking owners is 0 unless overridden)
     let owners = parseFloat(floor.builtup_for_owners_sqm);
     if (isNaN(owners) || floor.builtup_for_owners_sqm === null || floor.builtup_for_owners_sqm === undefined) {
-      owners = idx === 0 ? 0 : Math.max(0, pline - lobby);
+      owners = (idx === 0 || isParking) ? 0 : Math.max(0, pline - lobby);
     }
 
     totalProposedPlineSqm += pline;
@@ -78,14 +145,18 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     totalBuiltupForOwnersSqm += owners;
     totalBuiltupForSaleSqm += sale;
     totalHeightMeters += height;
+    totalUnitsCount += noOfUnits;
 
     return {
       ...floor,
       pline_area_sqm: pline,
       lobby_area_sqm: lobby,
+      is_lobby_overridden: isLobbyOverridden,
       height_meters: height,
       builtup_for_owners_sqm: owners,
       builtup_for_sale_sqm: sale,
+      no_of_units: noOfUnits,
+      area_for_1_unit: areaFor1Unit,
       total_floor_area_sqm: pline,
       pline_area_sqft: pline * SQM_TO_SQFT,
       lobby_area_sqft: lobby * SQM_TO_SQFT,
@@ -117,6 +188,16 @@ function calculateAreaMetrics(statement = {}, floors = []) {
 
   return {
     isConfigured,
+    buildingUse,
+    isCommercial,
+    applicableAncillaryPct,
+    isGunthewari,
+    roadWidth,
+    suggestedRoadTdrFactor,
+    regularTdrFactor,
+    slumTdrFactor,
+    totalProposedTdrFactor,
+
     plotableAreaSqm,
     plotableAreaSqft: plotableAreaSqm * SQM_TO_SQFT,
     permissibleFsiSqm,
@@ -124,6 +205,13 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     permissiblePaidFsiSqm,
     proposedPaidFsiSqm,
     permissibleTdrSqm,
+    regularTdrSqm,
+    permissibleRegularTdrSqm: regularTdrSqm,
+    proposedRegularTdrSqm: regularTdrSqm,
+    slumTdrSqm,
+    permissibleSlumTdrSqm: slumTdrSqm,
+    proposedSlumTdrSqm: slumTdrSqm,
+    ancillaryPct: applicableAncillaryPct,
     proposedTdrSqm,
     permissibleTotalBuiltupSqm,
     proposedTotalBuiltupSqm,
@@ -146,6 +234,7 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     totalOwnersAndSaleSqm: totalBuiltupForOwnersSqm + totalBuiltupForSaleSqm,
     totalOwnersAndSaleSqft: (totalBuiltupForOwnersSqm + totalBuiltupForSaleSqm) * SQM_TO_SQFT,
     totalHeightMeters,
+    totalUnitsCount,
 
     // Secondary verified formulas
     proposedAfterExistingSqm,
@@ -187,53 +276,103 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
   const estimatedCostB = effectivePlineSqm * estimatedCostBRate;
 
   // 1. STATUTORY CHARGES (SECTION A: NMC / Local Authority Demand)
-  // Standard statutory calculation rules
-  const statutoryMap = {
-    PLAN_REGISTRATION: effectivePlineSqm * 5.90,
-    SECURITY_DEPOSIT: estimatedCostA > 0 ? Math.min(0.01 * estimatedCostA, 75000.00) : 0,
-    STACKING_CHARGES: estimatedCostA > 0 ? Math.min(0.005 * estimatedCostA, 50000.00) : 0,
-    ANCILLARY_CHARGES: rrRate > 0 ? effectiveAncillarySqm * (0.10 * rrRate) : 0,
-    SEWER_CONNECTION: effectivePlineSqm * 2.50,
-    DEVELOPMENT_CHARGES: rrRate > 0 ? effectivePlineSqm * (0.02 * rrRate) : 0,
-    PREMIUM_FSI: rrRate > 0 ? effectivePaidFsiSqm * (0.40 * rrRate) : 0,
-    TREE_PLANTATION: effectivePlineSqm > 0 ? Math.min((effectivePlineSqm / 74.32) * 500.00, 25000.00) : 0,
-    HERITAGE_FUND: rrRate > 0 ? 0.02 * (effectivePlineSqm * 0.02 * rrRate) : 0,
-    LABOUR_WELFARE_CESS: estimatedCostB > 0 ? 0.01 * estimatedCostB : 0,
-    TDR_LOADING_CHARGES: rrRate > 0 ? effectiveTdrSqm * (0.03 * rrRate) : 0,
-    AMALGAMATION: plotAreaSqm > 0 ? plotAreaSqm * 200.00 : 0,
-    LABOUR_WELFARE_PARKING: estimatedCostBRate > 0 ? (225 * estimatedCostBRate * 0.01) : 0
+  // Per-charge RR percentages: defaults if not explicitly configured on the row
+  const defaultRrPercentages = {
+    ANCILLARY_CHARGES: 10.0,
+    DEVELOPMENT_CHARGES: 2.0,
+    PREMIUM_FSI: 40.0,
+    TDR_LOADING_CHARGES: 3.0
+  };
+
+  // Standard statutory calculation base map
+  const getStatutoryAmount = (chargeCode, item) => {
+    // If charge has a custom amount entered, use it
+    if (item.is_custom && item.amount !== null && !isNaN(parseFloat(item.amount))) {
+      return parseFloat(item.amount);
+    }
+
+    // Configured RR percentage applied to RR rate
+    const configuredRrPct = (item.rr_percentage !== null && item.rr_percentage !== undefined && !isNaN(parseFloat(item.rr_percentage)))
+      ? parseFloat(item.rr_percentage)
+      : (defaultRrPercentages[chargeCode] || null);
+
+    switch (chargeCode) {
+      case 'PLAN_REGISTRATION':
+        return effectivePlineSqm * 5.90;
+      case 'SECURITY_DEPOSIT':
+        return estimatedCostA > 0 ? Math.min(0.01 * estimatedCostA, 75000.00) : 0;
+      case 'STACKING_CHARGES':
+        return estimatedCostA > 0 ? Math.min(0.005 * estimatedCostA, 50000.00) : 0;
+      case 'ANCILLARY_CHARGES':
+        return (rrRate > 0 && configuredRrPct !== null) ? effectiveAncillarySqm * ((configuredRrPct / 100) * rrRate) : 0;
+      case 'SEWER_CONNECTION':
+        return effectivePlineSqm * 2.50;
+      case 'DEVELOPMENT_CHARGES':
+        return (rrRate > 0 && configuredRrPct !== null) ? effectivePlineSqm * ((configuredRrPct / 100) * rrRate) : 0;
+      case 'PREMIUM_FSI':
+        return (rrRate > 0 && configuredRrPct !== null) ? effectivePaidFsiSqm * ((configuredRrPct / 100) * rrRate) : 0;
+      case 'TREE_PLANTATION':
+        return effectivePlineSqm > 0 ? Math.min((effectivePlineSqm / 74.32) * 500.00, 25000.00) : 0;
+      case 'HERITAGE_FUND': {
+        const devCharge = (rrRate > 0 && configuredRrPct !== null) ? (effectivePlineSqm * ((configuredRrPct / 100) * rrRate)) : (effectivePlineSqm * 0.02 * rrRate);
+        return 0.02 * devCharge;
+      }
+      case 'LABOUR_WELFARE_CESS':
+        return estimatedCostB > 0 ? 0.01 * estimatedCostB : 0;
+      case 'TDR_LOADING_CHARGES':
+        return (rrRate > 0 && configuredRrPct !== null) ? effectiveTdrSqm * ((configuredRrPct / 100) * rrRate) : 0;
+      case 'AMALGAMATION':
+        // Amalgamation charges removed from active calculations (REQ-J)
+        return 0;
+      case 'LABOUR_WELFARE_PARKING':
+        return estimatedCostBRate > 0 ? (225 * estimatedCostBRate * 0.01) : 0;
+      default:
+        return parseFloat(item.amount) || 0;
+    }
   };
 
   let totalStatutoryDemandA = 0;
   const evaluatedStatutoryCharges = (statutoryItems && statutoryItems.length > 0)
-    ? statutoryItems.map((item, idx) => {
-        let amount = parseFloat(item.amount);
-        if (isNaN(amount) || item.amount === null || !item.is_custom) {
-          amount = statutoryMap[item.charge_code] !== undefined ? statutoryMap[item.charge_code] : (parseFloat(item.amount) || 0);
-        }
-        totalStatutoryDemandA += amount;
-        return {
-          ...item,
-          calculated_amount: Math.round(amount * 100) / 100
-        };
-      })
+    ? statutoryItems
+        .filter(item => !item.is_deleted)
+        .map((item, idx) => {
+          const isEnabled = item.is_enabled !== false;
+          const calculatedAmount = getStatutoryAmount(item.charge_code, item);
+          const finalAmount = isEnabled ? Math.round(calculatedAmount * 100) / 100 : 0;
+          
+          if (isEnabled) {
+            totalStatutoryDemandA += finalAmount;
+          }
+
+          return {
+            ...item,
+            is_enabled: isEnabled,
+            calculated_amount: Math.round(calculatedAmount * 100) / 100,
+            effective_amount: finalAmount
+          };
+        })
     : [
-        { charge_code: 'PLAN_REGISTRATION', charge_name: 'PLAN REGISTRATION FEES', amount: statutoryMap.PLAN_REGISTRATION },
-        { charge_code: 'SECURITY_DEPOSIT', charge_name: 'SECURITY DEPOSIT (MAX RS 75,000.00)', amount: statutoryMap.SECURITY_DEPOSIT },
-        { charge_code: 'STACKING_CHARGES', charge_name: 'STACKING CHARGES (MAX RS 50,000.00)', amount: statutoryMap.STACKING_CHARGES },
-        { charge_code: 'ANCILLARY_CHARGES', charge_name: 'ANCILLARY AREA (10% OF RR)', amount: statutoryMap.ANCILLARY_CHARGES },
-        { charge_code: 'SEWER_CONNECTION', charge_name: 'SEWER CONNECTION CHARGES', amount: statutoryMap.SEWER_CONNECTION },
-        { charge_code: 'DEVELOPMENT_CHARGES', charge_name: 'DEVELOPMENT CHARGES (2% OF RR)', amount: statutoryMap.DEVELOPMENT_CHARGES },
-        { charge_code: 'PREMIUM_FSI', charge_name: 'PREMIUM FSI CHARGES (40% OF RR)', amount: statutoryMap.PREMIUM_FSI },
-        { charge_code: 'TREE_PLANTATION', charge_name: 'TREE PLANTATION (RS 500 / 74.32 SQM)', amount: statutoryMap.TREE_PLANTATION },
-        { charge_code: 'HERITAGE_FUND', charge_name: 'HERITAGE FUND (2% OF DEV CHARGES)', amount: statutoryMap.HERITAGE_FUND },
-        { charge_code: 'LABOUR_WELFARE_CESS', charge_name: 'LABOUR WELFARE CESS (1% OF RR CONST)', amount: statutoryMap.LABOUR_WELFARE_CESS },
-        { charge_code: 'TDR_LOADING_CHARGES', charge_name: 'TDR LOADING CHARGES (3% OF RR)', amount: statutoryMap.TDR_LOADING_CHARGES },
-        { charge_code: 'AMALGAMATION', charge_name: 'AMALGAMATION CHARGES (RS 200/SQM)', amount: statutoryMap.AMALGAMATION },
-        { charge_code: 'LABOUR_WELFARE_PARKING', charge_name: 'LABOUR WELFARE ON PARKING AREA', amount: statutoryMap.LABOUR_WELFARE_PARKING },
+        { charge_code: 'PLAN_REGISTRATION', charge_name: 'PLAN REGISTRATION FEES', is_enabled: true },
+        { charge_code: 'SECURITY_DEPOSIT', charge_name: 'SECURITY DEPOSIT (MAX RS 75,000.00)', is_enabled: true },
+        { charge_code: 'STACKING_CHARGES', charge_name: 'STACKING CHARGES (MAX RS 50,000.00)', is_enabled: true },
+        { charge_code: 'ANCILLARY_CHARGES', charge_name: 'ANCILLARY AREA CHARGES', rr_percentage: 10.0, is_enabled: true },
+        { charge_code: 'SEWER_CONNECTION', charge_name: 'SEWER CONNECTION CHARGES', is_enabled: true },
+        { charge_code: 'DEVELOPMENT_CHARGES', charge_name: 'DEVELOPMENT CHARGES', rr_percentage: 2.0, is_enabled: true },
+        { charge_code: 'PREMIUM_FSI', charge_name: 'PREMIUM FSI CHARGES', rr_percentage: 40.0, is_enabled: true },
+        { charge_code: 'TREE_PLANTATION', charge_name: 'TREE PLANTATION (RS 500 / 74.32 SQM)', is_enabled: true },
+        { charge_code: 'HERITAGE_FUND', charge_name: 'HERITAGE FUND (2% OF DEV CHARGES)', is_enabled: true },
+        { charge_code: 'LABOUR_WELFARE_CESS', charge_name: 'LABOUR WELFARE CESS (1% OF RR CONST)', is_enabled: true },
+        { charge_code: 'TDR_LOADING_CHARGES', charge_name: 'TDR LOADING CHARGES', rr_percentage: 3.0, is_enabled: true },
+        { charge_code: 'LABOUR_WELFARE_PARKING', charge_name: 'LABOUR WELFARE ON PARKING AREA', is_enabled: true },
       ].map((it, idx) => {
-        totalStatutoryDemandA += it.amount;
-        return { id: `default-${idx}`, ...it, calculated_amount: Math.round(it.amount * 100) / 100 };
+        const amt = getStatutoryAmount(it.charge_code, it);
+        totalStatutoryDemandA += amt;
+        return {
+          id: `default-${idx}`,
+          ...it,
+          calculated_amount: Math.round(amt * 100) / 100,
+          effective_amount: Math.round(amt * 100) / 100
+        };
       });
 
   // 2. COST OF TDR (SECTION B)
@@ -250,7 +389,6 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
   const totalExpensesC = minorExpenses + bpmsCharges + airportNoc + fireNoc + entertainment + extraStampDuty + advocateFees;
 
   // 4. DEVELOPMENT COSTS (SECTIONS D to H)
-  // Plot cost: can be explicit amount or calculated from rate
   const plotCostRate = parseFloat(financial.cost_of_plot_rate_per_sqm) || 0.00;
   const costOfPlotH = parseFloat(financial.cost_of_plot) > 0 ? parseFloat(financial.cost_of_plot) : (plotAreaSqm * plotCostRate);
 
@@ -339,17 +477,18 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
     totalSalableCarpetSqft: Math.round(totalSalableCarpetSqft * 100) / 100,
     totalSalableSuperSqft: Math.round(totalSalableSuperSqft * 100) / 100,
 
-    // Notes on formula integrity
     formulaNotes: [
-      'Cost of Basement Construction modeled explicitly (area * rate) resolving Excel #REF! error',
-      'Total Receipts aggregates all salable unit rows dynamically resolving single-row Excel sum anomaly',
-      'Ready Reckoner rate, Dividing Factor (1.6), and Super Built-up loading (+300 sq ft) configurable per project'
+      'Dual TDR (Regular and Slum) modeled independently with combined potential',
+      'Ancillary Area percentage applied dynamically (Commercial 80%, Residential 60%)',
+      'Lobby Area defaults to 15% with manual override preservation',
+      'Statutory Charges support independent RR percentage configuration and enable/disable exclusions'
     ]
   };
 }
 
 module.exports = {
   SQM_TO_SQFT,
+  ROAD_WIDTH_TDR_MAP,
   calculateAreaMetrics,
   calculateFinancialMetrics
 };
