@@ -9,11 +9,11 @@ const SQM_TO_SQFT = 10.764;
  * Strictly enforced - no interpolation
  */
 const ROAD_WIDTH_TDR_MAP = {
-  9: { regular: 0.40, gunthewari: 0.20 },
-  12: { regular: 0.65, gunthewari: 0.325 },
-  15: { regular: 0.80, gunthewari: 0.40 },
-  18: { regular: 0.90, gunthewari: 0.45 },
-  24: { regular: 1.10, gunthewari: 0.50 }
+  9: { regular: 0.40, slum: 0.20, gunthewari: 0.20 },
+  12: { regular: 0.65, slum: 0.325, gunthewari: 0.325 },
+  15: { regular: 0.80, slum: 0.40, gunthewari: 0.40 },
+  18: { regular: 0.90, slum: 0.45, gunthewari: 0.45 },
+  24: { regular: 1.10, slum: 0.50, gunthewari: 0.50 }
 };
 
 /**
@@ -35,26 +35,25 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     : 0.5;
 
   // Dual TDR: Regular TDR & Slum TDR
-  let regularTdrFactor = parseFloat(statement.regular_tdr_factor);
-  let slumTdrFactor = parseFloat(statement.slum_tdr_factor);
-
-  // If road width is specified, determine road-width suggested factor if regular_tdr_factor is not explicitly overridden
-  const roadWidth = parseFloat(statement.road_width_m);
+  // Authoritative Rule: Both Regular TDR and Slum TDR are derived concurrently from Road Width
   const isGunthewari = Boolean(statement.is_gunthewari);
-  let suggestedRoadTdrFactor = null;
-  if (!isNaN(roadWidth) && ROAD_WIDTH_TDR_MAP[roadWidth]) {
-    suggestedRoadTdrFactor = isGunthewari ? ROAD_WIDTH_TDR_MAP[roadWidth].gunthewari : ROAD_WIDTH_TDR_MAP[roadWidth].regular;
-    if (isNaN(regularTdrFactor) || statement.regular_tdr_factor === null || statement.regular_tdr_factor === undefined) {
-      regularTdrFactor = suggestedRoadTdrFactor;
-    }
-  }
+  const roadWidth = parseFloat(statement.road_width_m);
+  let regularTdrFactor = 0;
+  let slumTdrFactor = 0;
 
-  if (isNaN(regularTdrFactor)) {
+  if (!isNaN(roadWidth) && ROAD_WIDTH_TDR_MAP[roadWidth]) {
+    regularTdrFactor = ROAD_WIDTH_TDR_MAP[roadWidth].regular;
+    slumTdrFactor = ROAD_WIDTH_TDR_MAP[roadWidth].slum;
+  } else if (!isNaN(parseFloat(statement.regular_tdr_factor)) || !isNaN(parseFloat(statement.slum_tdr_factor))) {
+    regularTdrFactor = parseFloat(statement.regular_tdr_factor) || 0;
+    slumTdrFactor = parseFloat(statement.slum_tdr_factor) || 0;
+  } else if (!isNaN(parseFloat(statement.proposed_tdr_factor))) {
     regularTdrFactor = parseFloat(statement.proposed_tdr_factor) || 0;
   }
-  if (isNaN(slumTdrFactor)) {
-    slumTdrFactor = 0;
-  }
+
+  const suggestedRoadTdrFactor = ROAD_WIDTH_TDR_MAP[roadWidth]
+    ? (isGunthewari ? ROAD_WIDTH_TDR_MAP[roadWidth].slum : ROAD_WIDTH_TDR_MAP[roadWidth].regular)
+    : 0;
 
   const permissibleTdrFactor = parseFloat(statement.tdr_factor) || 0.65;
   const totalProposedTdrFactor = regularTdrFactor + slumTdrFactor;
@@ -147,6 +146,11 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     totalHeightMeters += height;
     totalUnitsCount += noOfUnits;
 
+    const ratePerSqm = parseFloat(floor.rate_per_sqm) || 0;
+    const costFor1Unit = areaFor1Unit > 0 && ratePerSqm > 0
+      ? Math.round(areaFor1Unit * ratePerSqm * 100) / 100
+      : (parseFloat(floor.cost_for_1_unit) || 0);
+
     return {
       ...floor,
       pline_area_sqm: pline,
@@ -157,6 +161,8 @@ function calculateAreaMetrics(statement = {}, floors = []) {
       builtup_for_sale_sqm: sale,
       no_of_units: noOfUnits,
       area_for_1_unit: areaFor1Unit,
+      rate_per_sqm: ratePerSqm,
+      cost_for_1_unit: costFor1Unit,
       total_floor_area_sqm: pline,
       pline_area_sqft: pline * SQM_TO_SQFT,
       lobby_area_sqft: lobby * SQM_TO_SQFT,
@@ -392,7 +398,8 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
   const plotCostRate = parseFloat(financial.cost_of_plot_rate_per_sqm) || 0.00;
   const costOfPlotH = parseFloat(financial.cost_of_plot) > 0 ? parseFloat(financial.cost_of_plot) : (plotAreaSqm * plotCostRate);
 
-  const constRate = parseFloat(financial.cost_of_construction_rate) || 0.00;
+  // Authoritative Rule: If cost_of_construction_rate is not explicitly entered, derive from RR Cost B rate
+  const constRate = parseFloat(financial.cost_of_construction_rate) || parseFloat(financial.estimated_cost_b_rate) || 0.00;
   const costOfConstructionD = effectivePlineSqm * constRate;
 
   // Basement Cost
@@ -417,10 +424,25 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
   // Total Project Cost = A + B + C + D + E + F + G + H + infra + interest
   const totalProjectCost = totalStatutoryDemandA + costOfTdrB + totalExpensesC + costOfConstructionD + costOfBasementE + rentCostF + stackedParkingCostG + costOfPlotH + costOfInfra + interestCost;
 
-  // 5. RECEIPTS & SALABLE UNITS
+  // 5. RECEIPTS & SALABLE UNITS (Derived directly from Area Statement floor-wise records or salableUnits fallback)
   let totalReceipts = 0;
   let totalSalableCarpetSqft = 0;
   let totalSalableSuperSqft = 0;
+
+  // Check floor-wise realization first (Authoritative DS16 Rule)
+  let floorWiseReceipts = 0;
+  const evaluatedFloors = (areaMetrics.evaluatedFloors || []).map(fl => {
+    const saleSqm = parseFloat(fl.builtup_for_sale_sqm) || 0;
+    const ratePerSqm = parseFloat(fl.rate_per_sqm) || 0;
+    const units = parseInt(fl.no_of_units, 10) || 0;
+    const costFor1Unit = parseFloat(fl.cost_for_1_unit) || (units > 0 ? (saleSqm * ratePerSqm) / units : 0);
+    const floorTotal = ratePerSqm > 0 ? (saleSqm * ratePerSqm) : (costFor1Unit * units);
+    floorWiseReceipts += floorTotal;
+    return {
+      ...fl,
+      floor_realization: floorTotal
+    };
+  });
 
   const evaluatedSalableUnits = (salableUnits || []).map((unit) => {
     const carpetSqm = parseFloat(unit.carpet_area_sqm) || 0;
@@ -432,7 +454,6 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
     const unitPrice = superSqft * rateSqft;
     const totalAmount = unitPrice * units;
 
-    totalReceipts += totalAmount;
     totalSalableCarpetSqft += (carpetSqft * units);
     totalSalableSuperSqft += (superSqft * units);
 
@@ -445,6 +466,14 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
       total_amount: Math.round(totalAmount * 100) / 100
     };
   });
+
+  if (floorWiseReceipts > 0) {
+    totalReceipts = floorWiseReceipts;
+  } else {
+    evaluatedSalableUnits.forEach(u => {
+      totalReceipts += u.total_amount;
+    });
+  }
 
   // 6. FINANCIAL SUMMARY
   const netProfit = totalReceipts - totalProjectCost;

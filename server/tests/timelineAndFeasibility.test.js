@@ -999,7 +999,8 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       expect(validRes.status).toBe(200);
       expect(parseFloat(validRes.body.statement.road_width_m)).toBe(12);
       expect(validRes.body.statement.is_gunthewari).toBe(true);
-      expect(parseFloat(validRes.body.statement.regular_tdr_factor)).toBe(0.325); // Gunthewari 12m rate
+      expect(parseFloat(validRes.body.statement.regular_tdr_factor)).toBe(0.65); // Regular 12m rate
+      expect(parseFloat(validRes.body.statement.slum_tdr_factor)).toBe(0.325); // Concurrent Gunthewari/Slum 12m rate
 
       // Valid width 24m without Gunthewari (Regular)
       const valid24 = await request(app)
@@ -1084,6 +1085,56 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       expect(deleteRes.status).toBe(200);
       expect(deleteRes.body.charge.is_deleted).toBe(true);
       expect(deleteRes.body.charge.is_enabled).toBe(false);
+    });
+
+    it('Floor Rate & Cost for 1 Unit: calculates cost_for_1_unit and drives floor-wise financial receipts', async () => {
+      // 1. Add floor with rate_per_sqm
+      const addRes = await request(app)
+        .post(`/api/projects/${testProject.id}/feasibility/area/floors`)
+        .set('Authorization', `Bearer ${testUsers.admin.token}`)
+        .send({
+          floor_name: 'Typical Floor',
+          pline_area_sqm: 100,
+          builtup_for_sale_sqm: 80,
+          no_of_units: 2,
+          rate_per_sqm: 50000
+        });
+
+      expect(addRes.status).toBe(201);
+      expect(addRes.body.floor.floor_name).toBe('Typical Floor');
+      expect(parseFloat(addRes.body.floor.rate_per_sqm)).toBe(50000);
+      // area_for_1_unit = 80 / 2 = 40. cost_for_1_unit = 40 * 50000 = 2,000,000
+      expect(parseFloat(addRes.body.floor.cost_for_1_unit)).toBe(2000000);
+
+      // 2. Verify calculateFinancialMetrics floor-wise realization
+      const stmt = { plot_area_sqm: 500 };
+      const fls = [
+        {
+          floor_name: 'Ground Floor',
+          pline_area_sqm: 100,
+          builtup_for_sale_sqm: 80,
+          no_of_units: 2,
+          rate_per_sqm: 50000,
+          cost_for_1_unit: 2000000
+        }
+      ];
+      const areaMetrics = calculateAreaMetrics(stmt, fls);
+      expect(areaMetrics.evaluatedFloors[0].area_for_1_unit).toBe(40);
+      expect(areaMetrics.evaluatedFloors[0].cost_for_1_unit).toBe(2000000);
+
+      const finMetrics = calculateFinancialMetrics(
+        { rr_rate_per_sqm: 25000, estimated_cost_b_rate: 20000 },
+        [],
+        [],
+        areaMetrics
+      );
+      // Floor realization: 80 sqm * 50000 = 4,000,000 (or 2 units * 2,000,000)
+      expect(finMetrics.totalReceipts).toBe(4000000);
+      // Civil construction cost derived from estimated_cost_b_rate (100 sqm * 20000 = 2,000,000)
+      expect(finMetrics.costOfConstructionD).toBe(2000000);
+
+      // Clean up added floor
+      await pool.query('DELETE FROM project_area_floors WHERE id = $1', [addRes.body.floor.id]);
     });
   });
 });

@@ -190,8 +190,11 @@ router.put('/area', authenticate, checkProjectAccess(), requireFeasibilityEdit, 
     const gunthFlag = is_gunthewari !== undefined ? Boolean(is_gunthewari) : Boolean(existing?.is_gunthewari);
 
     let resolvedRegularTdr = regular_tdr_factor !== undefined ? (regular_tdr_factor === null || regular_tdr_factor === '' ? null : parseFloat(regular_tdr_factor)) : null;
-    if (resolvedRegularTdr === null && parsedWidth && ROAD_WIDTH_TDR_MAP[parsedWidth]) {
-      resolvedRegularTdr = gunthFlag ? ROAD_WIDTH_TDR_MAP[parsedWidth].gunthewari : ROAD_WIDTH_TDR_MAP[parsedWidth].regular;
+    let resolvedSlumTdr = slum_tdr_factor !== undefined ? (slum_tdr_factor === null || slum_tdr_factor === '' ? null : parseFloat(slum_tdr_factor)) : null;
+
+    if (parsedWidth && ROAD_WIDTH_TDR_MAP[parsedWidth]) {
+      resolvedRegularTdr = ROAD_WIDTH_TDR_MAP[parsedWidth].regular;
+      resolvedSlumTdr = ROAD_WIDTH_TDR_MAP[parsedWidth].slum;
     }
 
     const { rows: [updated] } = await pool.query(
@@ -231,7 +234,7 @@ router.put('/area', authenticate, checkProjectAccess(), requireFeasibilityEdit, 
         tdr_factor !== undefined ? parseFloat(tdr_factor) : null,
         proposed_tdr_factor !== undefined ? parseFloat(proposed_tdr_factor) : null,
         resolvedRegularTdr,
-        slum_tdr_factor !== undefined ? parseFloat(slum_tdr_factor) : null,
+        resolvedSlumTdr,
         is_gunthewari !== undefined ? Boolean(is_gunthewari) : null,
         parsedWidth,
         building_use ? building_use.trim() : null,
@@ -272,17 +275,41 @@ router.post('/area/floors', authenticate, checkProjectAccess(), requireFeasibili
     usage_type,
     floor_type,
     no_of_units,
+    rate_per_sqm,
+    cost_for_1_unit,
     remarks
   } = req.body;
 
   try {
-    const { rows: [stmt] } = await pool.query('SELECT id FROM project_area_statements WHERE project_id = $1', [projectId]);
-    if (!stmt) return res.status(404).json({ error: 'Area statement not found' });
+    let { rows: [stmt] } = await pool.query('SELECT id FROM project_area_statements WHERE project_id = $1', [projectId]);
+    
+    // Auto-initialize statement if missing (Self-healing)
+    if (!stmt) {
+      const { rows: projRows } = await pool.query('SELECT * FROM projects WHERE id = $1', [projectId]);
+      if (!projRows[0]) return res.status(404).json({ error: 'Project not found' });
+      const defaultPlotArea = parseFloat(projRows[0].area_sq_ft) ? (parseFloat(projRows[0].area_sq_ft) / 10.764) : 0;
+      const { rows: [newStmt] } = await pool.query(
+        `INSERT INTO project_area_statements 
+          (project_id, plot_area_sqm, city_survey_area_sqm, site_area_sqm, dp_deductions_sqm, existing_builtup_area_sqm, dividing_factor, basic_fsi_factor, paid_fsi_factor, tdr_factor, proposed_tdr_factor, building_use, regular_tdr_factor, slum_tdr_factor, is_gunthewari, road_width_m, created_by)
+         VALUES ($1, $2, $2, $2, 0, 0, 1.6, 1.1, 0.5, 0.65, 0, 'Residential', 0, 0, false, null, $3)
+         RETURNING *`,
+        [projectId, Math.round(defaultPlotArea * 100) / 100, req.user.id]
+      );
+      stmt = newStmt;
+    }
 
     const { rows: [maxOrder] } = await pool.query(
       'SELECT COALESCE(MAX(floor_order), 0) + 1 as next_order FROM project_area_floors WHERE area_statement_id = $1',
       [stmt.id]
     );
+
+    const nextOrder = maxOrder ? parseInt(maxOrder.next_order, 10) : 1;
+    let defaultFloorName = `Floor ${nextOrder}`;
+    if (nextOrder === 1) defaultFloorName = 'Ground Floor';
+    else if (nextOrder === 2) defaultFloorName = '1st Floor';
+    else if (nextOrder === 3) defaultFloorName = '2nd Floor';
+    else if (nextOrder === 4) defaultFloorName = '3rd Floor';
+    else defaultFloorName = `${nextOrder - 1}th Floor`;
 
     const pline = parseFloat(pline_area_sqm) || 0;
     const isOverride = Boolean(is_lobby_overridden);
@@ -293,16 +320,20 @@ router.post('/area/floors', authenticate, checkProjectAccess(), requireFeasibili
     const units = no_of_units !== undefined ? Math.max(0, parseInt(no_of_units, 10) || 0) : 1;
     const sale = parseFloat(builtup_for_sale_sqm) || 0;
     const areaFor1Unit = units > 0 ? Math.round((sale / units) * 10000) / 10000 : 0;
+    const rate = parseFloat(rate_per_sqm) || 0;
+    const computedCost1Unit = units > 0 && rate > 0
+      ? Math.round(areaFor1Unit * rate * 100) / 100
+      : (parseFloat(cost_for_1_unit) || 0);
 
     const { rows: [newFloor] } = await pool.query(
       `INSERT INTO project_area_floors
-        (area_statement_id, floor_name, floor_order, height_meters, pline_area_sqm, lobby_area_sqm, is_lobby_overridden, builtup_for_owners_sqm, builtup_for_sale_sqm, usage_type, floor_type, no_of_units, area_for_1_unit, remarks)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        (area_statement_id, floor_name, floor_order, height_meters, pline_area_sqm, lobby_area_sqm, is_lobby_overridden, builtup_for_owners_sqm, builtup_for_sale_sqm, usage_type, floor_type, no_of_units, area_for_1_unit, rate_per_sqm, cost_for_1_unit, remarks)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING *`,
       [
         stmt.id,
-        (floor_name || 'New Floor').trim(),
-        floor_order || maxOrder.next_order,
+        (floor_name ? floor_name.trim() : defaultFloorName),
+        floor_order || nextOrder,
         parseFloat(height_meters) || 2.85,
         pline,
         lobby,
@@ -313,6 +344,8 @@ router.post('/area/floors', authenticate, checkProjectAccess(), requireFeasibili
         floor_type || 'habitable',
         units,
         areaFor1Unit,
+        rate,
+        computedCost1Unit,
         remarks || null
       ]
     );
@@ -341,6 +374,8 @@ router.put('/area/floors/:floorId', authenticate, checkProjectAccess(), requireF
     usage_type,
     floor_type,
     no_of_units,
+    rate_per_sqm,
+    cost_for_1_unit,
     remarks
   } = req.body;
 
@@ -365,6 +400,10 @@ router.put('/area/floors/:floorId', authenticate, checkProjectAccess(), requireF
     const sale = builtup_for_sale_sqm !== undefined ? (parseFloat(builtup_for_sale_sqm) || 0) : (parseFloat(existing.builtup_for_sale_sqm) || 0);
     const units = no_of_units !== undefined ? Math.max(0, parseInt(no_of_units, 10) || 0) : (parseInt(existing.no_of_units, 10) || 1);
     const areaFor1Unit = units > 0 ? Math.round((sale / units) * 10000) / 10000 : 0;
+    const rate = rate_per_sqm !== undefined ? (parseFloat(rate_per_sqm) || 0) : (parseFloat(existing.rate_per_sqm) || 0);
+    const computedCost1Unit = units > 0 && rate > 0
+      ? Math.round(areaFor1Unit * rate * 100) / 100
+      : (cost_for_1_unit !== undefined ? (parseFloat(cost_for_1_unit) || 0) : (parseFloat(existing.cost_for_1_unit) || 0));
 
     const { rows: [updatedFloor] } = await pool.query(
       `UPDATE project_area_floors SET
@@ -380,9 +419,11 @@ router.put('/area/floors/:floorId', authenticate, checkProjectAccess(), requireF
         floor_type = COALESCE($10, floor_type),
         no_of_units = $11,
         area_for_1_unit = $12,
-        remarks = COALESCE($13, remarks),
+        rate_per_sqm = $13,
+        cost_for_1_unit = $14,
+        remarks = COALESCE($15, remarks),
         updated_at = NOW()
-       WHERE id = $14 AND area_statement_id = (SELECT id FROM project_area_statements WHERE project_id = $15)
+       WHERE id = $16 AND area_statement_id = (SELECT id FROM project_area_statements WHERE project_id = $17)
        RETURNING *`,
       [
         floor_name ? floor_name.trim() : null,
@@ -397,6 +438,8 @@ router.put('/area/floors/:floorId', authenticate, checkProjectAccess(), requireF
         floor_type || null,
         units,
         areaFor1Unit,
+        rate,
+        computedCost1Unit,
         remarks !== undefined ? remarks : null,
         floorId,
         projectId
