@@ -1,37 +1,160 @@
 // client/src/components/projects/timeline/TimelineGanttChart.jsx
 import React, { useState, useMemo, useRef } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Search, Filter, AlertCircle, Clock, CheckCircle2, Maximize2, Minimize2 } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronRight, Search, AlertCircle, Clock, CheckCircle2, Maximize2, Minimize2, Layers, ChevronsDown, ChevronsUp } from 'lucide-react';
 
-const STAGES = [
-  'All Stages',
+const STANDARD_SECTIONS = [
   'Site Preparation',
-  'Substructure',
-  'Superstructure & Slab',
-  'Finishing & Services',
-  'Handover'
+  'RCC Work',
+  'Masonry Work',
+  'Finishing Work',
+  'Additional Work'
 ];
 
 export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
   const [zoomLevel, setZoomLevel] = useState('month'); // 'week', 'month', 'quarter'
   const [search, setSearch] = useState('');
-  const [selectedStage, setSelectedStage] = useState('All Stages');
-  const [selectedStatus, setSelectedStatus] = useState('All Statuses');
+  const [selectedSection, setSelectedSection] = useState('All');
+  const [selectedStatus, setSelectedStatus] = useState('All');
   const [isExpanded, setIsExpanded] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState(new Set());
+  const [collapsedSubgroups, setCollapsedSubgroups] = useState(new Set());
   const scrollContainerRef = useRef(null);
 
-  // Filter tasks
+  // Toggle section collapse
+  const toggleSection = (secName) => {
+    setCollapsedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(secName)) next.delete(secName);
+      else next.add(secName);
+      return next;
+    });
+  };
+
+  // Toggle subgroup collapse
+  const toggleSubgroup = (groupKey) => {
+    setCollapsedSubgroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
+      return next;
+    });
+  };
+
+  const collapseAll = () => {
+    setCollapsedSections(new Set(STANDARD_SECTIONS));
+  };
+
+  const expandAll = () => {
+    setCollapsedSections(new Set());
+    setCollapsedSubgroups(new Set());
+  };
+
+  // Normalise section names (handling legacy 'Polishing Work')
+  const normalizedTasks = useMemo(() => {
+    return tasks.map(t => ({
+      ...t,
+      section_name: t.section_name === 'Polishing Work' ? 'Finishing Work' : (t.section_name || 'RCC Work')
+    }));
+  }, [tasks]);
+
+  // Filter tasks by search, section and status
   const filteredTasks = useMemo(() => {
-    return tasks.filter(t => {
+    return normalizedTasks.filter(t => {
       const matchSearch = !search.trim() || 
         t.task_name.toLowerCase().includes(search.toLowerCase()) ||
-        (t.floor_zone && t.floor_zone.toLowerCase().includes(search.toLowerCase()));
-      const matchStage = selectedStage === 'All Stages' || t.construction_stage === selectedStage;
-      const matchStatus = selectedStatus === 'All Statuses' || t.status === selectedStatus;
-      return matchSearch && matchStage && matchStatus;
+        (t.floor_zone && t.floor_zone.toLowerCase().includes(search.toLowerCase())) ||
+        (t.activity_key && t.activity_key.toLowerCase().includes(search.toLowerCase()));
+      const matchSection = selectedSection === 'All' || t.section_name === selectedSection;
+      const matchStatus = selectedStatus === 'All' || t.status === selectedStatus;
+      return matchSearch && matchSection && matchStatus;
     });
-  }, [tasks, search, selectedStage, selectedStatus]);
+  }, [normalizedTasks, search, selectedSection, selectedStatus]);
 
-  // Determine overall timeline boundaries
+  // Hierarchical grouping: Section -> Floor Subgroup -> Task
+  const groupedHierarchy = useMemo(() => {
+    const groups = [];
+
+    STANDARD_SECTIONS.forEach(secName => {
+      const secTasks = filteredTasks.filter(t => t.section_name === secName);
+      if (secTasks.length === 0) return;
+
+      // Group secTasks by floor_zone / floor_order
+      const subgroupMap = new Map();
+
+      secTasks.forEach(task => {
+        const subKey = task.floor_zone || 'General';
+        if (!subgroupMap.has(subKey)) {
+          subgroupMap.set(subKey, {
+            subgroup_name: subKey,
+            floor_order: task.floor_order !== undefined ? task.floor_order : 0,
+            tasks: []
+          });
+        }
+        subgroupMap.get(subKey).tasks.push(task);
+      });
+
+      // Sort subgroups by floor_order ascending, then order_index
+      const sortedSubgroups = Array.from(subgroupMap.values()).sort((a, b) => a.floor_order - b.floor_order);
+      sortedSubgroups.forEach(sg => {
+        sg.tasks.sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+      });
+
+      groups.push({
+        section_name: secName,
+        total_tasks: secTasks.length,
+        subgroups: sortedSubgroups
+      });
+    });
+
+    return groups;
+  }, [filteredTasks]);
+
+  // Flattened visible items for table and Gantt grid alignment
+  const visibleRows = useMemo(() => {
+    const rows = [];
+
+    groupedHierarchy.forEach(sec => {
+      const isSecCollapsed = collapsedSections.has(sec.section_name);
+      rows.push({
+        type: 'section_header',
+        key: `sec-${sec.section_name}`,
+        section_name: sec.section_name,
+        total_tasks: sec.total_tasks,
+        isCollapsed: isSecCollapsed
+      });
+
+      if (!isSecCollapsed) {
+        sec.subgroups.forEach(sg => {
+          const sgKey = `${sec.section_name}:${sg.subgroup_name}`;
+          const isSgCollapsed = collapsedSubgroups.has(sgKey);
+
+          rows.push({
+            type: 'subgroup_header',
+            key: `sg-${sgKey}`,
+            section_name: sec.section_name,
+            subgroup_name: sg.subgroup_name,
+            total_tasks: sg.tasks.length,
+            isCollapsed: isSgCollapsed,
+            groupKey: sgKey
+          });
+
+          if (!isSgCollapsed) {
+            sg.tasks.forEach(t => {
+              rows.push({
+                type: 'task_row',
+                key: `task-${t.id || t.temp_id || t.activity_key}`,
+                task: t
+              });
+            });
+          }
+        });
+      }
+    });
+
+    return rows;
+  }, [groupedHierarchy, collapsedSections, collapsedSubgroups]);
+
+  // Overall timeline date boundaries
   const { minDate, maxDate, totalDays } = useMemo(() => {
     if (tasks.length === 0) {
       const now = new Date();
@@ -132,7 +255,7 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Search tasks or zones..."
+              placeholder="Search activities or levels..."
               className="text-xs bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:border-[#E05A1E] w-48 text-slate-700"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -141,10 +264,11 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
 
           <select
             className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:border-[#E05A1E]"
-            value={selectedStage}
-            onChange={(e) => setSelectedStage(e.target.value)}
+            value={selectedSection}
+            onChange={(e) => setSelectedSection(e.target.value)}
           >
-            {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+            <option value="All">All Construction Groups</option>
+            {STANDARD_SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
 
           <select
@@ -152,12 +276,31 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
           >
-            <option value="All Statuses">All Statuses</option>
+            <option value="All">All Statuses</option>
             <option value="Not Started">Not Started</option>
             <option value="In Progress">In Progress</option>
             <option value="Completed">Completed</option>
             <option value="On Hold">On Hold</option>
           </select>
+
+          <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
+            <button
+              onClick={expandAll}
+              className="text-[11px] font-semibold text-slate-600 hover:text-[#E05A1E] px-1.5 py-1 rounded hover:bg-slate-100 flex items-center gap-1"
+              title="Expand All Groups"
+            >
+              <ChevronsDown size={13} />
+              Expand
+            </button>
+            <button
+              onClick={collapseAll}
+              className="text-[11px] font-semibold text-slate-600 hover:text-[#E05A1E] px-1.5 py-1 rounded hover:bg-slate-100 flex items-center gap-1"
+              title="Collapse All Groups"
+            >
+              <ChevronsUp size={13} />
+              Collapse
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2 justify-end">
@@ -203,49 +346,92 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
 
       {/* Gantt Container */}
       <div className={`flex border border-[#EBEBEB] rounded-xl overflow-hidden bg-white shadow-soft-sm ${isExpanded ? 'h-[calc(100vh-180px)]' : 'min-h-[680px]'}`}>
-        {/* Left Task Tree Column - Enlarged width for complete visibility */}
-        <div className="w-80 sm:w-96 md:w-[420px] flex-shrink-0 border-r border-[#EBEBEB] bg-slate-50/70 z-10 flex flex-col">
+        {/* Left Hierarchical Activity Tree Column */}
+        <div className="w-80 sm:w-96 md:w-[440px] flex-shrink-0 border-r border-[#EBEBEB] bg-slate-50/70 z-10 flex flex-col">
           <div className="h-11 border-b border-[#EBEBEB] px-4 flex items-center justify-between text-xs font-bold text-slate-700 bg-slate-100/90 flex-shrink-0">
-            <span>Activity / Construction Zone ({filteredTasks.length})</span>
+            <span>Activity / Floor Hierarchy ({filteredTasks.length})</span>
             <span className="text-[10px] text-muted">Days</span>
           </div>
 
           <div className="divide-y divide-slate-100 overflow-y-auto flex-1">
-            {filteredTasks.length === 0 ? (
+            {visibleRows.length === 0 ? (
               <div className="p-8 text-center text-xs text-muted">
                 No scheduled activities match criteria
               </div>
             ) : (
-              filteredTasks.map((t, idx) => (
-                <div
-                  key={t.id || idx}
-                  onClick={() => onSelectTask && onSelectTask(t)}
-                  className="h-12 px-4 flex items-center justify-between hover:bg-orange-50/60 cursor-pointer transition-colors group"
-                >
-                  <div className="truncate pr-3">
-                    <p className="text-xs font-semibold text-slate-800 truncate group-hover:text-[#E05A1E] flex items-center gap-1.5">
-                      {Boolean(t.is_milestone || t.metadata?.is_trigger_milestone) && (
-                        <span className="text-amber-500 font-bold text-sm" title="3rd-Floor Slab Trigger">★</span>
-                      )}
-                      <span className="truncate">{t.task_name}</span>
-                    </p>
-                    <p className="text-[10px] text-muted flex items-center gap-2 mt-0.5">
-                      <span className="font-medium text-slate-600 bg-slate-200/60 px-1.5 py-0.5 rounded">{t.floor_zone || t.construction_stage}</span>
-                      {Boolean(t.is_milestone || t.metadata?.is_trigger_milestone) && (
-                        <span className="text-amber-700 font-bold bg-amber-100/80 px-1.5 py-0.5 rounded text-[9px]">Trigger</span>
-                      )}
-                      {t.is_overdue && (
-                        <span className="text-red-600 font-bold flex items-center gap-0.5">
-                          <AlertCircle size={10} /> Overdue
+              visibleRows.map((row) => {
+                if (row.type === 'section_header') {
+                  return (
+                    <div
+                      key={row.key}
+                      onClick={() => toggleSection(row.section_name)}
+                      className="h-10 px-3 bg-slate-200/80 hover:bg-slate-200 cursor-pointer flex items-center justify-between transition-colors border-t border-slate-300 font-bold text-xs text-slate-800"
+                    >
+                      <div className="flex items-center gap-2">
+                        {row.isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                        <span className="uppercase tracking-wider text-[11px] font-extrabold text-slate-900">{row.section_name}</span>
+                      </div>
+                      <span className="text-[10px] bg-slate-300/80 px-2 py-0.5 rounded-full text-slate-700">
+                        {row.total_tasks} tasks
+                      </span>
+                    </div>
+                  );
+                }
+
+                if (row.type === 'subgroup_header') {
+                  return (
+                    <div
+                      key={row.key}
+                      onClick={() => toggleSubgroup(row.groupKey)}
+                      className="h-8 pl-6 pr-3 bg-slate-100/70 hover:bg-slate-100 cursor-pointer flex items-center justify-between transition-colors text-xs text-slate-700 font-semibold"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {row.isCollapsed ? <ChevronRight size={13} className="text-slate-500" /> : <ChevronDown size={13} className="text-slate-500" />}
+                        <span className="text-slate-800">{row.subgroup_name}</span>
+                      </div>
+                      <span className="text-[9px] bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-500">
+                        {row.total_tasks}
+                      </span>
+                    </div>
+                  );
+                }
+
+                const t = row.task;
+                return (
+                  <div
+                    key={row.key}
+                    onClick={() => onSelectTask && onSelectTask(t)}
+                    className="h-11 pl-9 pr-4 flex items-center justify-between hover:bg-orange-50/60 cursor-pointer transition-colors group"
+                  >
+                    <div className="truncate pr-3">
+                      <p className="text-xs font-semibold text-slate-800 truncate group-hover:text-[#E05A1E] flex items-center gap-1.5">
+                        {Boolean(t.is_milestone || t.metadata?.is_trigger_milestone) && (
+                          <span className="text-amber-500 font-bold text-sm" title="Third Slab Trigger">★</span>
+                        )}
+                        <span className="truncate">{t.task_name}</span>
+                      </p>
+                      <p className="text-[10px] text-muted flex items-center gap-2 mt-0.5">
+                        <span className="font-medium text-slate-600 bg-slate-200/60 px-1.5 py-0.2 rounded text-[9px]">
+                          {t.floor_zone}
                         </span>
-                      )}
-                    </p>
+                        {Boolean(t.is_milestone || t.metadata?.is_trigger_milestone) && (
+                          <span className="text-amber-700 font-bold bg-amber-100/80 px-1.5 py-0.2 rounded text-[8px]">
+                            Trigger
+                          </span>
+                        )}
+                        {t.is_overdue && (
+                          <span className="text-red-600 font-bold flex items-center gap-0.5">
+                            <AlertCircle size={10} /> Overdue
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-600 whitespace-nowrap bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-semibold">
+                      {t.duration_days}d
+                    </span>
                   </div>
-                  <span className="text-[11px] font-mono text-slate-600 whitespace-nowrap bg-white px-2 py-1 rounded border border-slate-200 shadow-2xs font-semibold">
-                    {t.duration_days}d
-                  </span>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -268,7 +454,7 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
             ))}
           </div>
 
-          {/* Timeline Body Rows */}
+          {/* Timeline Body Rows (Strictly 1:1 Height Alignment with Left Tree) */}
           <div className="relative divide-y divide-slate-100 flex-1" style={{ width: timelineWidth }}>
             {/* Today Line */}
             {todayOffset !== null && (
@@ -282,7 +468,20 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
               </div>
             )}
 
-            {filteredTasks.map((t, idx) => {
+            {visibleRows.map((row) => {
+              if (row.type === 'section_header') {
+                return (
+                  <div key={row.key} className="h-10 bg-slate-200/50 border-t border-slate-300 pointer-events-none" />
+                );
+              }
+
+              if (row.type === 'subgroup_header') {
+                return (
+                  <div key={row.key} className="h-8 bg-slate-100/40 pointer-events-none" />
+                );
+              }
+
+              const t = row.task;
               const startDate = t.planned_start_date ? new Date(t.planned_start_date) : minDate;
               const finishDate = t.planned_finish_date ? new Date(t.planned_finish_date) : startDate;
               const startDays = Math.max(0, Math.round((startDate - minDate) / 86400000));
@@ -292,11 +491,11 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
               const barWidth = Math.max(dayWidth, taskSpanDays * dayWidth);
 
               return (
-                <div key={t.id || idx} className="h-12 relative flex items-center hover:bg-slate-50/50">
+                <div key={row.key} className="h-11 relative flex items-center hover:bg-slate-50/50">
                   {/* Task Bar */}
                   <div
                     onClick={() => onSelectTask && onSelectTask(t)}
-                    className={`absolute h-8 rounded-lg border shadow-soft-sm cursor-pointer transition-all hover:brightness-105 hover:scale-[1.01] flex items-center px-2.5 text-[11px] font-semibold truncate ${getStatusColor(t.status, t.is_overdue)}`}
+                    className={`absolute h-7 rounded-lg border shadow-soft-sm cursor-pointer transition-all hover:brightness-105 hover:scale-[1.01] flex items-center px-2.5 text-[11px] font-semibold truncate ${getStatusColor(t.status, t.is_overdue)}`}
                     style={{ left: barLeft, width: barWidth }}
                     title={`${t.task_name} (${t.planned_start_date} to ${t.planned_finish_date}) - ${t.status}`}
                   >
@@ -309,28 +508,34 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
         </div>
       </div>
 
-      {/* Legend */}
-      <div className="flex items-center gap-4 text-xs text-muted flex-wrap pt-1">
-        <span className="font-semibold text-slate-700">Status Legend:</span>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded bg-slate-300 border border-slate-400" />
-          <span>Not Started</span>
+      {/* Legend & Summary Footer */}
+      <div className="flex items-center justify-between text-xs text-muted flex-wrap gap-3 pt-1">
+        <div className="flex items-center gap-4 flex-wrap">
+          <span className="font-semibold text-slate-700">Status Legend:</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-slate-300 border border-slate-400" />
+            <span>Not Started</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-[#E05A1E]" />
+            <span>In Progress</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-emerald-600" />
+            <span>Completed</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-purple-600" />
+            <span>On Hold</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-red-500" />
+            <span>Overdue</span>
+          </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded bg-[#E05A1E]" />
-          <span>In Progress</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded bg-emerald-600" />
-          <span>Completed</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded bg-purple-600" />
-          <span>On Hold</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded bg-red-500" />
-          <span>Overdue</span>
+
+        <div className="text-[11px] text-slate-500 font-medium">
+          Showing {filteredTasks.length} of {tasks.length} total activities
         </div>
       </div>
     </div>

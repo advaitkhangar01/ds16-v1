@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 
 export default function TimelineTaskList({ tasks = [], onSelectTask, onAddTask, onUpdateTaskStatus, isManagement }) {
   const [search, setSearch] = useState('');
+  const [selectedSection, setSelectedSection] = useState('All');
   const [selectedStage, setSelectedStage] = useState('All');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');
@@ -14,22 +15,33 @@ export default function TimelineTaskList({ tasks = [], onSelectTask, onAddTask, 
   const [sortAsc, setSortAsc] = useState(true);
   const [selectedTaskIds, setSelectedTaskIds] = useState(new Set());
 
+  const STANDARD_SECTIONS = ['All', 'Site Preparation', 'RCC Work', 'Masonry Work', 'Finishing Work', 'Additional Work'];
+
   // Distinct filters
   const stages = useMemo(() => ['All', ...new Set(tasks.map(t => t.construction_stage).filter(Boolean))], [tasks]);
   const categories = useMemo(() => ['All', ...new Set(tasks.map(t => t.category).filter(Boolean))], [tasks]);
 
+  const normalizedTasks = useMemo(() => {
+    return tasks.map(t => ({
+      ...t,
+      section_name: t.section_name === 'Polishing Work' ? 'Finishing Work' : (t.section_name || 'RCC Work')
+    }));
+  }, [tasks]);
+
   const filteredTasks = useMemo(() => {
-    return tasks.filter(t => {
+    return normalizedTasks.filter(t => {
       const matchSearch = !search.trim() ||
         t.task_name.toLowerCase().includes(search.toLowerCase()) ||
         (t.floor_zone && t.floor_zone.toLowerCase().includes(search.toLowerCase())) ||
-        (t.remarks && t.remarks.toLowerCase().includes(search.toLowerCase()));
+        (t.remarks && t.remarks.toLowerCase().includes(search.toLowerCase())) ||
+        (t.activity_key && t.activity_key.toLowerCase().includes(search.toLowerCase()));
 
+      const matchSection = selectedSection === 'All' || t.section_name === selectedSection;
       const matchStage = selectedStage === 'All' || t.construction_stage === selectedStage;
       const matchCat = selectedCategory === 'All' || t.category === selectedCategory;
       const matchStatus = selectedStatus === 'All' || t.status === selectedStatus;
 
-      return matchSearch && matchStage && matchCat && matchStatus;
+      return matchSearch && matchSection && matchStage && matchCat && matchStatus;
     }).sort((a, b) => {
       let valA = a[sortField];
       let valB = b[sortField];
@@ -39,7 +51,7 @@ export default function TimelineTaskList({ tasks = [], onSelectTask, onAddTask, 
       if (valA > valB) return sortAsc ? 1 : -1;
       return 0;
     });
-  }, [tasks, search, selectedStage, selectedCategory, selectedStatus, sortField, sortAsc]);
+  }, [normalizedTasks, search, selectedSection, selectedStage, selectedCategory, selectedStatus, sortField, sortAsc]);
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -182,6 +194,14 @@ export default function TimelineTaskList({ tasks = [], onSelectTask, onAddTask, 
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
+
+          <select
+            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:border-[#E05A1E]"
+            value={selectedSection}
+            onChange={(e) => setSelectedSection(e.target.value)}
+          >
+            {STANDARD_SECTIONS.map(s => <option key={s} value={s}>{s === 'All' ? 'All Construction Groups' : s}</option>)}
+          </select>
 
           <select
             className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:border-[#E05A1E]"

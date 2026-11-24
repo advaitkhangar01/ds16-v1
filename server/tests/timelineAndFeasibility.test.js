@@ -82,11 +82,12 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
 
       expect(activities.length).toBeGreaterThan(15);
       
-      // Slabs: Slab 1 (Ground), Slab 2 (1st), Slab 3 (2nd), Slab 4 (3rd), Slab 5 (4th Roof), Slab 6 (Overhead Tank N+2)
-      const slabTasks = activities.filter(a => a.category === 'RCC Structural Construction');
-      expect(slabTasks.length).toBe(6);
-      expect(slabTasks[0].task_name).toContain('RCC Slab 1: Ground Floor');
-      expect(slabTasks[5].task_name).toContain('RCC Slab 6: Overhead Water Tank');
+      // Slabs: Plinth Slab, 1st Floor, 2nd Floor, 3rd Floor, 4th Floor, Terrace Slab, Water Tank Slab
+      const slabTasks = activities.filter(a => a.activity_key && a.activity_key.includes('SLAB_CONCRETING'));
+      // Plinth Slab (1) + Habitable 1..4 Slabs (4) + Terrace Slab (1) + Water Tank Slab (1) = 7 slabs
+      expect(slabTasks.length).toBe(7);
+      expect(slabTasks[0].task_name).toContain('Plinth Slab');
+      expect(slabTasks[slabTasks.length - 1].task_name).toContain('Water Tank Slab Concreting');
 
       // Verify sequence: end of one slab precedes start of next slab
       const slab1End = new Date(slabTasks[0].planned_finish_date);
@@ -102,10 +103,10 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
         start_date: '2026-09-01'
       });
 
-      const slabTasks = activities.filter(a => a.category === 'RCC Structural Construction');
-      // Slabs: Ground + 3 floors = 4 slabs (N+1)
-      expect(slabTasks.length).toBe(4);
-      expect(slabTasks[3].task_name).toContain('Final Roof Slab');
+      const slabTasks = activities.filter(a => a.activity_key && a.activity_key.includes('SLAB_CONCRETING'));
+      // Plinth (1) + Habitable 1..3 (3) + Terrace (1) = 5 slabs
+      expect(slabTasks.length).toBe(5);
+      expect(slabTasks[slabTasks.length - 1].task_name).toContain('Terrace Slab Concreting');
     });
 
     it('rigorously tests structural trigger milestone for G+1, G+2, G+3, G+4, G+5, G+6, and tank variations', () => {
@@ -134,7 +135,7 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
         if (tc.expectTrigger) {
           expect(triggerMilestones.length).toBe(1);
           const trigger = triggerMilestones[0];
-          expect(trigger.floor_zone).toBe('3rd Floor');
+          expect(['Third Floor', '3rd Floor']).toContain(trigger.floor_zone);
           expect(trigger.is_milestone).toBe(true);
           expect(trigger.metadata.milestone_code).toBe('SLAB_3RD_FLOOR');
 
@@ -152,7 +153,8 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
           expect(triggerMilestones.length).toBe(0);
           expect(groundBrick.metadata.is_manually_scheduled).toBe(true);
           expect(groundBrick.metadata.has_structural_trigger).toBe(false);
-          expect(groundBrick.predecessors.length).toBe(0); // G+2 or fewer: no false structural predecessor or hidden lag
+          // G+2 or fewer: depends on final RCC task with lag 1
+          expect(groundBrick.predecessors[0].lag).toBe(1);
         }
       }
     });
@@ -190,7 +192,7 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       expect(deepEx).toBeDefined();
       expect(deepEx.task_name).toContain('2 Basement Levels');
 
-      const raft = acts.find(a => a.task_name.includes('RCC Raft Foundation'));
+      const raft = acts.find(a => a.task_name.includes('Raft Foundation'));
       expect(raft).toBeDefined();
 
       const b2Retaining = acts.find(a => a.task_name.includes('Basement 2') && a.task_name.includes('Retaining Wall'));
@@ -204,17 +206,17 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       expect(b1Slab).toBeDefined();
 
       // 2. Upper floor parking
-      const upperParkSlab = acts.find(a => a.task_name.includes('Podium / Upper Parking') && a.task_name.includes('Floor Slab Casting'));
+      const upperParkSlab = acts.find(a => a.task_name.includes('Podium 1') && a.task_name.includes('Floor Slab Concreting'));
       expect(upperParkSlab).toBeDefined();
 
-      const parkFinishes = acts.find(a => a.task_name.includes('Upper Parking') && a.task_name.includes('Epoxy Floor Coating'));
+      const parkFinishes = acts.find(a => a.task_name.includes('Podium 1') && a.task_name.includes('Epoxy Floor Coating'));
       expect(parkFinishes).toBeDefined();
 
       // 3. Elevator system
       const liftPit = acts.find(a => a.task_name.includes('Lift Pit') && a.task_name.includes('Waterproofing'));
       expect(liftPit).toBeDefined();
 
-      const liftShaft = acts.find(a => a.task_name.includes('RCC Lift Shaft'));
+      const liftShaft = acts.find(a => a.task_name.includes('Lift Shaft'));
       expect(liftShaft).toBeDefined();
 
       const liftComm = acts.find(a => a.task_name.includes('Elevator Safety Inspection'));
@@ -223,7 +225,7 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       // 4. Structural trigger milestone integrity
       const triggerMilestone = acts.find(a => a.metadata?.is_trigger_milestone);
       expect(triggerMilestone).toBeDefined();
-      expect(triggerMilestone.floor_zone).toBe('3rd Floor');
+      expect(['Third Floor', '3rd Floor']).toContain(triggerMilestone.floor_zone);
 
       const groundBrick = acts.find(a => a.metadata?.is_ground_brickwork);
       expect(groundBrick).toBeDefined();
@@ -492,12 +494,12 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       );
       expect(slabRows.length).toBe(1);
       const slab3rd = slabRows[0];
-      expect(slab3rd.floor_zone).toBe('3rd Floor');
+      expect(['Third Floor', '3rd Floor']).toContain(slab3rd.floor_zone);
 
       const { rows: brickRows } = await pool.query(
         `SELECT * FROM timeline_tasks 
-         WHERE project_id = $1 AND is_draft = FALSE 
-           AND (metadata->>'is_ground_brickwork' = 'true' OR (floor_zone = 'Ground Floor' AND category = 'Masonry & Brickwork'))
+         WHERE project_id = $1 AND is_archived = FALSE
+           AND (metadata->>'is_ground_brickwork' = 'true' OR activity_key = 'MASONRY:FLOOR_0:BRICKWORK' OR (floor_zone = 'Ground Floor' AND (category = 'Masonry & Brickwork' OR section_name = 'Masonry Work')))
          LIMIT 1`,
         [testProject.id]
       );
@@ -571,11 +573,11 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
     it('safely preserves Ground Floor Brickwork dates if work is already physically started', async () => {
       // Find 3rd floor slab and ground floor brickwork
       const { rows: [slab3rd] } = await pool.query(
-        "SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_draft = FALSE AND metadata->>'milestone_code' = 'SLAB_3RD_FLOOR' LIMIT 1",
+        "SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_draft = FALSE AND is_archived = FALSE AND (metadata->>'milestone_code' = 'SLAB_3RD_FLOOR' OR activity_key = 'RCC:FLOOR_3:SLAB_CONCRETING') LIMIT 1",
         [testProject.id]
       );
       const { rows: [groundBrick] } = await pool.query(
-        "SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_draft = FALSE AND metadata->>'is_ground_brickwork' = 'true' LIMIT 1",
+        "SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_draft = FALSE AND is_archived = FALSE AND (metadata->>'is_ground_brickwork' = 'true' OR activity_key = 'MASONRY:FLOOR_0:BRICKWORK') LIMIT 1",
         [testProject.id]
       );
 
@@ -616,11 +618,11 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
 
     it('preserves manual management override on Ground Floor Brickwork and does not overwrite it on milestone completion or reopening', async () => {
       const { rows: [slab3rd] } = await pool.query(
-        "SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_draft = FALSE AND metadata->>'milestone_code' = 'SLAB_3RD_FLOOR' LIMIT 1",
+        "SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_draft = FALSE AND is_archived = FALSE AND (metadata->>'milestone_code' = 'SLAB_3RD_FLOOR' OR activity_key = 'RCC:FLOOR_3:SLAB_CONCRETING') LIMIT 1",
         [testProject.id]
       );
       const { rows: [groundBrick] } = await pool.query(
-        "SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_draft = FALSE AND metadata->>'is_ground_brickwork' = 'true' LIMIT 1",
+        "SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_draft = FALSE AND is_archived = FALSE AND (metadata->>'is_ground_brickwork' = 'true' OR activity_key = 'MASONRY:FLOOR_0:BRICKWORK') LIMIT 1",
         [testProject.id]
       );
 

@@ -5,7 +5,7 @@ const router = require('express').Router({ mergeParams: true });
 const pool = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
-const { generateDraftActivities, addCalendarDays, formatDateStr, parseDateStr } = require('../services/timelineGenerator');
+const { generateDraftActivities, calculateStructuralSlabs, addCalendarDays, formatDateStr, parseDateStr } = require('../services/timelineGenerator');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -78,15 +78,253 @@ router.get('/config', authenticate, checkProjectAccess(), async (req, res) => {
       };
     }
 
-    res.json({ config, versions: versionRows });
+    res.json({
+      config,
+      versions: versionRows,
+      slabs: calculateStructuralSlabs(config)
+    });
   } catch (err) {
     console.error('Error fetching timeline config:', err);
     res.status(500).json({ error: 'Failed to fetch timeline configuration' });
   }
 });
 
+/**
+ * Reconcile project timeline tasks against newly generated building activities
+ * Non-destructive, diff-based:
+ * - Updates unstarted tasks
+ * - Preserves completed, in-progress, and tasks with actual progress/dates/evidence
+ * - Inserts newly applicable activities
+ * - Archives obsolete unstarted activities
+ * - Flags obsolete activities with progress without deleting them
+ * - Re-wires dependencies accurately
+ */
+async function reconcileProjectTimeline(client, projectId, userId, config) {
+  // Determine if project schedule is currently published
+  const { rows: confRows } = await client.query(
+    'SELECT published_version, status FROM timeline_configurations WHERE project_id = $1',
+    [projectId]
+  );
+  const confRecord = confRows[0] || {};
+  const isPublished = (confRecord.published_version > 0) || (confRecord.status === 'published');
+  // If not yet published, newly generated tasks must be draft tasks
+  const targetDraftStatus = !isPublished;
+
+  // 1. Fetch current active tasks for project matching the target draft status
+  const { rows: existingTasks } = await client.query(
+    `SELECT * FROM timeline_tasks 
+     WHERE project_id = $1 AND is_archived = FALSE AND is_draft = $2
+     ORDER BY order_index ASC`,
+    [projectId, targetDraftStatus]
+  );
+
+  // 2. Generate expected activities from building configuration
+  const expectedActivities = generateDraftActivities(config);
+
+  // 3. Map existing tasks by activity_key and normalized name
+  const existingByKey = new Map();
+  const existingByNormalizedName = new Map();
+
+  for (const t of existingTasks) {
+    if (t.activity_key) {
+      existingByKey.set(t.activity_key, t);
+    }
+    const norm = `${t.task_name}|${t.floor_zone || ''}`.toLowerCase();
+    existingByNormalizedName.set(norm, t);
+  }
+
+  const expectedKeySet = new Set(expectedActivities.map(a => a.activity_key));
+  const tempIdToDbId = {};
+  const activeDbTasks = [];
+
+  let createdCount = 0;
+  let updatedCount = 0;
+  let retainedCount = 0;
+  let archivedCount = 0;
+  let flaggedCount = 0;
+
+  for (const act of expectedActivities) {
+    let existing = existingByKey.get(act.activity_key);
+    if (!existing) {
+      const norm = `${act.task_name}|${act.floor_zone || ''}`.toLowerCase();
+      existing = existingByNormalizedName.get(norm);
+    }
+
+    if (existing) {
+      const hasProgress = ['In Progress', 'Completed', 'On Hold'].includes(existing.status) || 
+                          Boolean(existing.actual_start_date || existing.actual_finish_date);
+
+      if (hasProgress) {
+        // PRESERVE progress, actual dates, duration, assignees
+        // Just ensure activity_key, floor_order, section_name, category are synchronized
+        const { rows: [preserved] } = await client.query(
+          `UPDATE timeline_tasks SET
+            activity_key = COALESCE(activity_key, $1),
+            floor_order = $2,
+            section_name = $3,
+            category = $4,
+            updated_at = NOW()
+           WHERE id = $5
+           RETURNING *`,
+          [act.activity_key, act.floor_order || 0, act.section_name, act.category, existing.id]
+        );
+        tempIdToDbId[act.temp_id] = existing.id;
+        activeDbTasks.push(preserved);
+        retainedCount++;
+      } else {
+        // Unstarted task: update schedule dates, durations, and hierarchy
+        const { rows: [updated] } = await client.query(
+          `UPDATE timeline_tasks SET
+            activity_key = $1,
+            task_name = $2,
+            category = $3,
+            section_name = $4,
+            construction_stage = $5,
+            floor_zone = $6,
+            floor_order = $7,
+            planned_start_date = $8,
+            planned_finish_date = $9,
+            forecast_start_date = $10,
+            forecast_finish_date = $11,
+            is_milestone = $12,
+            duration_days = $13,
+            order_index = $14,
+            metadata = $15,
+            updated_at = NOW()
+           WHERE id = $16
+           RETURNING *`,
+          [
+            act.activity_key,
+            act.task_name,
+            act.category,
+            act.section_name,
+            act.construction_stage,
+            act.floor_zone,
+            act.floor_order || 0,
+            act.planned_start_date,
+            act.planned_finish_date,
+            act.forecast_start_date || act.planned_start_date,
+            act.forecast_finish_date || act.planned_finish_date,
+            Boolean(act.is_milestone),
+            act.duration_days,
+            act.order_index,
+            JSON.stringify(act.metadata || {}),
+            existing.id
+          ]
+        );
+        tempIdToDbId[act.temp_id] = existing.id;
+        activeDbTasks.push(updated);
+        updatedCount++;
+      }
+    } else {
+      // Create newly applicable activity
+      const { rows: [inserted] } = await client.query(
+        `INSERT INTO timeline_tasks 
+          (project_id, activity_key, task_name, category, section_name, construction_stage, floor_zone, floor_order, planned_start_date, planned_finish_date, forecast_start_date, forecast_finish_date, is_milestone, metadata, duration_days, status, order_index, is_draft, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'Not Started', $16, $17, $18)
+         RETURNING *`,
+        [
+          projectId,
+          act.activity_key,
+          act.task_name,
+          act.category,
+          act.section_name,
+          act.construction_stage,
+          act.floor_zone,
+          act.floor_order || 0,
+          act.planned_start_date,
+          act.planned_finish_date,
+          act.forecast_start_date || act.planned_start_date,
+          act.forecast_finish_date || act.planned_finish_date,
+          Boolean(act.is_milestone),
+          JSON.stringify(act.metadata || {}),
+          act.duration_days,
+          act.order_index,
+          targetDraftStatus,
+          userId
+        ]
+      );
+      tempIdToDbId[act.temp_id] = inserted.id;
+      activeDbTasks.push(inserted);
+      createdCount++;
+    }
+  }
+
+  // Handle obsolete tasks
+  for (const t of existingTasks) {
+    const isExpected = (t.activity_key && expectedKeySet.has(t.activity_key)) ||
+      expectedActivities.some(a => a.activity_key === t.activity_key || a.task_name === t.task_name);
+
+    if (!isExpected) {
+      const hasProgress = ['In Progress', 'Completed', 'On Hold'].includes(t.status) || 
+                          Boolean(t.actual_start_date || t.actual_finish_date);
+      if (!hasProgress) {
+        // Safe to soft archive unstarted task
+        await client.query(
+          'UPDATE timeline_tasks SET is_archived = TRUE, updated_at = NOW() WHERE id = $1',
+          [t.id]
+        );
+        archivedCount++;
+      } else {
+        // Flag for review, DO NOT delete
+        const meta = typeof t.metadata === 'string' ? JSON.parse(t.metadata || '{}') : (t.metadata || {});
+        meta.obsolete_warning = 'Task retained: no longer in active configuration but contains recorded site progress';
+        await client.query(
+          'UPDATE timeline_tasks SET metadata = $1, updated_at = NOW() WHERE id = $2',
+          [JSON.stringify(meta), t.id]
+        );
+        flaggedCount++;
+      }
+    }
+  }
+
+  // Reconcile dependencies
+  const keyToDbId = {};
+  for (const t of activeDbTasks) {
+    if (t.activity_key) {
+      keyToDbId[t.activity_key] = t.id;
+    }
+  }
+
+  for (const act of expectedActivities) {
+    const taskId = tempIdToDbId[act.temp_id] || keyToDbId[act.activity_key];
+    if (taskId && Array.isArray(act.predecessors)) {
+      for (const pred of act.predecessors) {
+        const predKey = pred.predecessor_key;
+        const predTempId = pred.predecessor_id;
+        const predDbId = (predKey ? keyToDbId[predKey] : null) || tempIdToDbId[predTempId];
+        const depType = pred.type || 'FS';
+        const lagDays = pred.lag !== undefined ? pred.lag : 0;
+
+        if (predDbId && predDbId !== taskId) {
+          await client.query(
+            `INSERT INTO timeline_task_dependencies (task_id, predecessor_task_id, dependency_type, lag_days)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (task_id, predecessor_task_id) DO UPDATE SET dependency_type = EXCLUDED.dependency_type, lag_days = EXCLUDED.lag_days`,
+            [taskId, predDbId, depType, lagDays]
+          );
+        }
+      }
+    }
+  }
+
+  return {
+    createdCount,
+    updatedCount,
+    retainedCount,
+    archivedCount,
+    flaggedCount,
+    created: createdCount,
+    updated: updatedCount,
+    retained: retainedCount,
+    archived: archivedCount,
+    flagged: flaggedCount,
+    totalActive: activeDbTasks.length
+  };
+}
+
 // 2. POST /api/projects/:projectId/timeline/config
-// Save or update building timeline configuration
+// Save or update building timeline configuration and automatically reconcile construction activities
 router.post('/config', authenticate, checkProjectAccess(), requireManagement, async (req, res) => {
   const projectId = parseInt(req.params.projectId, 10);
   const {
@@ -101,14 +339,29 @@ router.post('/config', authenticate, checkProjectAccess(), requireManagement, as
     basement_count,
     upper_parking_count,
     has_stilt_parking,
-    has_lift
+    has_lift,
+    additional_work_config,
+    custom_durations,
+    masonry_lag_days,
+    start_date
   } = req.body;
 
+  const client = await pool.connect();
+
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+
+    // Retrieve project baseline start date if not passed
+    let baselineStartDate = start_date;
+    if (!baselineStartDate) {
+      const { rows: pRows } = await client.query('SELECT start_date FROM projects WHERE id = $1', [projectId]);
+      baselineStartDate = pRows[0]?.start_date || new Date().toISOString().split('T')[0];
+    }
+
+    const { rows } = await client.query(
       `INSERT INTO timeline_configurations 
-        (project_id, floors_above_ground, ground_floor_config, has_terrace_tank_slab, parking_rooms_config, building_type, stages, settings, parking_floors, basement_count, upper_parking_count, has_stilt_parking, has_lift, created_by, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+        (project_id, floors_above_ground, ground_floor_config, has_terrace_tank_slab, parking_rooms_config, building_type, stages, settings, parking_floors, basement_count, upper_parking_count, has_stilt_parking, has_lift, additional_work_config, custom_durations, masonry_lag_days, created_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
        ON CONFLICT (project_id) DO UPDATE SET
          floors_above_ground = EXCLUDED.floors_above_ground,
          ground_floor_config = EXCLUDED.ground_floor_config,
@@ -122,6 +375,9 @@ router.post('/config', authenticate, checkProjectAccess(), requireManagement, as
          upper_parking_count = EXCLUDED.upper_parking_count,
          has_stilt_parking = EXCLUDED.has_stilt_parking,
          has_lift = EXCLUDED.has_lift,
+         additional_work_config = COALESCE(EXCLUDED.additional_work_config, timeline_configurations.additional_work_config),
+         custom_durations = COALESCE(EXCLUDED.custom_durations, timeline_configurations.custom_durations),
+         masonry_lag_days = COALESCE(EXCLUDED.masonry_lag_days, timeline_configurations.masonry_lag_days),
          updated_at = NOW()
        RETURNING *`,
       [
@@ -138,21 +394,44 @@ router.post('/config', authenticate, checkProjectAccess(), requireManagement, as
         Math.max(0, parseInt(upper_parking_count, 10) || 0),
         has_stilt_parking !== false,
         has_lift !== false,
+        additional_work_config ? JSON.stringify(additional_work_config) : JSON.stringify({ elevation: false, lift: true, fire: false, solar: false }),
+        custom_durations ? JSON.stringify(custom_durations) : '{}',
+        parseInt(masonry_lag_days, 10) || 1,
         req.user.id
       ]
     );
 
+    const savedConfig = {
+      ...rows[0],
+      start_date: baselineStartDate
+    };
+
+    // Reconcile activities automatically on save
+    const reconciliation = await reconcileProjectTimeline(client, projectId, req.user.id, savedConfig);
+
     // Record audit event
-    await pool.query(
+    await client.query(
       `INSERT INTO timeline_audit_history (project_id, user_id, action, new_value)
-       VALUES ($1, $2, 'UPDATE_CONFIG', $3)`,
-      [projectId, req.user.id, JSON.stringify(rows[0])]
+       VALUES ($1, $2, 'SAVE_CONFIG_AND_RECONCILE', $3)`,
+      [projectId, req.user.id, JSON.stringify({ config: savedConfig, reconciliation })]
     );
 
-    res.json({ config: rows[0], message: 'Timeline configuration saved successfully' });
+    await client.query('COMMIT');
+
+    const slabs = calculateStructuralSlabs(savedConfig);
+
+    res.json({
+      config: savedConfig,
+      reconciliation,
+      slabs,
+      message: `Configuration saved and schedule reconciled (${reconciliation.totalActive} active activities, ${slabs.totalSlabs} structural slabs)`
+    });
   } catch (err) {
-    console.error('Error saving timeline config:', err);
-    res.status(500).json({ error: 'Failed to save timeline configuration' });
+    await client.query('ROLLBACK');
+    console.error('Error saving timeline config and reconciling:', err);
+    res.status(500).json({ error: 'Failed to save timeline configuration and reconcile activities' });
+  } finally {
+    client.release();
   }
 });
 
@@ -194,15 +473,18 @@ router.post('/generate-draft', authenticate, checkProjectAccess(), requireManage
     for (const act of draftActivities) {
       const { rows: [insertedTask] } = await client.query(
         `INSERT INTO timeline_tasks 
-          (project_id, task_name, category, construction_stage, floor_zone, planned_start_date, planned_finish_date, forecast_start_date, forecast_finish_date, is_milestone, metadata, duration_days, status, order_index, is_draft, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'Not Started', $13, TRUE, $14)
+          (project_id, activity_key, task_name, category, section_name, construction_stage, floor_zone, floor_order, planned_start_date, planned_finish_date, forecast_start_date, forecast_finish_date, is_milestone, metadata, duration_days, status, order_index, is_draft, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'Not Started', $16, TRUE, $17)
          RETURNING *`,
         [
           projectId,
+          act.activity_key,
           act.task_name,
           act.category,
+          act.section_name,
           act.construction_stage,
           act.floor_zone,
+          act.floor_order || 0,
           act.planned_start_date,
           act.planned_finish_date,
           act.forecast_start_date || act.planned_start_date,
@@ -661,7 +943,14 @@ router.patch('/tasks/:taskId', authenticate, checkProjectAccess(), async (req, r
         : { ...existingMeta };
 
       // If management explicitly modifies planned or forecast dates for ground-floor brickwork, mark manual override
-      if (existingMeta.is_ground_brickwork && (planned_start_date !== undefined || planned_finish_date !== undefined || req.body.forecast_start_date !== undefined || req.body.forecast_finish_date !== undefined)) {
+      const isGroundBrick = Boolean(
+        existingMeta.is_ground_brickwork === true ||
+        existingMeta.is_ground_brickwork === 'true' ||
+        existingTask.activity_key === 'MASONRY:FLOOR_0:BRICKWORK' ||
+        (existingTask.floor_zone === 'Ground Floor' && (existingTask.category === 'Masonry & Brickwork' || existingTask.section_name === 'Masonry Work'))
+      );
+
+      if (isGroundBrick && (planned_start_date !== undefined || planned_finish_date !== undefined || req.body.forecast_start_date !== undefined || req.body.forecast_finish_date !== undefined)) {
         updatedMeta.is_manually_overridden = true;
       }
 
@@ -715,10 +1004,12 @@ router.patch('/tasks/:taskId', authenticate, checkProjectAccess(), async (req, r
     `;
     const { rows: [updatedTask] } = await client.query(updateQuery, params);
 
-    // Dynamic Construction Trigger: Third-Floor Slab completion event (strict semantic check)
+    // Dynamic Construction Trigger: Third-Floor Slab completion event (strict structural slab sequence check)
     const is3rdFloorSlabMilestone = Boolean(
       existingMeta.milestone_code === 'SLAB_3RD_FLOOR' ||
-      (existingMeta.is_trigger_milestone === true && existingMeta.slab_floor === 3)
+      existingMeta.milestone_code === 'SLAB_3RD_TRIGGER' ||
+      existingTask.activity_key === 'RCC:FLOOR_3:SLAB_CONCRETING' ||
+      (existingMeta.is_trigger_milestone === true && (existingMeta.slab_floor === 3 || existingMeta.slab_floor_level === 3))
     );
 
     let forecastAdjustmentResult = null;
@@ -747,8 +1038,9 @@ router.patch('/tasks/:taskId', authenticate, checkProjectAccess(), async (req, r
                AND is_archived = FALSE
                AND is_draft = $2
                AND (
-                 metadata->>'is_ground_brickwork' = 'true'
-                 OR (floor_zone = 'Ground Floor' AND category = 'Masonry & Brickwork')
+                 activity_key = 'MASONRY:FLOOR_0:BRICKWORK'
+                 OR metadata->>'is_ground_brickwork' = 'true'
+                 OR (floor_zone = 'Ground Floor' AND (category = 'Masonry & Brickwork' OR section_name = 'Masonry Work'))
                )
              ORDER BY order_index ASC
              LIMIT 1`,
@@ -846,8 +1138,9 @@ router.patch('/tasks/:taskId', authenticate, checkProjectAccess(), async (req, r
                AND is_archived = FALSE
                AND is_draft = $2
                AND (
-                 metadata->>'is_ground_brickwork' = 'true'
-                 OR (floor_zone = 'Ground Floor' AND category = 'Masonry & Brickwork')
+                 activity_key = 'MASONRY:FLOOR_0:BRICKWORK'
+                 OR metadata->>'is_ground_brickwork' = 'true'
+                 OR (floor_zone = 'Ground Floor' AND (category = 'Masonry & Brickwork' OR section_name = 'Masonry Work'))
                )
              ORDER BY order_index ASC
              LIMIT 1`,

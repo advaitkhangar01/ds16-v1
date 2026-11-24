@@ -1,6 +1,6 @@
 // client/src/components/projects/timeline/TimelineSetup.jsx
 import React, { useState, useEffect } from 'react';
-import { Layers, Play, CheckCircle2, Save, Building, ShieldCheck, Sparkles, FileText, ArrowUpDown, Car, HelpCircle } from 'lucide-react';
+import { Layers, Play, CheckCircle2, Save, Building, ShieldCheck, Sparkles, FileText, ArrowUpDown, Car, Sun, Flame, Paintbrush, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../../api/client';
 
@@ -15,6 +15,13 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
     upper_parking_count: 0,
     has_stilt_parking: true,
     has_lift: true,
+    additional_work_config: {
+      elevation: false,
+      lift: true,
+      fire: false,
+      solar: false
+    },
+    masonry_lag_days: 1,
     parking_floors: [],
     start_date: new Date().toISOString().split('T')[0]
   });
@@ -25,6 +32,11 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
 
   useEffect(() => {
     if (config) {
+      const rawAdd = config.additional_work_config || {};
+      const isLift = (rawAdd.lift !== undefined) 
+        ? Boolean(typeof rawAdd.lift === 'object' ? rawAdd.lift.enabled : rawAdd.lift)
+        : (config.has_lift !== false);
+
       setFormData({
         floors_above_ground: config.floors_above_ground || 4,
         ground_floor_config: config.ground_floor_config || 'parking_and_rooms',
@@ -34,7 +46,14 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
         basement_count: config.basement_count !== undefined ? parseInt(config.basement_count, 10) : 0,
         upper_parking_count: config.upper_parking_count !== undefined ? parseInt(config.upper_parking_count, 10) : 0,
         has_stilt_parking: config.has_stilt_parking !== false,
-        has_lift: config.has_lift !== false,
+        has_lift: isLift,
+        additional_work_config: {
+          elevation: Boolean(typeof rawAdd.elevation === 'object' ? rawAdd.elevation.enabled : rawAdd.elevation),
+          lift: isLift,
+          fire: Boolean(typeof rawAdd.fire === 'object' ? rawAdd.fire.enabled : rawAdd.fire),
+          solar: Boolean(typeof rawAdd.solar === 'object' ? rawAdd.solar.enabled : rawAdd.solar)
+        },
+        masonry_lag_days: config.masonry_lag_days !== undefined ? parseInt(config.masonry_lag_days, 10) : 1,
         parking_floors: Array.isArray(config.parking_floors) ? config.parking_floors : [],
         start_date: config.start_date || new Date().toISOString().split('T')[0]
       });
@@ -58,6 +77,18 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
     toast.success(`Template applied: ${tmpl.name}`);
   };
 
+  const handleToggleAdditional = (key) => {
+    if (!isManagement) return;
+    setFormData(prev => {
+      const nextAdd = { ...prev.additional_work_config, [key]: !prev.additional_work_config[key] };
+      const nextForm = { ...prev, additional_work_config: nextAdd };
+      if (key === 'lift') {
+        nextForm.has_lift = nextAdd.lift;
+      }
+      return nextForm;
+    });
+  };
+
   const handleSaveConfig = async (e) => {
     if (e) e.preventDefault();
     if (!isManagement) {
@@ -67,8 +98,17 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
     setSaving(true);
     try {
       const res = await api.post(`/projects/${projectId}/timeline/config`, formData);
-      toast.success('Timeline configuration saved');
+      const recon = res.data.reconciliation;
+      if (recon) {
+        toast.success(
+          `Configuration saved! Active activities: ${recon.totalActive} (${recon.createdCount} new, ${recon.updatedCount} updated, ${recon.retainedCount} preserved)`,
+          { duration: 5000 }
+        );
+      } else {
+        toast.success('Building configuration saved and schedule reconciled');
+      }
       if (onConfigSaved) onConfigSaved(res.data.config);
+      if (onDraftGenerated) onDraftGenerated(res.data.reconciliation);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to save configuration');
     } finally {
@@ -83,12 +123,11 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
     }
     setGenerating(true);
     try {
-      // First save configuration
-      await api.post(`/projects/${projectId}/timeline/config`, formData);
-      // Then generate draft
-      const res = await api.post(`/projects/${projectId}/timeline/generate-draft`, formData);
-      toast.success(`Generated ${res.data.count} draft activities!`);
-      if (onDraftGenerated) onDraftGenerated(res.data.tasks);
+      // Save configuration which automatically generates & reconciles activities
+      const res = await api.post(`/projects/${projectId}/timeline/config`, formData);
+      toast.success(`Schedule reconciled successfully (${res.data.reconciliation?.totalActive || 0} activities)!`);
+      if (onConfigSaved) onConfigSaved(res.data.config);
+      if (onDraftGenerated) onDraftGenerated(res.data.reconciliation);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to generate draft schedule');
     } finally {
@@ -96,12 +135,21 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
     }
   };
 
-  const floorsCount = parseInt(formData.floors_above_ground, 10) || 1;
-  const basementsCount = parseInt(formData.basement_count, 10) || 0;
-  const upperParkCount = parseInt(formData.upper_parking_count, 10) || 0;
-  
-  // Total structural slabs
-  const totalSlabsCount = basementsCount + 1 + upperParkCount + floorsCount + (formData.has_terrace_tank_slab ? 1 : 0);
+  // Authoritative Structural Slab Breakdown Calculation
+  const floorsCount = Math.max(1, parseInt(formData.floors_above_ground, 10) || 4);
+  const basementsCount = Math.max(0, parseInt(formData.basement_count, 10) || 0);
+  const upperParkCount = Math.max(0, parseInt(formData.upper_parking_count, 10) || 0);
+  const hasTankSlab = formData.has_terrace_tank_slab !== false;
+
+  const slabBreakdown = {
+    basement: basementsCount,
+    plinth: 1,
+    podium: upperParkCount,
+    habitable: floorsCount,
+    terrace: 1,
+    tank: hasTankSlab ? 1 : 0,
+    total: basementsCount + 1 + upperParkCount + floorsCount + 1 + (hasTankSlab ? 1 : 0)
+  };
 
   return (
     <div className="space-y-6">
@@ -145,15 +193,18 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
               Building Configuration & Automated Schedule Setup
             </h3>
             <p className="text-xs text-muted mt-0.5">
-              Defines multi-storey floors, basements, upper parking, and elevator activities
+              Defines multi-storey floors, basements, upper parking, vertical transportation, and optional additional work
             </p>
           </div>
           <div className="flex flex-col sm:items-end gap-1">
             <span className="text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-700 rounded-md">
-              Total Slabs: <strong className="text-[#E05A1E]">{totalSlabsCount} Slabs</strong> (Basement: {basementsCount}, Ground: 1, Podium: {upperParkCount}, Habitable: {floorsCount})
+              Total Structural Slabs: <strong className="text-[#E05A1E]">{slabBreakdown.total} Slabs</strong>
             </span>
-            <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${floorsCount >= 3 ? 'bg-orange-50 text-[#E05A1E] border border-orange-200' : 'bg-slate-100 text-slate-600'}`}>
-              {floorsCount >= 3 ? '★ 3rd-Floor Slab triggers Ground Brickwork (+1 day)' : 'Manual Ground Brickwork Scheduling (≤ G+2)'}
+            <span className="text-[10px] text-slate-500">
+              (Basements: {slabBreakdown.basement}, Plinth: 1, Podium: {slabBreakdown.podium}, Habitable: {slabBreakdown.habitable}, Terrace: 1, Tank: {slabBreakdown.tank})
+            </span>
+            <span className={`text-[11px] font-medium px-2 py-0.5 rounded mt-0.5 ${floorsCount >= 3 ? 'bg-orange-50 text-[#E05A1E] border border-orange-200' : 'bg-slate-100 text-slate-600'}`}>
+              {floorsCount >= 3 ? '★ 3rd-Floor Slab triggers Ground Brickwork (+1 calendar day)' : 'Ground Brickwork follows complete RCC (≤ G+2)'}
             </span>
           </div>
         </div>
@@ -184,10 +235,10 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
                 max="50"
                 className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 font-bold focus:outline-none focus:border-[#E05A1E]"
                 value={formData.floors_above_ground}
-                onChange={(e) => setFormData({ ...formData, floors_above_ground: parseInt(e.target.value, 10) || 1 })}
+                onChange={(e) => setFormData({ ...formData, floors_above_ground: Math.max(1, parseInt(e.target.value, 10) || 1) })}
                 disabled={!isManagement}
               />
-              <p className="text-[10px] text-muted">Generates 1st to Nth floor columns, slabs, brickwork & services</p>
+              <p className="text-[10px] text-muted">Generates 1st to Nth floor columns, slabs, brickwork & finishing</p>
             </div>
 
             <div className="space-y-1.5">
@@ -214,6 +265,22 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
                 onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
                 disabled={!isManagement}
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Masonry Floor Progression Lag</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="30"
+                  className="w-24 text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-slate-800 focus:outline-none focus:border-[#E05A1E]"
+                  value={formData.masonry_lag_days}
+                  onChange={(e) => setFormData({ ...formData, masonry_lag_days: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                  disabled={!isManagement}
+                />
+                <span className="text-[11px] text-slate-600 font-medium">calendar day(s) between floor brickwork starts</span>
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -308,35 +375,113 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
             </div>
           </div>
 
-          {/* 3. Dedicated Lift / Elevator System Checkbox */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+          {/* 3. Section 5: Additional Work Optional Activities */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
             <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-              <ArrowUpDown size={15} className="text-[#E05A1E]" />
-              Vertical Transportation & Elevator System
+              <Layers size={15} className="text-[#E05A1E]" />
+              Additional Work — Optional Activities
             </h4>
-            <div className="bg-white p-3 rounded-lg border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  id="has_lift"
-                  checked={formData.has_lift}
-                  onChange={(e) => setFormData({ ...formData, has_lift: e.target.checked })}
-                  disabled={!isManagement}
-                  className="rounded text-[#E05A1E] focus:ring-[#E05A1E] mt-0.5"
-                />
-                <div>
-                  <span className="text-xs font-bold text-slate-900 block">
-                    Include Lift / Elevator Construction & Commissioning
-                  </span>
-                  <p className="text-[11px] text-muted mt-0.5">
-                    Generates dedicated tasks: Lift Pit excavation & box waterproofing, RCC Lift Well Shaft, Lift Machine Room pedestals, mechanical/electrical installation, and government safety licensing & commissioning.
-                  </p>
-                </div>
-              </label>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Option 1: Elevation Work */}
+              <div 
+                onClick={() => handleToggleAdditional('elevation')}
+                className={`bg-white p-3.5 rounded-lg border cursor-pointer transition-all ${formData.additional_work_config.elevation ? 'border-[#E05A1E] ring-1 ring-[#E05A1E]/30 bg-orange-50/20' : 'border-slate-200 hover:border-slate-300'}`}
+              >
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.additional_work_config.elevation}
+                    onChange={() => {}}
+                    disabled={!isManagement}
+                    className="rounded text-[#E05A1E] focus:ring-[#E05A1E] mt-0.5"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <Paintbrush size={13} className="text-[#E05A1E]" />
+                      Elevation Work
+                    </span>
+                    <p className="text-[10px] text-muted mt-1 leading-snug">
+                      External architectural facade, double-coat plastering & weatherproof texture paint.
+                    </p>
+                  </div>
+                </label>
+              </div>
 
-              <span className={`text-[11px] font-bold px-2 py-0.5 rounded shrink-0 ${formData.has_lift ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'}`}>
-                {formData.has_lift ? 'Elevator Enabled' : 'No Elevator'}
-              </span>
+              {/* Option 2: Lift Installation */}
+              <div 
+                onClick={() => handleToggleAdditional('lift')}
+                className={`bg-white p-3.5 rounded-lg border cursor-pointer transition-all ${formData.additional_work_config.lift ? 'border-[#E05A1E] ring-1 ring-[#E05A1E]/30 bg-orange-50/20' : 'border-slate-200 hover:border-slate-300'}`}
+              >
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.additional_work_config.lift}
+                    onChange={() => {}}
+                    disabled={!isManagement}
+                    className="rounded text-[#E05A1E] focus:ring-[#E05A1E] mt-0.5"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <ArrowUpDown size={13} className="text-[#E05A1E]" />
+                      Lift Installation
+                    </span>
+                    <p className="text-[10px] text-muted mt-1 leading-snug">
+                      Lift pit waterproofing, shaft wall casting, machine room, assembly & safety licensing.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Option 3: Fire Fighting Work */}
+              <div 
+                onClick={() => handleToggleAdditional('fire')}
+                className={`bg-white p-3.5 rounded-lg border cursor-pointer transition-all ${formData.additional_work_config.fire ? 'border-[#E05A1E] ring-1 ring-[#E05A1E]/30 bg-orange-50/20' : 'border-slate-200 hover:border-slate-300'}`}
+              >
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.additional_work_config.fire}
+                    onChange={() => {}}
+                    disabled={!isManagement}
+                    className="rounded text-[#E05A1E] focus:ring-[#E05A1E] mt-0.5"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <Flame size={13} className="text-rose-600" />
+                      Fire Fighting Work
+                    </span>
+                    <p className="text-[10px] text-muted mt-1 leading-snug">
+                      Wet riser main pipes, basement pump room, sprinklers & fire department NOC inspection.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Option 4: Solar Installation */}
+              <div 
+                onClick={() => handleToggleAdditional('solar')}
+                className={`bg-white p-3.5 rounded-lg border cursor-pointer transition-all ${formData.additional_work_config.solar ? 'border-[#E05A1E] ring-1 ring-[#E05A1E]/30 bg-orange-50/20' : 'border-slate-200 hover:border-slate-300'}`}
+              >
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.additional_work_config.solar}
+                    onChange={() => {}}
+                    disabled={!isManagement}
+                    className="rounded text-[#E05A1E] focus:ring-[#E05A1E] mt-0.5"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <Sun size={13} className="text-amber-500" />
+                      Solar Installation
+                    </span>
+                    <p className="text-[10px] text-muted mt-1 leading-snug">
+                      Rooftop solar PV frame mounting, inverter synchronization & DISCOM net-metering.
+                    </p>
+                  </div>
+                </label>
+              </div>
             </div>
           </div>
         </form>
@@ -345,7 +490,7 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
         <div className="flex items-center justify-between pt-4 border-t border-[#F0F0F0] flex-wrap gap-3">
           <div className="text-xs text-muted flex items-center gap-1.5">
             <ShieldCheck size={14} className="text-emerald-600" />
-            Generating draft will not alter currently published project schedules.
+            Saving configuration automatically generates and reconciles timeline activities safely preserving completed tasks.
           </div>
           {isManagement && (
             <div className="flex items-center gap-3">
@@ -353,19 +498,10 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
                 type="button"
                 onClick={handleSaveConfig}
                 disabled={saving}
-                className="btn-secondary text-xs"
+                className="btn-primary text-xs py-2 px-5 flex items-center gap-2 shadow-sm"
               >
                 <Save size={14} />
-                {saving ? 'Saving...' : 'Save Configuration'}
-              </button>
-              <button
-                type="button"
-                onClick={handleGenerateDraft}
-                disabled={generating}
-                className="btn-primary text-xs"
-              >
-                <Play size={14} />
-                {generating ? 'Generating Activities...' : 'Generate Draft Activities'}
+                {saving ? 'Saving & Generating...' : 'Save Configuration & Generate Schedule'}
               </button>
             </div>
           )}

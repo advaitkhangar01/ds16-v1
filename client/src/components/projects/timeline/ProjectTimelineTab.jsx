@@ -196,10 +196,14 @@ export default function ProjectTimelineTab({ projectId, user, isAdmin, isManagem
         <TimelineSetup
           projectId={projectId}
           config={config}
-          onConfigSaved={(updated) => setConfig(updated)}
-          onDraftGenerated={(drafts) => {
-            setDraftTasks(drafts);
-            setActiveSubTab('tasks');
+          onConfigSaved={async (updated) => {
+            setConfig(updated);
+            await fetchData();
+            setActiveSubTab('gantt');
+          }}
+          onDraftGenerated={async () => {
+            await fetchData();
+            setActiveSubTab('gantt');
           }}
           isManagement={isManagement}
         />
