@@ -410,22 +410,36 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
 
   // Export to Excel Workbook
   const handleExportExcel = () => {
-    // Table 1: Plot Area Statement
-    const plotAreaRows = [
-      { 'Particulars': 'Area of Plot', 'Permissible': statement.plot_area_sqm, 'Proposed': statement.plot_area_sqm },
-      { 'Particulars': 'D.P. Deductions', 'Permissible': statement.dp_deductions_sqm || 0, 'Proposed': 0 },
-      { 'Particulars': 'Plotable Area', 'Permissible': areaMetrics.plotableAreaSqm, 'Proposed': areaMetrics.plotableAreaSqm }
+    // Table 1: Permissible Area Statement
+    const permissibleRows = [
+      { 'Sr.': '1', 'Particulars': 'Area of Plot', 'Permissible Value': statement.plot_area_sqm },
+      { 'Sr.': '2', 'Particulars': 'D.P. Deductions', 'Permissible Value': statement.dp_deductions_sqm || 0 },
+      { 'Sr.': '3', 'Particulars': 'Existing Built-up Area Deduction', 'Permissible Value': statement.existing_builtup_area_sqm || 0 },
+      { 'Sr.': 'A', 'Particulars': 'Plotable Area (Net Development Plot)', 'Permissible Value': areaMetrics.plotableAreaSqm },
+      { 'Sr.': 'B', 'Particulars': `Basic Permissible FSI (${statement.basic_fsi_factor || 1.1})`, 'Permissible Value': areaMetrics.permissibleFsiSqm },
+      { 'Sr.': 'C', 'Particulars': `Paid FSI (${statement.paid_fsi_factor || 0.5})`, 'Permissible Value': areaMetrics.permissiblePaidFsiSqm },
+      { 'Sr.': 'D1', 'Particulars': `Regular TDR (${statement.regular_tdr_factor || 0})`, 'Permissible Value': areaMetrics.permissibleRegularTdrSqm || 0 },
+      { 'Sr.': 'D2', 'Particulars': `Slum TDR (${statement.slum_tdr_factor || 0})`, 'Permissible Value': areaMetrics.permissibleSlumTdrSqm || 0 },
+      { 'Sr.': 'E', 'Particulars': 'Total Builtup Area (B + C + D)', 'Permissible Value': areaMetrics.permissibleTotalBuiltupSqm },
+      { 'Sr.': 'F', 'Particulars': 'TOTAL FSI CONSUMPTION RATIO', 'Permissible Value': Number(areaMetrics.permissibleTotalFsi || 0).toFixed(3) },
+      { 'Sr.': 'G', 'Particulars': `Ancillary FSI (${statement.building_use === 'COMMERCIAL' ? '80%' : '60%'})`, 'Permissible Value': areaMetrics.permissibleAncillaryResSqm },
+      { 'Sr.': 'H', 'Particulars': 'TOTAL PERMISSIBLE P-LINE AREA (E + G)', 'Permissible Value': areaMetrics.permissiblePlineTotalSqm }
     ];
 
-    // Table 2: Permissible vs Proposed FSI Potential
-    const fsiRows = [
-      { 'Particulars': `Basic FSI (${statement.basic_fsi_factor || 1.1})`, 'Permissible': areaMetrics.permissibleFsiSqm, 'Proposed': areaMetrics.proposedBasicFsiSqm },
-      { 'Particulars': `Paid FSI (${statement.paid_fsi_factor || 0.5})`, 'Permissible': areaMetrics.permissiblePaidFsiSqm, 'Proposed': areaMetrics.proposedPaidFsiSqm },
-      { 'Particulars': `Regular TDR (${statement.regular_tdr_factor || 0})`, 'Permissible': areaMetrics.permissibleRegularTdrSqm || 0, 'Proposed': areaMetrics.proposedRegularTdrSqm || 0 },
-      { 'Particulars': `Slum TDR (${statement.slum_tdr_factor || 0})`, 'Permissible': areaMetrics.permissibleSlumTdrSqm || 0, 'Proposed': areaMetrics.proposedSlumTdrSqm || 0 },
-      { 'Particulars': 'Total Permissible / Proposed Builtup Area', 'Permissible': areaMetrics.proposedTotalBuiltupSqm, 'Proposed': areaMetrics.proposedTotalBuiltupSqm },
-      { 'Particulars': `Ancillary Area (${statement.building_use === 'COMMERCIAL' ? '80%' : '60%'})`, 'Permissible': areaMetrics.proposedAncillaryResSqm, 'Proposed': areaMetrics.proposedAncillaryResSqm },
-      { 'Particulars': 'Total Proposed P-Line Area', 'Permissible': areaMetrics.proposedPlineTotalSqm, 'Proposed': areaMetrics.totalProposedPlineSqm }
+    // Table 2: Proposed Area Statement
+    const proposedRows = [
+      { 'Sr.': '1', 'Particulars': 'Area of Plot', 'Proposed Value': '—' },
+      { 'Sr.': '2', 'Particulars': 'D.P. Deductions', 'Proposed Value': '—' },
+      { 'Sr.': '3', 'Particulars': 'Existing Built-up Area Deduction', 'Proposed Value': '—' },
+      { 'Sr.': 'A', 'Particulars': 'Plotable Area (Net Development Plot)', 'Proposed Value': areaMetrics.plotableAreaSqm },
+      { 'Sr.': 'B', 'Particulars': `Basic Proposed FSI (${statement.basic_fsi_factor || 1.1})`, 'Proposed Value': areaMetrics.proposedBasicFsiSqm },
+      { 'Sr.': 'C', 'Particulars': `Paid Proposed FSI (${statement.paid_fsi_factor || 0.5})`, 'Proposed Value': areaMetrics.proposedPaidFsiSqm },
+      { 'Sr.': 'D1', 'Particulars': `Regular TDR (${statement.regular_tdr_factor || 0})`, 'Proposed Value': areaMetrics.regularTdrSqm || 0 },
+      { 'Sr.': 'D2', 'Particulars': `Slum TDR (${statement.slum_tdr_factor || 0})`, 'Proposed Value': areaMetrics.slumTdrSqm || 0 },
+      { 'Sr.': 'E', 'Particulars': 'Total Builtup Area (B + C + D)', 'Proposed Value': areaMetrics.proposedTotalBuiltupSqm },
+      { 'Sr.': 'F', 'Particulars': 'TOTAL FSI CONSUMPTION RATIO', 'Proposed Value': Number(areaMetrics.proposedTotalFsi || 0).toFixed(3) },
+      { 'Sr.': 'G', 'Particulars': `Ancillary FSI (${statement.building_use === 'COMMERCIAL' ? '80%' : '60%'})`, 'Proposed Value': areaMetrics.proposedAncillaryResSqm },
+      { 'Sr.': 'H', 'Particulars': 'TOTAL PROPOSED P-LINE AREA (E + G)', 'Proposed Value': areaMetrics.proposedPlineTotalSqm }
     ];
 
     // Floor breakdown: 7-column sequence
@@ -454,13 +468,13 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
     ];
 
     const wb = XLSX.utils.book_new();
-    const wsPlot = XLSX.utils.json_to_sheet(plotAreaRows);
-    const wsFsi = XLSX.utils.json_to_sheet(fsiRows);
+    const wsPermissible = XLSX.utils.json_to_sheet(permissibleRows);
+    const wsProposed = XLSX.utils.json_to_sheet(proposedRows);
     const wsFloors = XLSX.utils.json_to_sheet(floorRows);
     const wsFin = XLSX.utils.json_to_sheet(finRows);
 
-    XLSX.utils.book_append_sheet(wb, wsPlot, 'Plot Area Statement');
-    XLSX.utils.book_append_sheet(wb, wsFsi, 'FSI Potential');
+    XLSX.utils.book_append_sheet(wb, wsPermissible, 'Permissible Statement');
+    XLSX.utils.book_append_sheet(wb, wsProposed, 'Proposed Statement');
     XLSX.utils.book_append_sheet(wb, wsFloors, 'Floor Breakdown');
     XLSX.utils.book_append_sheet(wb, wsFin, 'Financial Viability');
 

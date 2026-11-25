@@ -112,55 +112,10 @@ export default function FeasibilityDocumentPreview({
               </div>
             </div>
 
-            {/* TABLE 1 — PLOT AREA STATEMENT (REQ-G) */}
+            {/* TABLE 1 — PERMISSIBLE AREA STATEMENT (STACKED SEQUENTIALLY) */}
             <div className="space-y-2">
               <div className="bg-slate-900 text-white px-3.5 py-2 font-bold rounded-t text-xs uppercase tracking-wider flex items-center justify-between">
-                <span>Table 1 — Plot Area Statement ({unitLabel})</span>
-                <span className="text-[10px] font-normal lowercase tracking-normal text-slate-300">site & survey baselines</span>
-              </div>
-
-              <table className="w-full border-collapse border border-slate-300 text-left text-xs">
-                <thead>
-                  <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                    <th className="border border-slate-300 px-2.5 py-1.5 w-12 text-center">Sr.</th>
-                    <th className="border border-slate-300 px-3 py-1.5">Particulars</th>
-                    <th className="border border-slate-300 px-3 py-1.5 text-right w-36">Permissible ({unitLabel})</th>
-                    <th className="border border-slate-300 px-3 py-1.5 text-right w-36">Proposed ({unitLabel})</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  <tr>
-                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono font-medium">1</td>
-                    <td className="border border-slate-300 px-3 py-1 font-medium text-slate-800">Area Of Plot</td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono font-semibold">{formatNumber((statement.plot_area_sqm || 0) * unitFactor)}</td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono text-slate-400">—</td>
-                  </tr>
-                  <tr>
-                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono font-medium">2</td>
-                    <td className="border border-slate-300 px-3 py-1 text-slate-700">Deductions For Proposed D.P. Road / Reservation</td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((statement.dp_deductions_sqm || 0) * unitFactor)}</td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono text-slate-400">—</td>
-                  </tr>
-                  <tr>
-                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono font-medium">3</td>
-                    <td className="border border-slate-300 px-3 py-1 text-slate-700">Existing Built-up Area Deduction</td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((statement.existing_builtup_area_sqm || 0) * unitFactor)}</td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono text-slate-400">—</td>
-                  </tr>
-                  <tr className="bg-orange-50 font-bold border-t-2 border-slate-400">
-                    <td className="border border-slate-300 px-2.5 py-1.5 text-center font-mono text-orange-950">A</td>
-                    <td className="border border-slate-300 px-3 py-1.5 text-orange-950 font-extrabold">Plotable Area (Net Development Plot)</td>
-                    <td className="border border-slate-300 px-3 py-1.5 text-right font-mono text-orange-950 font-extrabold">{formatNumber((areaMetrics.plotableAreaSqm || 0) * unitFactor)}</td>
-                    <td className="border border-slate-300 px-3 py-1.5 text-right font-mono text-orange-950 font-extrabold">{formatNumber((areaMetrics.plotableAreaSqm || 0) * unitFactor)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {/* TABLE 2 — PERMISSIBLE VS PROPOSED FSI POTENTIAL (REQ-G & REQ-B & REQ-D) */}
-            <div className="space-y-2">
-              <div className="bg-slate-800 text-white px-3.5 py-2 font-bold rounded-t text-xs uppercase tracking-wider flex items-center justify-between">
-                <span>Table 2 — Permissible vs Proposed FSI Potential</span>
+                <span>Table 1 — Permissible Area Statement ({unitLabel})</span>
                 <span className="text-[10px] font-normal lowercase tracking-normal text-slate-300">regulatory potential analysis</span>
               </div>
 
@@ -168,22 +123,121 @@ export default function FeasibilityDocumentPreview({
                 <thead>
                   <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
                     <th className="border border-slate-300 px-2.5 py-1.5 w-12 text-center">Sr.</th>
-                    <th className="border border-slate-300 px-3 py-1.5">FSI Component</th>
-                    <th className="border border-slate-300 px-3 py-1.5 text-right w-36">Permissible ({unitLabel})</th>
-                    <th className="border border-slate-300 px-3 py-1.5 text-right w-36">Proposed ({unitLabel})</th>
+                    <th className="border border-slate-300 px-3 py-1.5">Particulars</th>
+                    <th className="border border-slate-300 px-3 py-1.5 text-right w-44">Permissible ({unitLabel})</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   <tr>
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono font-medium">1</td>
+                    <td className="border border-slate-300 px-3 py-1 font-medium text-slate-800">Area Of Plot</td>
+                    <td className="border border-slate-300 px-3 py-1 text-right font-mono font-semibold">{formatNumber((statement.plot_area_sqm || 0) * unitFactor)}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono font-medium">2</td>
+                    <td className="border border-slate-300 px-3 py-1 text-slate-700">Deductions For Proposed D.P. Road / Reservation</td>
+                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((statement.dp_deductions_sqm || 0) * unitFactor)}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono font-medium">3</td>
+                    <td className="border border-slate-300 px-3 py-1 text-slate-700">Existing Built-up Area Deduction</td>
+                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((statement.existing_builtup_area_sqm || 0) * unitFactor)}</td>
+                  </tr>
+                  <tr className="bg-orange-50 font-bold border-t-2 border-slate-400">
+                    <td className="border border-slate-300 px-2.5 py-1.5 text-center font-mono text-orange-950">A</td>
+                    <td className="border border-slate-300 px-3 py-1.5 text-orange-950 font-extrabold">Plotable Area (Net Development Plot)</td>
+                    <td className="border border-slate-300 px-3 py-1.5 text-right font-mono text-orange-950 font-extrabold">{formatNumber((areaMetrics.plotableAreaSqm || 0) * unitFactor)}</td>
+                  </tr>
+                  <tr>
                     <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">B</td>
                     <td className="border border-slate-300 px-3 py-1 text-slate-800">Basic Permissible FSI ({statement.basic_fsi_factor || 1.1} × Plot Area)</td>
                     <td className="border border-slate-300 px-3 py-1 text-right font-mono font-semibold">{formatNumber((areaMetrics.permissibleFsiSqm || 0) * unitFactor)}</td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono font-semibold">{formatNumber((areaMetrics.proposedBasicFsiSqm || 0) * unitFactor)}</td>
                   </tr>
                   <tr>
                     <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">C</td>
                     <td className="border border-slate-300 px-3 py-1 text-slate-800">Paid FSI ({statement.paid_fsi_factor || 0.5} × Plot Area)</td>
                     <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.permissiblePaidFsiSqm || 0) * unitFactor)}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">D1</td>
+                    <td className="border border-slate-300 px-3 py-1 text-slate-800">
+                      Regular TDR Permissible {statement.road_width_m ? `(${statement.road_width_m}m road @ ${statement.regular_tdr_factor || 0})` : ''}
+                    </td>
+                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.permissibleTdrSqm || 0) * unitFactor)}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">D2</td>
+                    <td className="border border-slate-300 px-3 py-1 text-slate-800">Slum TDR Permissible</td>
+                    <td className="border border-slate-300 px-3 py-1 text-right font-mono text-slate-400">—</td>
+                  </tr>
+                  <tr className="bg-slate-50 font-bold">
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">E</td>
+                    <td className="border border-slate-300 px-3 py-1 text-slate-900">Total Builtup Area (B + C + D)</td>
+                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.permissibleTotalBuiltupSqm || 0) * unitFactor)}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">F</td>
+                    <td className="border border-slate-300 px-3 py-1 text-slate-700">TOTAL FSI CONSUMPTION RATIO</td>
+                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber(areaMetrics.permissibleTotalFsi || 0, 3)}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">G</td>
+                    <td className="border border-slate-300 px-3 py-1 text-slate-800">{ancillaryLabel}</td>
+                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.permissibleAncillaryResSqm || 0) * unitFactor)}</td>
+                  </tr>
+                  <tr className="bg-emerald-50 font-bold border-t-2 border-slate-400">
+                    <td className="border border-slate-300 px-2.5 py-1.5 text-center font-mono text-emerald-950">H</td>
+                    <td className="border border-slate-300 px-3 py-1.5 text-emerald-950 font-extrabold">TOTAL PERMISSIBLE P-LINE AREA (E + G)</td>
+                    <td className="border border-slate-300 px-3 py-1.5 text-right font-mono text-emerald-950 font-extrabold">{formatNumber((areaMetrics.permissiblePlineTotalSqm || 0) * unitFactor)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* TABLE 2 — PROPOSED AREA STATEMENT (STACKED SEQUENTIALLY) */}
+            <div className="space-y-2">
+              <div className="bg-slate-800 text-white px-3.5 py-2 font-bold rounded-t text-xs uppercase tracking-wider flex items-center justify-between">
+                <span>Table 2 — Proposed Area Statement ({unitLabel})</span>
+                <span className="text-[10px] font-normal lowercase tracking-normal text-slate-300">architectural design proposal</span>
+              </div>
+
+              <table className="w-full border-collapse border border-slate-300 text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
+                    <th className="border border-slate-300 px-2.5 py-1.5 w-12 text-center">Sr.</th>
+                    <th className="border border-slate-300 px-3 py-1.5">Particulars</th>
+                    <th className="border border-slate-300 px-3 py-1.5 text-right w-44">Proposed ({unitLabel})</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  <tr>
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono font-medium">1</td>
+                    <td className="border border-slate-300 px-3 py-1 font-medium text-slate-800">Area Of Plot</td>
+                    <td className="border border-slate-300 px-3 py-1 text-right font-mono text-slate-400">—</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono font-medium">2</td>
+                    <td className="border border-slate-300 px-3 py-1 text-slate-700">Deductions For Proposed D.P. Road / Reservation</td>
+                    <td className="border border-slate-300 px-3 py-1 text-right font-mono text-slate-400">—</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono font-medium">3</td>
+                    <td className="border border-slate-300 px-3 py-1 text-slate-700">Existing Built-up Area Deduction</td>
+                    <td className="border border-slate-300 px-3 py-1 text-right font-mono text-slate-400">—</td>
+                  </tr>
+                  <tr className="bg-orange-50 font-bold border-t-2 border-slate-400">
+                    <td className="border border-slate-300 px-2.5 py-1.5 text-center font-mono text-orange-950">A</td>
+                    <td className="border border-slate-300 px-3 py-1.5 text-orange-950 font-extrabold">Plotable Area (Net Development Plot)</td>
+                    <td className="border border-slate-300 px-3 py-1.5 text-right font-mono text-orange-950 font-extrabold">{formatNumber((areaMetrics.plotableAreaSqm || 0) * unitFactor)}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">B</td>
+                    <td className="border border-slate-300 px-3 py-1 text-slate-800">Basic Proposed FSI ({statement.basic_fsi_factor || 1.1} × Plot Area)</td>
+                    <td className="border border-slate-300 px-3 py-1 text-right font-mono font-semibold">{formatNumber((areaMetrics.proposedBasicFsiSqm || 0) * unitFactor)}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">C</td>
+                    <td className="border border-slate-300 px-3 py-1 text-slate-800">Paid Proposed FSI ({statement.paid_fsi_factor || 0.5} × Plot Area)</td>
                     <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.proposedPaidFsiSqm || 0) * unitFactor)}</td>
                   </tr>
                   <tr>
@@ -191,7 +245,6 @@ export default function FeasibilityDocumentPreview({
                     <td className="border border-slate-300 px-3 py-1 text-slate-800">
                       Regular TDR Utilization {statement.road_width_m ? `(${statement.road_width_m}m road @ ${statement.regular_tdr_factor || 0})` : ''}
                     </td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.permissibleTdrSqm || 0) * unitFactor)}</td>
                     <td className="border border-slate-300 px-3 py-1 text-right font-mono font-semibold">{formatNumber((areaMetrics.regularTdrSqm || 0) * unitFactor)}</td>
                   </tr>
                   <tr>
@@ -199,31 +252,26 @@ export default function FeasibilityDocumentPreview({
                     <td className="border border-slate-300 px-3 py-1 text-slate-800">
                       Slum TDR Utilization {statement.slum_tdr_factor ? `(Factor ${statement.slum_tdr_factor})` : ''}
                     </td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono text-slate-400">—</td>
                     <td className="border border-slate-300 px-3 py-1 text-right font-mono font-semibold">{formatNumber((areaMetrics.slumTdrSqm || 0) * unitFactor)}</td>
                   </tr>
                   <tr className="bg-slate-50 font-bold">
                     <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">E</td>
                     <td className="border border-slate-300 px-3 py-1 text-slate-900">Total Builtup Area (B + C + D)</td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.permissibleTotalBuiltupSqm || 0) * unitFactor)}</td>
                     <td className="border border-slate-300 px-3 py-1 text-right font-mono text-[#E05A1E] font-extrabold">{formatNumber((areaMetrics.proposedTotalBuiltupSqm || 0) * unitFactor)}</td>
                   </tr>
                   <tr>
                     <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">F</td>
                     <td className="border border-slate-300 px-3 py-1 text-slate-700">TOTAL FSI CONSUMPTION RATIO</td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber(areaMetrics.permissibleTotalFsi || 0, 3)}</td>
                     <td className="border border-slate-300 px-3 py-1 text-right font-mono font-bold">{formatNumber(areaMetrics.proposedTotalFsi || 0, 3)}</td>
                   </tr>
                   <tr>
                     <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">G</td>
                     <td className="border border-slate-300 px-3 py-1 text-slate-800">{ancillaryLabel}</td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.permissibleAncillaryResSqm || 0) * unitFactor)}</td>
                     <td className="border border-slate-300 px-3 py-1 text-right font-mono font-semibold">{formatNumber((areaMetrics.proposedAncillaryResSqm || 0) * unitFactor)}</td>
                   </tr>
                   <tr className="bg-emerald-50 font-bold border-t-2 border-slate-400">
                     <td className="border border-slate-300 px-2.5 py-1.5 text-center font-mono text-emerald-950">H</td>
-                    <td className="border border-slate-300 px-3 py-1.5 text-emerald-950 font-extrabold">TOTAL PERMISSIBLE P-LINE AREA (E + G)</td>
-                    <td className="border border-slate-300 px-3 py-1.5 text-right font-mono text-emerald-950 font-extrabold">{formatNumber((areaMetrics.permissiblePlineTotalSqm || 0) * unitFactor)}</td>
+                    <td className="border border-slate-300 px-3 py-1.5 text-emerald-950 font-extrabold">TOTAL PROPOSED P-LINE AREA (E + G)</td>
                     <td className="border border-slate-300 px-3 py-1.5 text-right font-mono text-emerald-950 font-extrabold">{formatNumber((areaMetrics.proposedPlineTotalSqm || 0) * unitFactor)}</td>
                   </tr>
                 </tbody>
