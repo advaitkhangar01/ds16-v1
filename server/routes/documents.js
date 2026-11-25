@@ -204,6 +204,22 @@ router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
 
     const insertedDocs = [];
     for (const file of files) {
+      // Ensure file resides in the correct slug directory
+      const targetDir = path.join(__dirname, '..', 'uploads', 'projects', String(pid), typeSlug);
+      const actualDir = path.dirname(file.path);
+      if (path.resolve(targetDir) !== path.resolve(actualDir)) {
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+        const newPath = path.join(targetDir, file.filename);
+        try {
+          fs.renameSync(file.path, newPath);
+          file.path = newPath;
+        } catch (renameErr) {
+          console.warn('[Upload] Failed to move file to slug directory:', renameErr.message);
+        }
+      }
+
       const ext = path.extname(file.originalname).toLowerCase();
       // Build relative path using forward slashes (OS-agnostic, safe for DB storage)
       const relativePath = [
@@ -250,11 +266,12 @@ router.post('/upload', authenticate, checkProjectAccess(), (req, res, next) => {
     res.status(201).json({ documents: insertedDocs });
   } catch (err) {
     if (inTxn) { try { await client.query('ROLLBACK'); } catch (_) {} }
-    // Clean up any uploaded files on transaction failure
-    if (req.files) {
-      for (const file of req.files) {
-        try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_) {}
-      }
+    // Clean up any uploaded files on transaction failure (handles both arrays and field maps)
+    const allUploadedFiles = req.files
+      ? (Array.isArray(req.files) ? req.files : Object.values(req.files).flat())
+      : (req.file ? [req.file] : []);
+    for (const file of allUploadedFiles) {
+      try { if (file?.path && fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_) {}
     }
     console.error('Upload document error:', err);
     res.status(500).json({ error: 'Server error during upload' });
@@ -565,6 +582,12 @@ router.get('/:id/download', authenticate, checkProjectAccess({ idIsResource: 'do
 
     const doc = rows[0];
     const absolutePath = path.join(__dirname, '..', doc.file_path);
+    const uploadsRoot = path.resolve(__dirname, '..', 'uploads');
+
+    // Prevent path traversal outside uploads directory
+    if (!path.resolve(absolutePath).startsWith(uploadsRoot)) {
+      return res.status(403).json({ error: 'Access denied: invalid file path' });
+    }
 
     if (!fs.existsSync(absolutePath)) {
       return res.status(404).json({ error: 'File not found on server' });

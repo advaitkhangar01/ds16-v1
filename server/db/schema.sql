@@ -444,3 +444,16 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 30. Project Stakeholders
+CREATE TABLE IF NOT EXISTS project_stakeholders (
+  id SERIAL PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name VARCHAR(200) NOT NULL,
+  role VARCHAR(100),
+  phone VARCHAR(50),
+  email VARCHAR(200),
+  is_primary BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+

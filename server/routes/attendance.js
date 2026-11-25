@@ -61,7 +61,7 @@ async function autoCheckoutPendingRecords() {
     
     // Find all attendance records from previous days that have a check_in but no check_out
     const { rows } = await pool.query(
-      `SELECT a.id, a.user_id, a.check_in, a.date, LOWER(a.status) AS status,
+      `SELECT a.id, a.user_id, a.check_in, a.date, LOWER(a.status) AS status, a.is_late, a.late_minutes,
               b.office_start_time AS batch_start_time,
               b.min_working_hours AS batch_min_hours
        FROM attendance a
@@ -541,6 +541,7 @@ router.post('/checkout', authenticate, async (req, res) => {
       const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
       const checkOutDateStr = formatter.format(co);
       const cutoff = new Date(`${checkOutDateStr}T19:00:00+05:30`);
+      hoursWorked = parseFloat(hoursWorked.toFixed(2));
       const extraHoursBeyondShift = Math.floor(Math.max(0, hoursWorked - minWorkingHours));
       if (co > cutoff && extraHoursBeyondShift >= 1) {
         const startForOt = ci > cutoff ? ci : cutoff;
@@ -556,7 +557,7 @@ router.post('/checkout', authenticate, async (req, res) => {
          checkout_lat = $3, checkout_lng = $4, checkout_accuracy = $5,
          checkout_distance = $6, checkout_zone = $7, checkout_outside_zone = $8,
          hours_worked = $9, overtime_hours = $10
-       WHERE id = $11
+       WHERE id = $11 AND check_out IS NULL
        RETURNING *`,
       [
         nowIso, newStatus,
@@ -623,11 +624,18 @@ router.get('/today', authenticate, async (req, res) => {
       [today, ATTENDANCE_STATUS.LEAVE, ATTENDANCE_STATUS.ABSENT, LEAVE_STATUS.APPROVED]
     );
 
-    // Mask GPS for non-admins (except their own record)
+    // Mask GPS, late minutes, hours worked, and exact check in/out for peers of non-privileged employees
+    const isPrivileged = ['admin', 'back_office', 'accounts', 'design_head', 'project_head'].includes(req.user.role);
     const sanitizedRows = rows.map(r => {
-      if (req.user.role === 'admin' || req.user.role === 'back_office' || req.user.role === 'accounts' || r.user_id === req.user.id) return r;
-      const { lat, lng, checkin_distance, checkin_zone, checkin_accuracy, ...rest } = r;
-      return { ...rest, lat: null, lng: null, checkin_distance: null, checkin_zone: null, checkin_accuracy: null };
+      if (isPrivileged || r.user_id === req.user.id) return r;
+      const { lat, lng, checkin_distance, checkin_zone, checkin_accuracy, late_minutes, is_late, hours_worked, check_in, check_out, ...rest } = r;
+      return {
+        ...rest,
+        lat: null, lng: null, checkin_distance: null, checkin_zone: null, checkin_accuracy: null,
+        late_minutes: null, is_late: null, hours_worked: null,
+        check_in: check_in ? 'Present' : null,
+        check_out: check_out ? 'Completed' : null
+      };
     });
 
     let myRecord = rows.find(r => r.user_id === req.user.id) || {};

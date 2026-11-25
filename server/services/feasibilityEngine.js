@@ -18,6 +18,16 @@ const ROAD_WIDTH_TDR_MAP = {
 };
 
 /**
+ * Helper: Safely parses numeric inputs while preserving explicit 0 and 0.0 values.
+ * Returns defaultVal only if val is undefined, null, or empty string.
+ */
+function parseNum(val, defaultVal = 0) {
+  if (val === undefined || val === null || val === '') return defaultVal;
+  const parsed = parseFloat(val);
+  return isNaN(parsed) ? defaultVal : parsed;
+}
+
+/**
  * Distribute target proposed P-Line directly and equally across applicable floors
  * with exact cent-level rounding reconciliation
  * @param {number} targetTotalPline Total proposed P-Line area in sq.m
@@ -234,7 +244,7 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     ? (isGunthewari ? ROAD_WIDTH_TDR_MAP[roadWidth].slum : ROAD_WIDTH_TDR_MAP[roadWidth].regular)
     : 0;
 
-  const permissibleTdrFactor = parseFloat(statement.tdr_factor) || 0.65;
+  const permissibleTdrFactor = parseNum(statement.tdr_factor, 0.65);
   const totalProposedTdrFactor = regularTdrFactor + slumTdrFactor;
 
   // Building Use Rules: Residential, Commercial, Mixed Use
@@ -254,7 +264,8 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     ? parseFloat(statement.ancillary_commercial_pct)
     : 0.80;
 
-  const dividingFactor = parseFloat(statement.dividing_factor) || 1.6;
+  const rawDividingFactor = parseNum(statement.dividing_factor, 1.6);
+  const dividingFactor = rawDividingFactor > 0 ? rawDividingFactor : 1.6;
 
   // 1. Plotable Area
   const plotableAreaSqm = Math.max(0, plotArea - dpDeductions);
@@ -399,7 +410,7 @@ function calculateAreaMetrics(statement = {}, floors = []) {
       }
     }
 
-    const height = parseFloat(floor.height_meters) || 3.00;
+    const height = parseNum(floor.height_meters, 3.00);
 
     // Automatic Lobby Area: 15% of P-Line area unless manually overridden
     const isLobbyOverridden = Boolean(floor.is_lobby_overridden);
@@ -660,8 +671,21 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
       case 'TREE_PLANTATION':
         return effectivePlineSqm > 0 ? Math.min((effectivePlineSqm / 74.32) * 500.00, 25000.00) : 0;
       case 'HERITAGE_FUND': {
-        const devCharge = (rrRate > 0 && configuredRrPct !== null) ? (effectivePlineSqm * ((configuredRrPct / 100) * rrRate)) : (effectivePlineSqm * 0.02 * rrRate);
-        return 0.02 * devCharge;
+        const devChargeItem = (statutoryItems || []).find(it => it.charge_code === 'DEVELOPMENT_CHARGES');
+        if (devChargeItem && devChargeItem.is_enabled === false) {
+          return 0;
+        }
+        const devOverride = overrides && overrides['statutory_DEVELOPMENT_CHARGES'];
+        let devChargeAmount = 0;
+        if (devOverride && devOverride.override_val !== undefined && devOverride.override_val !== null) {
+          devChargeAmount = parseFloat(devOverride.override_val) || 0;
+        } else if (devChargeItem) {
+          const devRrPct = devChargeItem.rr_percentage !== null && devChargeItem.rr_percentage !== undefined ? parseFloat(devChargeItem.rr_percentage) : 2.0;
+          devChargeAmount = (rrRate > 0) ? (effectivePlineSqm * ((devRrPct / 100) * rrRate)) : 0;
+        } else {
+          devChargeAmount = (rrRate > 0) ? (effectivePlineSqm * 0.02 * rrRate) : 0;
+        }
+        return 0.02 * devChargeAmount;
       }
       case 'LABOUR_WELFARE_CESS':
         return estimatedCostB > 0 ? 0.01 * estimatedCostB : 0;
@@ -822,10 +846,10 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
   const evaluatedSalableUnits = (salableUnits || []).map((unit) => {
     const carpetSqm = parseFloat(unit.carpet_area_sqm) || 0;
     const carpetSqft = carpetSqm * SQM_TO_SQFT;
-    const loadingSqft = parseFloat(unit.super_buildup_loading_sqft) || 300.00;
+    const loadingSqft = parseNum(unit.super_buildup_loading_sqft, 300.00);
     const superSqft = carpetSqft + loadingSqft;
     const units = parseInt(unit.unit_count, 10) || 1;
-    const rateSqft = parseFloat(unit.rate_per_sqft) || 6000.00;
+    const rateSqft = parseNum(unit.rate_per_sqft, 6000.00);
     const unitPrice = superSqft * rateSqft;
     const totalAmount = unitPrice * units;
 

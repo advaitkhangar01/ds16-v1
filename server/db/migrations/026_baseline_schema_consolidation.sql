@@ -302,8 +302,17 @@ ALTER TABLE expense_audits ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ DEFA
 DELETE FROM monthly_closing_log a USING monthly_closing_log b 
 WHERE a.id < b.id AND a.month = b.month AND a.year = b.year;
 
-DELETE FROM expense_audits a USING expense_audits b 
-WHERE a.id < b.id AND a.category = b.category AND a.month = b.month AND a.year = b.year;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_attribute 
+    WHERE attrelid = 'expense_audits'::regclass AND attname = 'id' AND NOT attisdropped
+  ) THEN
+    EXECUTE 'DELETE FROM expense_audits a USING expense_audits b WHERE a.id < b.id AND a.category = b.category AND a.month = b.month AND a.year = b.year';
+  ELSE
+    EXECUTE 'DELETE FROM expense_audits a USING expense_audits b WHERE a.ctid < b.ctid AND a.category = b.category AND a.month = b.month AND a.year = b.year';
+  END IF;
+END $$;
 
 DELETE FROM employee_leave_balance a USING employee_leave_balance b 
 WHERE a.id < b.id AND a.user_id = b.user_id AND a.month = b.month AND a.year = b.year;
@@ -381,15 +390,18 @@ BEGIN
               ON tc.constraint_name = kcu.constraint_name
               AND tc.table_schema = kcu.table_schema
         WHERE tc.constraint_type = 'PRIMARY KEY' 
-          AND tc.table_schema = 'public'
+          AND tc.table_schema = CURRENT_SCHEMA
     ) LOOP
         IF r.seq_name IS NOT NULL THEN
             seq_name_part := split_part(r.seq_name, '.', 2);
+            IF seq_name_part = '' THEN
+                seq_name_part := r.seq_name;
+            END IF;
             SELECT last_value INTO curr_val 
             FROM pg_sequences 
-            WHERE schemaname = 'public' AND sequencename = seq_name_part;
+            WHERE schemaname = CURRENT_SCHEMA AND sequencename = seq_name_part;
             
-            EXECUTE 'SELECT COALESCE(MAX(' || quote_ident(r.column_name) || '), 1) FROM ' || quote_ident(r.table_name) INTO max_val;
+            EXECUTE 'SELECT COALESCE(MAX(' || quote_ident(r.column_name) || '), 1) FROM ' || quote_ident(CURRENT_SCHEMA) || '.' || quote_ident(r.table_name) INTO max_val;
             
             IF curr_val IS NULL OR curr_val < max_val THEN
                 EXECUTE 'SELECT setval(' || quote_literal(r.seq_name) || ', ' || max_val || ')';

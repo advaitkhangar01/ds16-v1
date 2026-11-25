@@ -514,14 +514,51 @@ router.patch('/:id/status', authenticate, requireAccounting, checkPeriodLock, as
 
     await client.query('BEGIN');
 
-    params.push(id);
-    const query = `UPDATE invoices SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`;
-    const { rows } = await client.query(query, params);
-
-    if (rows.length === 0) {
+    // 1. Fetch current invoice with row-level lock
+    const { rows: currInvoiceRows } = await client.query('SELECT * FROM invoices WHERE id = $1 FOR UPDATE', [id]);
+    if (currInvoiceRows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Invoice not found' });
     }
+    const prevInvoice = currInvoiceRows[0];
+
+    // Synchronize transactions ledger on status transitions
+    if (status === 'paid' && prevInvoice.status !== 'paid') {
+      const receivedAmt = parseFloat(prevInvoice.amount || 0) - parseFloat(prevInvoice.tax_details?.tdsAmount || 0);
+      if (receivedAmt > 0 && prevInvoice.project_id) {
+        const { rows: existingTxn } = await client.query(
+          "SELECT id FROM transactions WHERE reference_id = $1 AND category = 'project_receipt'",
+          [prevInvoice.invoice_no]
+        );
+        if (existingTxn.length === 0) {
+          await client.query(
+            `INSERT INTO transactions (type, category, amount, description, project_id, reference_id, date, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              'income',
+              'project_receipt',
+              receivedAmt,
+              `Invoice ${prevInvoice.invoice_no} - ${prevInvoice.client_name} (Payment)`,
+              prevInvoice.project_id,
+              prevInvoice.invoice_no,
+              req.body?.date || new Date(),
+              req.user.id
+            ]
+          );
+        }
+      }
+    } else if (status && status !== 'paid' && prevInvoice.status === 'paid') {
+      // Reverting from paid: reset received_amount and reverse ledger transaction
+      updates.push(`received_amount = 0`);
+      await client.query(
+        "DELETE FROM transactions WHERE reference_id = $1 AND category = 'project_receipt'",
+        [prevInvoice.invoice_no]
+      );
+    }
+
+    params.push(id);
+    const query = `UPDATE invoices SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`;
+    const { rows } = await client.query(query, params);
 
     const invoice = rows[0];
 
@@ -646,23 +683,29 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, checkPeriodLock, 
   try {
     const { id } = req.params;
 
-    // 1. Fetch invoice to get project/amount details
+    // Begin atomic transaction with row-level lock to prevent TOCTOU double-submit races
+    await client.query('BEGIN');
+
+    // 1. Fetch invoice with FOR UPDATE to block concurrent mark-paid or record-payment requests
     const { rows: invoiceRows } = await client.query(
-      'SELECT * FROM invoices WHERE id = $1',
+      'SELECT * FROM invoices WHERE id = $1 FOR UPDATE',
       [id]
     );
 
     if (invoiceRows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Invoice not found' });
     }
 
     const invoice = invoiceRows[0];
 
     if (invoice.status === 'paid') {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Invoice is already marked as paid' });
     }
 
     if (!invoice.project_id) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Invoice has no linked project. Cannot record income.' });
     }
 
@@ -672,11 +715,9 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, checkPeriodLock, 
     const remainingAmount = Math.max(0, amount - received - tds);
 
     if (remainingAmount <= 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Invoice has no remaining balance to pay.' });
     }
-
-    // Begin atomic transaction
-    await client.query('BEGIN');
 
     // Step 1: Insert finance transaction (table: transactions, matches finances.js schema)
     await client.query(
@@ -720,7 +761,7 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, checkPeriodLock, 
       [id]
     );
 
-    // Commit only if both steps succeeded
+    // Commit only if all steps succeeded
     await client.query('COMMIT');
 
     res.json({ 
@@ -728,7 +769,7 @@ router.post('/:id/mark-paid', authenticate, requireAccounting, checkPeriodLock, 
       message: 'Invoice marked as paid and balance recorded successfully'
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    try { await client.query('ROLLBACK'); } catch (_) {}
     console.error('Mark paid atomic transaction error:', err);
     res.status(500).json({ error: 'Failed to process payment. All changes have been rolled back.' });
   } finally {
@@ -748,24 +789,30 @@ router.post('/:id/record-payment', authenticate, requireAccounting, checkPeriodL
       return res.status(400).json({ error: 'Payment amount must be a positive number' });
     }
 
-    // 1. Fetch invoice details
+    // Begin atomic transaction with row lock
+    await client.query('BEGIN');
+
+    // 1. Fetch invoice details with row-level lock
     const { rows: invoiceRows } = await client.query(
-      'SELECT * FROM invoices WHERE id = $1',
+      'SELECT * FROM invoices WHERE id = $1 FOR UPDATE',
       [id]
     );
 
     if (invoiceRows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Invoice not found' });
     }
 
     const invoice = invoiceRows[0];
 
     if (invoice.status === 'paid') {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Invoice is already fully paid' });
     }
 
-    // E4: Same guard as mark-paid — partial payments also insert into transactions which require project_id
+    // Guard: partial payments also insert into transactions which require project_id
     if (!invoice.project_id) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Invoice has no linked project. Cannot record income.' });
     }
 
@@ -775,13 +822,11 @@ router.post('/:id/record-payment', authenticate, requireAccounting, checkPeriodL
     const remainingBalance = Math.max(0, totalAmount - alreadyReceived - tds);
 
     if (paymentAmount > remainingBalance + 0.01) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ 
         error: `Payment amount (₹${paymentAmount.toLocaleString('en-IN')}) exceeds the remaining balance of ₹${remainingBalance.toLocaleString('en-IN')}` 
       });
     }
-
-    // Begin atomic transaction
-    await client.query('BEGIN');
 
     // Step 1: Insert custom receipt transaction into ledger
     await client.query(
@@ -838,10 +883,10 @@ router.post('/:id/record-payment', authenticate, requireAccounting, checkPeriodL
       message: isFullyPaid 
         ? 'Payment recorded successfully! Invoice is now fully paid.' 
         : `Partial payment of ₹${paymentAmount.toLocaleString('en-IN')} recorded successfully.`,
-      remainingBalance: isFullyPaid ? 0 : Math.max(0, totalAmount - finalReceived)
+      remainingBalance: isFullyPaid ? 0 : Math.max(0, totalAmount - finalReceived - tds)
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    try { await client.query('ROLLBACK'); } catch (_) {}
     console.error('Record payment transaction error:', err);
     res.status(500).json({ error: 'Failed to record payment. All changes rolled back.' });
   } finally {

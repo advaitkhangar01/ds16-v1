@@ -78,6 +78,11 @@ router.get('/:id', authenticate, async (req, res) => {
 
 // POST /api/clients - Create a new client with nested data
 router.post('/', authenticate, async (req, res) => {
+  const canCreate = req.user?.role === 'admin' || req.user?.role === 'project_head' || req.user?.role === 'design_head' || canViewFinancials(req.user);
+  if (!canCreate) {
+    return res.status(403).json({ error: 'Management or accounts permission required to create clients' });
+  }
+
   const { 
     name, company_name, gst_number, pan_number, notes,
     contacts = [], addresses = [], banking = []

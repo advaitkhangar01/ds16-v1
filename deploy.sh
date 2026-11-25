@@ -84,36 +84,19 @@ find "$BACKUP_DIR" -type f -name "ds16_env_*.env" -mtime +30 -delete 2>/dev/null
 # 2. Server Dependencies & Database Migrations
 echo "🗄️ Step 2/6: Installing backend dependencies and running migrations..."
 cd "${APP_DIR}/server"
-npm install --omit=dev --silent
+npm ci --omit=dev --silent || npm install --omit=dev --silent
 node utils/migrator.js
 echo "✓ Backend dependencies and migrations ready"
 
 # 3. Syntax Verification (Preventing Linux Runtime Crashes)
 echo "🔍 Step 3/6: Syntax-checking server files..."
-node --check index.js
-node --check middleware/auth.js
-node --check middleware/accessControl.js
-node --check middleware/periodLock.js
-node --check routes/attendance.js
-node --check routes/projects.js
-node --check routes/invoices.js
-node --check routes/finances.js
-node --check routes/clients.js
-node --check routes/leaves.js
-node --check routes/monthlyClose.js
-node --check routes/vendors.js
-node --check routes/accounting.js
-node --check routes/reports.js
-node --check routes/settings.js
-node --check routes/staff.js
-node --check routes/tasks.js
-node --check routes/dailyReports.js
+find . -maxdepth 3 -name "*.js" -not -path "*/node_modules/*" -not -path "*/tests/*" -exec node --check {} +
 echo "✓ All server files syntax-OK"
 
 # 4. Frontend Client Build
 echo "🏗️ Step 4/6: Building React client..."
 cd "${APP_DIR}/client"
-npm install --silent
+npm ci --silent || npm install --silent
 NODE_OPTIONS="--max-old-space-size=4096" npm run build
 cd "$APP_DIR"
 echo "✓ Frontend build complete"

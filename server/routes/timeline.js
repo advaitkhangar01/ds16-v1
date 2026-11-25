@@ -12,9 +12,21 @@ const path = require('path');
 const fs = require('fs');
 
 // Configure upload storage for timeline evidence
+const ALLOWED_EVIDENCE_EXTENSIONS = new Set([
+  '.jpg', '.jpeg', '.png', '.webp', '.pdf', '.dwg', '.dxf'
+]);
+
+const ALLOWED_EVIDENCE_MIMES = new Set([
+  'image/jpeg', 'image/png', 'image/webp', 'application/pdf',
+  'application/octet-stream', 'image/vnd.dwg', 'image/x-dwg'
+]);
+
 const evidenceStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const projectId = req.params.projectId;
+    const projectId = parseInt(req.params.projectId, 10);
+    if (isNaN(projectId) || projectId <= 0) {
+      return cb(new Error('Invalid project ID for evidence upload'));
+    }
     const dir = path.join(__dirname, '..', 'uploads', 'projects', String(projectId), 'timeline_evidence');
     try {
       fs.mkdirSync(dir, { recursive: true });
@@ -32,8 +44,30 @@ const evidenceStorage = multer.diskStorage({
 
 const uploadEvidence = multer({
   storage: evidenceStorage,
-  limits: { fileSize: 25 * 1024 * 1024 }
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ALLOWED_EVIDENCE_EXTENSIONS.has(ext)) {
+      return cb(new Error(`File type '${ext}' is not permitted for timeline evidence`));
+    }
+    if (!ALLOWED_EVIDENCE_MIMES.has(file.mimetype)) {
+      return cb(new Error(`MIME type '${file.mimetype}' is not permitted for timeline evidence`));
+    }
+    cb(null, true);
+  }
 });
+
+const handleEvidenceUpload = (req, res, next) => {
+  uploadEvidence.single('file')(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File size exceeds maximum 25 MB limit' });
+      }
+      return res.status(400).json({ error: err.message });
+    }
+    next();
+  });
+};
 
 // Role helpers
 const isManagement = (user) => {
@@ -1415,7 +1449,7 @@ router.delete('/tasks/:taskId/dependencies/:predecessorId', authenticate, checkP
 
 // 12. POST /api/projects/:projectId/timeline/tasks/:taskId/evidence
 // Upload site inspection photo or documentation evidence
-router.post('/tasks/:taskId/evidence', authenticate, checkProjectAccess(), uploadEvidence.single('file'), async (req, res) => {
+router.post('/tasks/:taskId/evidence', authenticate, checkProjectAccess(), handleEvidenceUpload, async (req, res) => {
   const projectId = parseInt(req.params.projectId, 10);
   const taskId = parseInt(req.params.taskId, 10);
 

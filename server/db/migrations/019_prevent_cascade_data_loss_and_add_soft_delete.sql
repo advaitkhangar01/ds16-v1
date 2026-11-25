@@ -25,9 +25,14 @@ ALTER TABLE attendance
 -- 5. Add index on users(is_active) for fast filtering in queries
 CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active);
 
--- 6. Ensure employee_leave_balance cascades properly with user
-ALTER TABLE employee_leave_balance DROP CONSTRAINT IF EXISTS employee_leave_balance_user_id_fkey;
-ALTER TABLE employee_leave_balance 
-    ADD CONSTRAINT employee_leave_balance_user_id_fkey 
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+-- 6. Ensure employee_leave_balance cascades properly with user (if table exists)
+DO $$
+BEGIN
+  IF to_regclass('employee_leave_balance') IS NOT NULL THEN
+    ALTER TABLE employee_leave_balance DROP CONSTRAINT IF EXISTS employee_leave_balance_user_id_fkey;
+    ALTER TABLE employee_leave_balance 
+        ADD CONSTRAINT employee_leave_balance_user_id_fkey 
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+  END IF;
+END $$;
 

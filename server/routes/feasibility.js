@@ -27,6 +27,42 @@ const requireFeasibilityEdit = (req, res, next) => {
   next();
 };
 
+// Authoritative engine recalculation helper for mutations
+async function getRecalculatedFeasibility(clientOrPool, projectId) {
+  const { rows: [statement] } = await clientOrPool.query(
+    'SELECT * FROM project_area_statements WHERE project_id = $1',
+    [projectId]
+  );
+  if (!statement) return null;
+  const { rows: floors } = await clientOrPool.query(
+    'SELECT * FROM project_area_floors WHERE area_statement_id = $1 AND is_active = TRUE ORDER BY floor_order ASC, id ASC',
+    [statement.id]
+  );
+  const { rows: [financial] } = await clientOrPool.query(
+    'SELECT * FROM project_financial_viabilities WHERE project_id = $1',
+    [projectId]
+  );
+  const { rows: statutoryCharges } = await clientOrPool.query(
+    'SELECT * FROM project_statutory_charges WHERE financial_viability_id = $1 AND is_deleted = FALSE ORDER BY order_index ASC, id ASC',
+    [financial?.id]
+  );
+  const { rows: salableUnits } = await clientOrPool.query(
+    'SELECT * FROM project_salable_units WHERE financial_viability_id = $1 ORDER BY order_index ASC, id ASC',
+    [financial?.id]
+  );
+  const areaMetrics = calculateAreaMetrics(statement, floors);
+  const financialMetrics = calculateFinancialMetrics(financial || {}, statutoryCharges, salableUnits, areaMetrics);
+  return {
+    statement,
+    floors: areaMetrics.evaluatedFloors,
+    financial,
+    statutoryCharges: financialMetrics.evaluatedStatutoryCharges,
+    salableUnits: financialMetrics.evaluatedSalableUnits,
+    areaMetrics,
+    financialMetrics
+  };
+}
+
 // 1. GET /api/projects/:projectId/feasibility
 // Retrieve complete area statement, floor entries, financial viability, statutory items, salable units and calculations
 router.get('/', authenticate, checkProjectAccess(), requireFeasibilityAccess, async (req, res) => {
@@ -273,7 +309,13 @@ router.put('/area', authenticate, checkProjectAccess(), requireFeasibilityEdit, 
       [projectId, req.user.id, JSON.stringify(existing || {}), JSON.stringify(updated)]
     );
 
-    res.json({ statement: updated, message: 'Area statement updated successfully' });
+    const recalc = await getRecalculatedFeasibility(pool, projectId);
+    res.json({
+      statement: updated,
+      areaMetrics: recalc?.areaMetrics,
+      financialMetrics: recalc?.financialMetrics,
+      message: 'Area statement updated successfully'
+    });
   } catch (err) {
     console.error('Error updating area statement:', err);
     res.status(500).json({ error: 'Failed to update area statement' });
@@ -373,7 +415,13 @@ router.post('/area/floors', authenticate, checkProjectAccess(), requireFeasibili
       ]
     );
 
-    res.status(201).json({ floor: newFloor, message: 'Floor added successfully' });
+    const recalc = await getRecalculatedFeasibility(pool, projectId);
+    res.status(201).json({
+      floor: newFloor,
+      areaMetrics: recalc?.areaMetrics,
+      financialMetrics: recalc?.financialMetrics,
+      message: 'Floor added successfully'
+    });
   } catch (err) {
     console.error('Error adding floor row:', err);
     res.status(500).json({ error: 'Failed to add floor row' });
@@ -477,7 +525,13 @@ router.put('/area/floors/:floorId', authenticate, checkProjectAccess(), requireF
       ]
     );
 
-    res.json({ floor: updatedFloor, message: 'Floor updated successfully' });
+    const recalc = await getRecalculatedFeasibility(pool, projectId);
+    res.json({
+      floor: updatedFloor,
+      areaMetrics: recalc?.areaMetrics,
+      financialMetrics: recalc?.financialMetrics,
+      message: 'Floor updated successfully'
+    });
   } catch (err) {
     console.error('Error updating floor:', err);
     res.status(500).json({ error: 'Failed to update floor' });
@@ -497,7 +551,12 @@ router.delete('/area/floors/:floorId', authenticate, checkProjectAccess(), requi
       [floorId, projectId]
     );
     if (!rowCount) return res.status(404).json({ error: 'Floor not found' });
-    res.json({ message: 'Floor deleted successfully' });
+    const recalc = await getRecalculatedFeasibility(pool, projectId);
+    res.json({
+      areaMetrics: recalc?.areaMetrics,
+      financialMetrics: recalc?.financialMetrics,
+      message: 'Floor deleted successfully'
+    });
   } catch (err) {
     console.error('Error deleting floor:', err);
     res.status(500).json({ error: 'Failed to delete floor row' });
@@ -721,7 +780,13 @@ router.put('/financial', authenticate, checkProjectAccess(), requireFeasibilityE
       [projectId, req.user.id, JSON.stringify(existing || {}), JSON.stringify(updated)]
     );
 
-    res.json({ financial: updated, message: 'Financial viability parameters updated successfully' });
+    const recalc = await getRecalculatedFeasibility(pool, projectId);
+    res.json({
+      financial: updated,
+      areaMetrics: recalc?.areaMetrics,
+      financialMetrics: recalc?.financialMetrics,
+      message: 'Financial viability parameters updated successfully'
+    });
   } catch (err) {
     console.error('Error updating financial viability:', err);
     res.status(500).json({ error: 'Failed to update financial viability parameters' });
@@ -895,7 +960,13 @@ router.patch('/statutory/:chargeId', authenticate, checkProjectAccess(), require
       [projectId, req.user.id, JSON.stringify(existing), JSON.stringify(updated)]
     );
 
-    res.json({ charge: updated, message: 'Statutory charge updated successfully' });
+    const recalc = await getRecalculatedFeasibility(pool, projectId);
+    res.json({
+      charge: updated,
+      areaMetrics: recalc?.areaMetrics,
+      financialMetrics: recalc?.financialMetrics,
+      message: 'Statutory charge updated successfully'
+    });
   } catch (err) {
     console.error('Error updating statutory charge:', err);
     res.status(500).json({ error: 'Failed to update statutory charge' });

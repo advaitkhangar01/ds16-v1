@@ -238,10 +238,13 @@ router.put('/payroll/employees/:id', checkPeriodLock, async (req, res) => {
     }
   }
 
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
+
     // 1. Update user details in DB
     if (base_salary !== undefined || hourly_rate !== undefined) {
-      const { rows: currUserRows } = await pool.query(
+      const { rows: currUserRows } = await client.query(
         'SELECT base_salary, hourly_rate, batch_id FROM users WHERE id = $1',
         [req.params.id]
       );
@@ -252,12 +255,12 @@ router.put('/payroll/employees/:id', checkPeriodLock, async (req, res) => {
       if (newBaseSalary > 0) {
         let batchMinHours = 9.0;
         if (currUser.batch_id) {
-          const { rows: bRows } = await pool.query('SELECT min_working_hours FROM attendance_batches WHERE id = $1', [currUser.batch_id]);
+          const { rows: bRows } = await client.query('SELECT min_working_hours FROM attendance_batches WHERE id = $1', [currUser.batch_id]);
           if (bRows.length > 0 && bRows[0].min_working_hours) {
             batchMinHours = parseFloat(bRows[0].min_working_hours);
           }
         } else {
-          const { rows: sRows } = await pool.query("SELECT value FROM app_settings WHERE key = 'min_working_hours'");
+          const { rows: sRows } = await client.query("SELECT value FROM app_settings WHERE key = 'min_working_hours'");
           if (sRows.length > 0 && sRows[0].value) {
             batchMinHours = parseFloat(sRows[0].value);
           }
@@ -265,29 +268,29 @@ router.put('/payroll/employees/:id', checkPeriodLock, async (req, res) => {
         newHourlyRate = calculateHourlyRate(newBaseSalary, batchMinHours);
       }
 
-      await pool.query(
+      await client.query(
         "UPDATE users SET base_salary = $1, hourly_rate = $2 WHERE id = $3 AND role IN ('employee', 'admin', 'back_office', 'accounts', 'design_head', 'design', 'liasoning', 'civil_engineer', 'project_head')",
         [newBaseSalary, newHourlyRate, req.params.id]
       );
     }
 
-    // 2. If month and year are provided, update/sync existing payroll record if any
+    // 2. If month and year are provided, update/sync existing payroll record if any (preserving manual overrides)
     if (month && year) {
-      const { rows: existingPayroll } = await pool.query(
-        'SELECT base_salary, bonus, incentives, deductions FROM payroll WHERE user_id = $1 AND month = $2 AND year = $3',
+      const { rows: existingPayroll } = await client.query(
+        'SELECT base_salary, bonus, incentives, deductions, is_manual_override FROM payroll WHERE user_id = $1 AND month = $2 AND year = $3',
         [req.params.id, month, year]
       );
 
-      if (existingPayroll.length > 0) {
+      if (existingPayroll.length > 0 && !existingPayroll[0].is_manual_override) {
         // Get settings
-        const { rows: settingsRows } = await pool.query('SELECT key, value FROM app_settings');
+        const { rows: settingsRows } = await client.query('SELECT key, value FROM app_settings');
         const settings = settingsRows.reduce((acc, r) => {
           acc[r.key] = r.value;
           return acc;
         }, {});
 
         // Recalculate payroll statistics on-the-fly
-        const payrollData = await calculatePayrollForEmployee(req.params.id, month, year, settings, pool);
+        const payrollData = await calculatePayrollForEmployee(req.params.id, month, year, settings, client);
         if (payrollData) {
           const finalBaseSalary = base_salary !== undefined ? parseFloat(base_salary) : parseFloat(existingPayroll[0].base_salary);
           const finalBonus = parseFloat(existingPayroll[0].bonus || 0);
@@ -297,23 +300,28 @@ router.put('/payroll/employees/:id', checkPeriodLock, async (req, res) => {
           const finalOvertimeHours = parseFloat(payrollData.total_overtime_hours || 0);
           const finalNetPaid = Math.max(0, parseFloat(payrollData.net_salary_payable || 0) + finalBonus + finalIncentives);
 
-          await pool.query(
+          await client.query(
             `UPDATE payroll 
              SET base_salary = $1, incentives = $2, deductions = $3, net_paid = $4, overtime_pay = $5, overtime_hours = $6
-             WHERE user_id = $7 AND month = $8 AND year = $9`,
+             WHERE user_id = $7 AND month = $8 AND year = $9 AND COALESCE(is_manual_override, FALSE) = FALSE`,
             [finalBaseSalary, finalIncentives, finalDeductions, finalNetPaid, finalOvertime, finalOvertimeHours, req.params.id, month, year]
           );
         }
       }
     }
 
-    const { rows: updatedUser } = await pool.query(
+    const { rows: updatedUser } = await client.query(
       "SELECT id, name, base_salary, hourly_rate FROM users WHERE id = $1",
       [req.params.id]
     );
+
+    await client.query('COMMIT');
     res.json(updatedUser[0]);
   } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

@@ -18,6 +18,11 @@ router.use('/:projectId/feasibility', feasibilityRoutes);
 
 // POST /api/projects
 router.post('/', authenticate, async (req, res) => {
+  const canCreate = req.user?.role === 'admin' || req.user?.role === 'design_head' || req.user?.role === 'project_head';
+  if (!canCreate) {
+    return res.status(403).json({ error: 'Only design heads, project heads, or admins can create projects' });
+  }
+
   const client = await pool.connect();
   let inTxn = false;
   try {
@@ -349,8 +354,19 @@ async function autoUpdateProjectStatus(projectId) {
 }
 
 // PATCH /api/projects/:id/stages/:stageId  (update stage status)
-router.patch('/:id/stages/:stageId', authenticate, async (req, res) => {
+router.patch('/:id/stages/:stageId', authenticate, checkProjectAccess(), async (req, res) => {
   try {
+    const canUpdate = ['admin', 'design_head', 'project_head', 'civil_engineer'].includes(req.user?.role);
+    if (!canUpdate) {
+      const { rows: assigned } = await pool.query(
+        'SELECT 1 FROM project_assignments WHERE project_id = $1 AND user_id = $2',
+        [req.params.id, req.user.id]
+      );
+      if (assigned.length === 0) {
+        return res.status(403).json({ error: 'Permission denied: only assigned staff or management can update project stages' });
+      }
+    }
+
     const { status } = req.body;
     if (!['pending', 'in_progress', 'completed'].includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
@@ -442,8 +458,11 @@ router.get('/:id/stakeholders', authenticate, checkProjectAccess(), async (req, 
 });
 
 // POST /api/projects/:id/stakeholders
-router.post('/:id/stakeholders', authenticate, async (req, res) => {
+router.post('/:id/stakeholders', authenticate, checkProjectAccess(), async (req, res) => {
   try {
+    const isMgmt = ['admin', 'design_head', 'project_head'].includes(req.user?.role);
+    if (!isMgmt) return res.status(403).json({ error: 'Management permission required to modify project stakeholders' });
+
     const { name, role, phone, email, is_primary } = req.body;
     
     if (!name) return res.status(400).json({ error: 'Name is required' });
@@ -483,8 +502,11 @@ router.post('/:id/stakeholders', authenticate, async (req, res) => {
 });
 
 // PATCH /api/projects/:id/stakeholders/:stakeholderId
-router.patch('/:id/stakeholders/:stakeholderId', authenticate, async (req, res) => {
+router.patch('/:id/stakeholders/:stakeholderId', authenticate, checkProjectAccess(), async (req, res) => {
   try {
+    const isMgmt = ['admin', 'design_head', 'project_head'].includes(req.user?.role);
+    if (!isMgmt) return res.status(403).json({ error: 'Management permission required to modify project stakeholders' });
+
     const { name, role, phone, email, is_primary } = req.body;
     
     // Prevent duplicates (same phone or email in same project, excluding this stakeholder)
@@ -522,8 +544,11 @@ router.patch('/:id/stakeholders/:stakeholderId', authenticate, async (req, res) 
 });
 
 // DELETE /api/projects/:id/stakeholders/:stakeholderId
-router.delete('/:id/stakeholders/:stakeholderId', authenticate, async (req, res) => {
+router.delete('/:id/stakeholders/:stakeholderId', authenticate, checkProjectAccess(), async (req, res) => {
   try {
+    const isMgmt = ['admin', 'design_head', 'project_head'].includes(req.user?.role);
+    if (!isMgmt) return res.status(403).json({ error: 'Management permission required to modify project stakeholders' });
+
     const { rows } = await pool.query(
       'DELETE FROM project_stakeholders WHERE id = $1 AND project_id = $2 RETURNING is_primary',
       [req.params.stakeholderId, req.params.id]

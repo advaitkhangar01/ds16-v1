@@ -9,9 +9,10 @@ import TimelineTaskList from './TimelineTaskList';
 import TimelineTaskDrawer from './TimelineTaskDrawer';
 import TimelineActivityHistory from './TimelineActivityHistory';
 
-export default function ProjectTimelineTab({ projectId, user, isAdmin, isManagement }) {
+export default function ProjectTimelineTab({ projectId, project: propProject, user, isAdmin, isManagement }) {
   const [activeSubTab, setActiveSubTab] = useState('gantt'); // 'setup', 'gantt', 'tasks', 'history'
   const [config, setConfig] = useState(null);
+  const [project, setProject] = useState(propProject || null);
   const [tasks, setTasks] = useState([]);
   const [draftTasks, setDraftTasks] = useState([]);
   const [users, setUsers] = useState([]);
@@ -23,17 +24,19 @@ export default function ProjectTimelineTab({ projectId, user, isAdmin, isManagem
   // Fetch timeline data
   const fetchData = useCallback(async () => {
     try {
-      const [confRes, tasksRes, draftsRes, usersRes] = await Promise.all([
+      const [confRes, tasksRes, draftsRes, usersRes, projRes] = await Promise.all([
         api.get(`/projects/${projectId}/timeline/config`),
         api.get(`/projects/${projectId}/timeline/tasks`),
         api.get(`/projects/${projectId}/timeline/tasks?show_draft=true`),
-        api.get('/auth/users')
+        api.get('/auth/users'),
+        !propProject ? api.get(`/projects/${projectId}`).catch(() => ({ data: {} })) : Promise.resolve({ data: { project: propProject } })
       ]);
 
       setConfig(confRes.data.config);
       setTasks(tasksRes.data.tasks || []);
       setDraftTasks(draftsRes.data.tasks || []);
       setUsers(usersRes.data.users || []);
+      if (projRes.data.project) setProject(projRes.data.project);
 
       // If no published tasks yet, default to setup or draft review
       if ((tasksRes.data.tasks || []).length === 0 && (draftsRes.data.tasks || []).length > 0) {
@@ -213,6 +216,8 @@ export default function ProjectTimelineTab({ projectId, user, isAdmin, isManagem
         <TimelineGanttChart
           tasks={tasks.length > 0 ? tasks : draftTasks}
           onSelectTask={handleSelectTask}
+          project={project || propProject || {}}
+          config={config || {}}
         />
       )}
 

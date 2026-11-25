@@ -71,7 +71,7 @@ async function generateSnapshot(month, year, client = pool) {
   const invoiceRes = await client.query(
     `SELECT
        COALESCE(SUM(amount), 0)                                                        AS billed,
-       COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount, 0) ELSE 0 END), 0) AS pending
+       COALESCE(SUM(CASE WHEN LOWER(status) != 'paid' THEN GREATEST(amount - received_amount - COALESCE((tax_details->>'tdsAmount')::numeric, 0), 0) ELSE 0 END), 0) AS pending
      FROM invoices
      WHERE LOWER(status) != 'cancelled' AND date >= $1 AND date <= $2`,
     [monthStart, monthEnd]
@@ -756,8 +756,11 @@ router.post('/relock', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Month and year are required' });
   }
 
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
       `UPDATE period_unlock_log 
        SET is_active = FALSE, relocked_at = NOW(), relocked_by = $1
        WHERE month = $2 AND year = $3 AND is_active = TRUE
@@ -766,8 +769,8 @@ router.post('/relock', requireAdmin, async (req, res) => {
     );
 
     // Regenerate snapshot in monthly_closing_log to reflect updated verified expenses
-    const snapshot = await generateSnapshot(month, year, pool);
-    await pool.query(
+    const snapshot = await generateSnapshot(month, year, client);
+    await client.query(
       `UPDATE monthly_closing_log 
        SET snapshot = $1 
        WHERE month = $2 AND year = $3`,
@@ -775,7 +778,7 @@ router.post('/relock', requireAdmin, async (req, res) => {
     );
 
     const profit = snapshot.profit_loss.realized;
-    await pool.query(
+    await client.query(
       `INSERT INTO company_capital (month, year, amount, description)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (month, year) 
@@ -783,9 +786,13 @@ router.post('/relock', requireAdmin, async (req, res) => {
       [month, year, profit, `Capital transferred from profit of ${new Date(year, month - 1, 1).toLocaleString('default', { month: 'long' })} ${year}`]
     );
 
+    await client.query('COMMIT');
     res.json({ message: 'Period re-locked successfully', logsUpdated: rows });
   } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

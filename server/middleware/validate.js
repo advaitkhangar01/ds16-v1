@@ -6,12 +6,12 @@ const { z } = require('zod');
 
 /**
  * Creates an Express validation middleware for req.body.
- * By default runs in log-only mode: reports validation issues without rejecting requests.
- * Set process.env.ENFORCE_REQUEST_VALIDATION = 'true' to reject with 400.
+ * By default enforces schema validation and rejects invalid payloads with 400.
+ * Set process.env.ENFORCE_REQUEST_VALIDATION = 'false' to run in warning-only mode.
  */
 function validateBody(schema, schemaName = 'RequestBody') {
   return (req, res, next) => {
-    const enforce = process.env.ENFORCE_REQUEST_VALIDATION === 'true';
+    const enforce = process.env.ENFORCE_REQUEST_VALIDATION !== 'false';
     const result = schema.safeParse(req.body);
 
     if (!result.success) {

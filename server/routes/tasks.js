@@ -27,14 +27,15 @@ router.post('/', authenticate, checkProjectAccess(), validateBody(schemas.taskCr
     return res.status(403).json({ error: 'Only authorized roles can create tasks' });
   }
 
+  const { project_id, stage, title, description, assigned_to, participants, start_date, priority, due_date } = req.body;
+
+  if (!project_id || !title?.trim()) {
+    return res.status(400).json({ error: 'project_id and title are required' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { project_id, stage, title, description, assigned_to, participants, start_date, priority, due_date } = req.body;
-
-    if (!project_id || !title?.trim()) {
-      return res.status(400).json({ error: 'project_id and title are required' });
-    }
 
     const finalPriority = ['low', 'medium', 'high'].includes(priority) ? priority : 'medium';
 
@@ -135,14 +136,32 @@ router.get('/', authenticate, async (req, res) => {
       `;
       
       const tasksParams = [];
+      let whereClause = '';
       if (view === 'history') {
-        tasksQuery += ` WHERE LOWER(t.status) = 'passed' `;
+        whereClause = ` WHERE LOWER(t.status) = 'passed' `;
       } else if (view === 'scheduled') {
-        tasksQuery += ` WHERE LOWER(t.status) != 'passed' AND t.start_date > CURRENT_DATE `;
+        whereClause = ` WHERE LOWER(t.status) != 'passed' AND t.start_date > CURRENT_DATE `;
       } else {
-        tasksQuery += ` WHERE LOWER(t.status) != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE) `;
+        whereClause = ` WHERE LOWER(t.status) != 'passed' AND (t.start_date IS NULL OR t.start_date <= CURRENT_DATE) `;
       }
 
+      if (project_id) {
+        tasksParams.push(parseInt(project_id, 10));
+        whereClause += ` AND t.project_id = $${tasksParams.length} `;
+      }
+
+      // Non-privileged users should only see tasks in projects they are assigned to, or tasks where they are assigned/participating
+      if (!isPrivileged) {
+        tasksParams.push(req.user.id);
+        const uIdx = tasksParams.length;
+        whereClause += ` AND (
+          t.assigned_to = $${uIdx} 
+          OR tp.user_id = $${uIdx}
+          OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = t.project_id AND pa.user_id = $${uIdx})
+        ) `;
+      }
+
+      tasksQuery += whereClause;
       tasksQuery += ` GROUP BY t.id, p.name, u.name ORDER BY t.created_at DESC`;
       
       const { rows: tasks } = await pool.query(tasksQuery, tasksParams);
@@ -357,19 +376,23 @@ router.get('/:task_id', authenticate, checkProjectAccess({ idIsResource: 'task' 
 // 4. Send Message
 // POST /api/tasks/:task_id/messages
 router.post('/:task_id/messages', authenticate, checkProjectAccess({ idIsResource: 'task' }), async (req, res) => {
+  const { task_id } = req.params;
+  const { message } = req.body;
+
+  if (!message?.trim()) {
+    return res.status(400).json({ error: 'Message cannot be empty' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { task_id } = req.params;
-    const { message } = req.body;
-
-    if (!message?.trim()) {
-      return res.status(400).json({ error: 'Message cannot be empty' });
-    }
 
     // Verify task exists
     const { rows: taskRows } = await client.query('SELECT id FROM tasks WHERE id = $1', [task_id]);
-    if (!taskRows.length) return res.status(404).json({ error: 'Task not found' });
+    if (!taskRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Task not found' });
+    }
 
     // Parse Mentions
     const mentionedUserIds = await parseMentions(message);

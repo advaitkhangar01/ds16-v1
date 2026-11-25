@@ -640,6 +640,7 @@ export default function ProjectDetail() {
         {activeTab === 'timeline' && (
           <ProjectTimelineTab
             projectId={id}
+            project={project}
             user={user}
             isAdmin={isAdmin}
             isManagement={isPrivileged || user?.role === 'civil_engineer'}

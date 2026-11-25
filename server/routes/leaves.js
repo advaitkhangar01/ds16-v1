@@ -256,25 +256,30 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
       return res.status(403).json({ error: 'Cannot modify leaves for a closed accounting period' });
     }
 
-    const { rows } = await pool.query(
-      `UPDATE leave_requests 
-       SET status = $1, remarks = $2, reviewed_by = $3, updated_at = NOW()
-       WHERE id = $4
-       RETURNING *`,
-      [status, remarks, adminId, id]
-    );
+    const client = await pool.connect();
+    let updatedLeave = null;
+    try {
+      await client.query('BEGIN');
 
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Leave request not found' });
-    }
+      const { rows } = await client.query(
+        `UPDATE leave_requests 
+         SET status = $1, remarks = $2, reviewed_by = $3, updated_at = NOW()
+         WHERE id = $4
+         RETURNING *`,
+        [status, remarks, adminId, id]
+      );
 
-    const updatedLeave = rows[0];
+      if (rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Leave request not found' });
+      }
 
-    // Cross-sync approved leave dates into attendance table
-    if (status === LEAVE_STATUS.APPROVED && updatedLeave.type !== 'advance' && updatedLeave.type !== 'resignation') {
-      const syncStatus = (updatedLeave.type || '').toLowerCase() === 'half_day' ? 'half_day' : 'leave';
-      try {
-        await pool.query(`
+      updatedLeave = rows[0];
+
+      // Cross-sync approved leave dates into attendance table atomically
+      if (status === LEAVE_STATUS.APPROVED && updatedLeave.type !== 'advance' && updatedLeave.type !== 'resignation') {
+        const syncStatus = (updatedLeave.type || '').toLowerCase() === 'half_day' ? 'half_day' : 'leave';
+        await client.query(`
           INSERT INTO attendance (user_id, date, status, is_late, late_minutes, hours_worked)
           SELECT $1, d.date::date, $4, false, 0, 0
           FROM generate_series($2::date, $3::date, '1 day'::interval) d(date)
@@ -282,12 +287,8 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
           SET status = $4, is_late = false, late_minutes = 0
           WHERE attendance.check_in IS NULL OR attendance.hours_worked = 0
         `, [updatedLeave.user_id, updatedLeave.start_date, updatedLeave.end_date, syncStatus]);
-      } catch (attSyncErr) {
-        console.error('[Leaves Warning] Failed to cross-sync leave dates to attendance table:', attSyncErr.message);
-      }
-    } else if (status === LEAVE_STATUS.REJECTED && updatedLeave.type !== 'advance' && updatedLeave.type !== 'resignation') {
-      try {
-        await pool.query(`
+      } else if (status === LEAVE_STATUS.REJECTED && updatedLeave.type !== 'advance' && updatedLeave.type !== 'resignation') {
+        await client.query(`
           UPDATE attendance 
           SET status = 'absent'
           WHERE user_id = $1 
@@ -295,9 +296,15 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
             AND (status = 'leave' OR status = 'half_day')
             AND check_in IS NULL
         `, [updatedLeave.user_id, updatedLeave.start_date, updatedLeave.end_date]);
-      } catch (attSyncErr) {
-        console.error('[Leaves Warning] Failed to reset leave dates in attendance table:', attSyncErr.message);
       }
+
+      await client.query('COMMIT');
+    } catch (txnErr) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+      console.error('[Leaves Error] Failed updating leave request atomically:', txnErr.message);
+      return res.status(500).json({ error: 'Failed to update leave request status' });
+    } finally {
+      client.release();
     }
 
     // Trigger notification to requesting employee

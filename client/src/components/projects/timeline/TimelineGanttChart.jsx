@@ -1,6 +1,7 @@
 // client/src/components/projects/timeline/TimelineGanttChart.jsx
 import React, { useState, useMemo, useRef } from 'react';
-import { Calendar, ChevronDown, ChevronRight, Search, AlertCircle, Clock, CheckCircle2, Maximize2, Minimize2, Layers, ChevronsDown, ChevronsUp } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronRight, Search, AlertCircle, Clock, CheckCircle2, Maximize2, Minimize2, Layers, ChevronsDown, ChevronsUp, Printer } from 'lucide-react';
+import GanttExportModal from './GanttExportModal';
 
 const STANDARD_SECTIONS = [
   'Site Preparation',
@@ -10,12 +11,13 @@ const STANDARD_SECTIONS = [
   'Additional Work'
 ];
 
-export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
+export default function TimelineGanttChart({ tasks = [], onSelectTask, project = {}, config = {} }) {
   const [zoomLevel, setZoomLevel] = useState('month'); // 'week', 'month', 'quarter'
   const [search, setSearch] = useState('');
   const [selectedSection, setSelectedSection] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState(new Set());
   const [collapsedSubgroups, setCollapsedSubgroups] = useState(new Set());
   const scrollContainerRef = useRef(null);
@@ -334,6 +336,15 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
           </button>
 
           <button
+            onClick={() => setIsExportModalOpen(true)}
+            className="text-xs font-semibold px-2.5 py-1.5 bg-[#E05A1E] text-white hover:bg-[#C94E16] rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
+            title="Export Construction Gantt Chart (A3 / A4 PDF)"
+          >
+            <Printer size={13} />
+            <span>Export</span>
+          </button>
+
+          <button
             onClick={() => setIsExpanded(!isExpanded)}
             title={isExpanded ? "Exit Expanded View" : "Maximize Gantt Chart"}
             className="text-xs font-semibold px-2.5 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-900 hover:text-white rounded-lg transition-colors flex items-center gap-1.5"
@@ -538,6 +549,15 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask }) {
           Showing {filteredTasks.length} of {tasks.length} total activities
         </div>
       </div>
+
+      {/* A3 Construction Schedule Export Modal */}
+      <GanttExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        tasks={filteredTasks.length > 0 ? filteredTasks : tasks}
+        project={project}
+        config={config}
+      />
     </div>
   );
 }

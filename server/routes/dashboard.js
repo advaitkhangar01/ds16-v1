@@ -823,7 +823,8 @@ router.get('/employee', authenticate, async (req, res) => {
       `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, 
               to_char(lr.start_date, 'YYYY-MM-DD') as start_date, 
               to_char(lr.end_date, 'YYYY-MM-DD') as end_date, 
-              lr.reason, lr.status
+              CASE WHEN lr.user_id = $2 THEN lr.reason ELSE NULL END as reason, 
+              lr.status
        FROM leave_requests lr
        JOIN users u ON u.id = lr.user_id
        WHERE LOWER(lr.status) = 'approved'
@@ -831,14 +832,15 @@ router.get('/employee', authenticate, async (req, res) => {
          AND lr.type NOT IN ('advance', 'resignation')
          AND $1::date BETWEEN lr.start_date AND lr.end_date
        ORDER BY u.name ASC`,
-      [todayStr]
+      [todayStr, userId]
     );
 
     const { rows: upcomingTeamLeavesRows } = await pool.query(
       `SELECT lr.id, lr.user_id, u.name as user_name, u.department, lr.type, 
               to_char(lr.start_date, 'YYYY-MM-DD') as start_date, 
               to_char(lr.end_date, 'YYYY-MM-DD') as end_date, 
-              lr.reason, lr.status
+              CASE WHEN lr.user_id = $2 THEN lr.reason ELSE NULL END as reason, 
+              lr.status
        FROM leave_requests lr
        JOIN users u ON u.id = lr.user_id
        WHERE LOWER(lr.status) = 'approved'
@@ -847,7 +849,7 @@ router.get('/employee', authenticate, async (req, res) => {
          AND lr.start_date > $1::date
        ORDER BY lr.start_date ASC
        LIMIT 30`,
-      [todayStr]
+      [todayStr, userId]
     );
 
     res.json({
