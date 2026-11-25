@@ -1,6 +1,6 @@
 // client/src/components/projects/timeline/TimelineSetup.jsx
 import React, { useState, useEffect } from 'react';
-import { Layers, Play, CheckCircle2, Save, Building, ShieldCheck, Sparkles, FileText, ArrowUpDown, Car, Sun, Flame, Paintbrush, Clock } from 'lucide-react';
+import { Layers, Play, CheckCircle2, Save, Building, ShieldCheck, FileText, ArrowUpDown, Car, Sun, Flame, Paintbrush, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../../api/client';
 
@@ -25,8 +25,6 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
     parking_floors: [],
     start_date: new Date().toISOString().split('T')[0]
   });
-  const [templates, setTemplates] = useState([]);
-  const [selectedTemplate, setSelectedTemplate] = useState('');
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
 
@@ -59,23 +57,6 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
       });
     }
   }, [config]);
-
-  useEffect(() => {
-    api.get(`/projects/${projectId}/timeline/templates`)
-      .then(res => setTemplates(res.data.templates || []))
-      .catch(() => {});
-  }, [projectId]);
-
-  const handleApplyTemplate = (templateId) => {
-    const tmpl = templates.find(t => t.id === parseInt(templateId, 10));
-    if (!tmpl) return;
-    setFormData(prev => ({
-      ...prev,
-      building_type: tmpl.building_type || prev.building_type,
-      floors_above_ground: tmpl.default_floors || prev.floors_above_ground
-    }));
-    toast.success(`Template applied: ${tmpl.name}`);
-  };
 
   const handleToggleAdditional = (key) => {
     if (!isManagement) return;
@@ -153,37 +134,6 @@ export default function TimelineSetup({ projectId, config, onConfigSaved, onDraf
 
   return (
     <div className="space-y-6">
-      {/* Template Selector Card */}
-      <div className="card bg-gradient-to-r from-orange-50/40 via-white to-slate-50 border-orange-100">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#E05A1E]/10 flex items-center justify-center text-[#E05A1E]">
-              <Sparkles size={20} />
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-[#1A1A1A]">Construction Template Library</h4>
-              <p className="text-xs text-muted">Initialize timeline with tested architectural project structures</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 w-full md:w-auto">
-            <select
-              className="text-xs bg-white border border-[#EBEBEB] rounded-lg px-3 py-2 font-medium text-slate-700 focus:outline-none focus:border-[#E05A1E]"
-              value={selectedTemplate}
-              onChange={(e) => {
-                setSelectedTemplate(e.target.value);
-                if (e.target.value) handleApplyTemplate(e.target.value);
-              }}
-              disabled={!isManagement}
-            >
-              <option value="">Select a starting template...</option>
-              {templates.map(t => (
-                <option key={t.id} value={t.id}>{t.name} ({t.building_type})</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
       {/* Configuration Form */}
       <div className="card space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#F0F0F0] pb-4 gap-3">
