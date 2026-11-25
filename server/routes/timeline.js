@@ -6,6 +6,7 @@ const pool = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
 const { generateDraftActivities, calculateStructuralSlabs, addCalendarDays, formatDateStr, parseDateStr } = require('../services/timelineGenerator');
+const { reconcileBuildingFloors } = require('../services/buildingHierarchyService');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -408,6 +409,9 @@ router.post('/config', authenticate, checkProjectAccess(), requireManagement, as
 
     // Reconcile activities automatically on save
     const reconciliation = await reconcileProjectTimeline(client, projectId, req.user.id, savedConfig);
+
+    // Reconcile central building floors across Area Statement and Financial Viability
+    await reconcileBuildingFloors(client, projectId, req.user.id, savedConfig);
 
     // Record audit event
     await client.query(

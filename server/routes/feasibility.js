@@ -6,6 +6,7 @@ const pool = require('../db');
 const { authenticate, canViewFinancials } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
 const { calculateAreaMetrics, calculateFinancialMetrics, ROAD_WIDTH_TDR_MAP } = require('../services/feasibilityEngine');
+const { reconcileBuildingFloors } = require('../services/buildingHierarchyService');
 
 // Check financial privileges
 const requireFeasibilityAccess = (req, res, next) => {
@@ -63,10 +64,18 @@ router.get('/', authenticate, checkProjectAccess(), requireFeasibilityAccess, as
     }
 
     // 3. Fetch floors
-    const { rows: floors } = await client.query(
-      'SELECT * FROM project_area_floors WHERE area_statement_id = $1 ORDER BY floor_order ASC, id ASC',
+    let { rows: floors } = await client.query(
+      'SELECT * FROM project_area_floors WHERE area_statement_id = $1 AND is_active = TRUE ORDER BY floor_order ASC, id ASC',
       [statement.id]
     );
+
+    // Auto-reconcile with central building configuration if no floors exist and configuration is present
+    if (floors.length === 0) {
+      const { rows: confRows } = await client.query('SELECT * FROM timeline_configurations WHERE project_id = $1', [projectId]);
+      if (confRows[0]) {
+        floors = await reconcileBuildingFloors(client, projectId, req.user.id, confRows[0]);
+      }
+    }
 
     // 4. Financial viability
     let { rows: [financial] } = await client.query(
@@ -171,7 +180,10 @@ router.put('/area', authenticate, checkProjectAccess(), requireFeasibilityEdit, 
     building_use,
     ancillary_commercial_pct,
     ancillary_residential_pct,
-    unit_display
+    unit_display,
+    total_proposed_pline_override_sqm,
+    is_proposed_pline_overridden,
+    proposed_pline_override_reason
   } = req.body;
 
   // Strict Road-Width Validation Rule (REQ-K)
@@ -218,8 +230,13 @@ router.put('/area', authenticate, checkProjectAccess(), requireFeasibilityEdit, 
         ancillary_commercial_pct = COALESCE($17, ancillary_commercial_pct),
         ancillary_residential_pct = COALESCE($18, ancillary_residential_pct),
         unit_display = COALESCE($19, unit_display),
+        total_proposed_pline_override_sqm = CASE WHEN $21 = TRUE THEN $20 ELSE (CASE WHEN $21 = FALSE THEN NULL ELSE total_proposed_pline_override_sqm END) END,
+        is_proposed_pline_overridden = COALESCE($21, is_proposed_pline_overridden),
+        proposed_pline_override_reason = CASE WHEN $21 = TRUE THEN $22 ELSE (CASE WHEN $21 = FALSE THEN NULL ELSE proposed_pline_override_reason END) END,
+        proposed_pline_overridden_by = CASE WHEN $21 = TRUE THEN $23 ELSE (CASE WHEN $21 = FALSE THEN NULL ELSE proposed_pline_overridden_by END) END,
+        proposed_pline_overridden_at = CASE WHEN $21 = TRUE THEN NOW() ELSE (CASE WHEN $21 = FALSE THEN NULL ELSE proposed_pline_overridden_at END) END,
         updated_at = NOW()
-       WHERE project_id = $20
+       WHERE project_id = $24
        RETURNING *`,
       [
         plot_area_sqm !== undefined ? parseFloat(plot_area_sqm) : null,
@@ -241,6 +258,10 @@ router.put('/area', authenticate, checkProjectAccess(), requireFeasibilityEdit, 
         ancillary_commercial_pct !== undefined ? parseFloat(ancillary_commercial_pct) : null,
         ancillary_residential_pct !== undefined ? parseFloat(ancillary_residential_pct) : null,
         unit_display || null,
+        total_proposed_pline_override_sqm !== undefined ? (total_proposed_pline_override_sqm !== null && total_proposed_pline_override_sqm !== '' ? parseFloat(total_proposed_pline_override_sqm) : null) : null,
+        is_proposed_pline_overridden !== undefined ? Boolean(is_proposed_pline_overridden) : null,
+        proposed_pline_override_reason !== undefined ? proposed_pline_override_reason : null,
+        req.user.id,
         projectId
       ]
     );
@@ -277,6 +298,8 @@ router.post('/area/floors', authenticate, checkProjectAccess(), requireFeasibili
     no_of_units,
     rate_per_sqm,
     cost_for_1_unit,
+    is_pline_overridden,
+    pline_override_reason,
     remarks
   } = req.body;
 
@@ -376,6 +399,8 @@ router.put('/area/floors/:floorId', authenticate, checkProjectAccess(), requireF
     no_of_units,
     rate_per_sqm,
     cost_for_1_unit,
+    is_pline_overridden,
+    pline_override_reason,
     remarks
   } = req.body;
 
@@ -405,6 +430,8 @@ router.put('/area/floors/:floorId', authenticate, checkProjectAccess(), requireF
       ? Math.round(areaFor1Unit * rate * 100) / 100
       : (cost_for_1_unit !== undefined ? (parseFloat(cost_for_1_unit) || 0) : (parseFloat(existing.cost_for_1_unit) || 0));
 
+    const isPlineOverridden = is_pline_overridden !== undefined ? Boolean(is_pline_overridden) : Boolean(existing.is_pline_overridden);
+
     const { rows: [updatedFloor] } = await pool.query(
       `UPDATE project_area_floors SET
         floor_name = COALESCE($1, floor_name),
@@ -421,9 +448,11 @@ router.put('/area/floors/:floorId', authenticate, checkProjectAccess(), requireF
         area_for_1_unit = $12,
         rate_per_sqm = $13,
         cost_for_1_unit = $14,
-        remarks = COALESCE($15, remarks),
+        is_pline_overridden = $15,
+        pline_override_reason = CASE WHEN $15 = TRUE THEN $16 ELSE NULL END,
+        remarks = COALESCE($17, remarks),
         updated_at = NOW()
-       WHERE id = $16 AND area_statement_id = (SELECT id FROM project_area_statements WHERE project_id = $17)
+       WHERE id = $18 AND area_statement_id = (SELECT id FROM project_area_statements WHERE project_id = $19)
        RETURNING *`,
       [
         floor_name ? floor_name.trim() : null,
@@ -440,6 +469,8 @@ router.put('/area/floors/:floorId', authenticate, checkProjectAccess(), requireF
         areaFor1Unit,
         rate,
         computedCost1Unit,
+        isPlineOverridden,
+        pline_override_reason || null,
         remarks !== undefined ? remarks : null,
         floorId,
         projectId
@@ -470,6 +501,115 @@ router.delete('/area/floors/:floorId', authenticate, checkProjectAccess(), requi
   } catch (err) {
     console.error('Error deleting floor:', err);
     res.status(500).json({ error: 'Failed to delete floor row' });
+  }
+});
+
+// 5b. POST /api/projects/:projectId/feasibility/area/reconcile-floors
+// Re-sync floor list from central Building Configuration
+router.post('/area/reconcile-floors', authenticate, checkProjectAccess(), requireFeasibilityEdit, async (req, res) => {
+  const projectId = parseInt(req.params.projectId, 10);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: confRows } = await client.query('SELECT * FROM timeline_configurations WHERE project_id = $1', [projectId]);
+    const conf = confRows[0] || { floors_above_ground: 4, ground_floor_config: 'stilt', has_stilt_parking: true, has_terrace_tank_slab: true };
+    const floors = await reconcileBuildingFloors(client, projectId, req.user.id, conf);
+    await client.query('COMMIT');
+    res.json({ floors, message: 'Floors reconciled successfully with Building Configuration' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error reconciling floors:', err);
+    res.status(500).json({ error: 'Failed to reconcile floors' });
+  } finally {
+    client.release();
+  }
+});
+
+// 5c. PUT /api/projects/:projectId/feasibility/financial/overrides
+// Set/update controlled override on a statutory or development cost item
+router.put('/financial/overrides', authenticate, checkProjectAccess(), requireFeasibilityEdit, async (req, res) => {
+  const projectId = parseInt(req.params.projectId, 10);
+  const { key, override_val, calculated_basis_val, reason } = req.body;
+
+  if (!key) {
+    return res.status(400).json({ error: 'Override key is required' });
+  }
+
+  try {
+    const { rows: [fin] } = await pool.query('SELECT * FROM project_financial_viabilities WHERE project_id = $1', [projectId]);
+    if (!fin) return res.status(404).json({ error: 'Financial viability not found' });
+
+    const overrides = fin.overrides || {};
+    const history = fin.override_history || [];
+
+    const oldOverride = overrides[key] || null;
+    overrides[key] = {
+      override_val: override_val !== undefined && override_val !== null ? parseFloat(override_val) : null,
+      calculated_basis_val: calculated_basis_val !== undefined && calculated_basis_val !== null ? parseFloat(calculated_basis_val) : null,
+      overridden_by: req.user.id,
+      overridden_at: new Date().toISOString(),
+      reason: reason || ''
+    };
+
+    history.push({
+      action: 'SET_OVERRIDE',
+      key,
+      old_value: oldOverride,
+      new_value: overrides[key],
+      user_id: req.user.id,
+      timestamp: new Date().toISOString()
+    });
+
+    const { rows: [updated] } = await pool.query(
+      'UPDATE project_financial_viabilities SET overrides = $1, override_history = $2, updated_at = NOW() WHERE project_id = $3 RETURNING *',
+      [JSON.stringify(overrides), JSON.stringify(history), projectId]
+    );
+
+    res.json({ financial: updated, message: `Override for ${key} updated successfully` });
+  } catch (err) {
+    console.error('Error updating financial override:', err);
+    res.status(500).json({ error: 'Failed to update financial override' });
+  }
+});
+
+// 5d. POST /api/projects/:projectId/feasibility/financial/overrides/reset
+// Reset an override back to engine calculated value
+router.post('/financial/overrides/reset', authenticate, checkProjectAccess(), requireFeasibilityEdit, async (req, res) => {
+  const projectId = parseInt(req.params.projectId, 10);
+  const { key } = req.body;
+
+  if (!key) {
+    return res.status(400).json({ error: 'Override key is required' });
+  }
+
+  try {
+    const { rows: [fin] } = await pool.query('SELECT * FROM project_financial_viabilities WHERE project_id = $1', [projectId]);
+    if (!fin) return res.status(404).json({ error: 'Financial viability not found' });
+
+    const overrides = fin.overrides || {};
+    const history = fin.override_history || [];
+
+    const oldOverride = overrides[key] || null;
+    delete overrides[key];
+
+    history.push({
+      action: 'RESET_OVERRIDE',
+      key,
+      old_value: oldOverride,
+      new_value: null,
+      user_id: req.user.id,
+      timestamp: new Date().toISOString()
+    });
+
+    const { rows: [updated] } = await pool.query(
+      'UPDATE project_financial_viabilities SET overrides = $1, override_history = $2, updated_at = NOW() WHERE project_id = $3 RETURNING *',
+      [JSON.stringify(overrides), JSON.stringify(history), projectId]
+    );
+
+    res.json({ financial: updated, message: `Override for ${key} reset to calculated successfully` });
+  } catch (err) {
+    console.error('Error resetting financial override:', err);
+    res.status(500).json({ error: 'Failed to reset financial override' });
   }
 });
 

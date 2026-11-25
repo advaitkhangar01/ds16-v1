@@ -85,32 +85,43 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
     const totalTdr = regTdr + slumTdr;
 
     const totalBuiltup = basicFsi + paidFsi + totalTdr;
-    const ancillaryPct = s.building_use === 'COMMERCIAL'
-      ? 0.8
-      : (parseFloat(s.ancillary_residential_pct) || 0.6);
+    const isCommercial = s.building_use === 'COMMERCIAL' || s.building_use === 'Commercial';
+    const isMixedUse = s.building_use === 'Mixed Use' || s.building_use === 'MIXED_USE';
+    const resAncillaryPct = parseFloat(s.ancillary_residential_pct) || 0.6;
+    const commAncillaryPct = parseFloat(s.ancillary_commercial_pct) || 0.8;
+    const ancillaryPct = isCommercial ? commAncillaryPct : resAncillaryPct;
     const ancillary = totalBuiltup * ancillaryPct;
     const proposedPline = totalBuiltup + ancillary;
 
     let floorPlineSum = 0;
+    let floorFsiSum = 0;
+    let floorAncillarySum = 0;
     let floorLobbySum = 0;
     let floorOwnersSum = 0;
     let floorSaleSum = 0;
     let floorHeightSum = 0;
+    let totalUnitsCount = 0;
 
     f.forEach((fl, idx) => {
       const p = parseFloat(fl.pline_area_sqm) || 0;
+      const fsi = parseFloat(fl.fsi_area_sqm) || 0;
+      const anc = parseFloat(fl.ancillary_area_sqm) || 0;
       const l = parseFloat(fl.lobby_area_sqm) || 0;
       const h = parseFloat(fl.height_meters) || 0;
       const o = parseFloat(fl.builtup_for_owners_sqm) !== undefined && !isNaN(parseFloat(fl.builtup_for_owners_sqm))
         ? parseFloat(fl.builtup_for_owners_sqm)
         : (idx === 0 ? 0 : Math.max(0, p - l));
       const sa = parseFloat(fl.builtup_for_sale_sqm) || 0;
+      const u = parseInt(fl.no_of_units, 10) || 0;
 
       floorPlineSum += p;
+      floorFsiSum += fsi;
+      floorAncillarySum += anc;
       floorLobbySum += l;
       floorOwnersSum += o;
       floorSaleSum += sa;
       floorHeightSum += h;
+      totalUnitsCount += u;
     });
 
     const divFactor = parseFloat(s.dividing_factor) || 1.6;
@@ -133,13 +144,16 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
       proposedSlumTdrSqm: slumTdr,
       proposedTdrSqm: totalTdr,
       proposedTotalBuiltupSqm: totalBuiltup,
+      proposedTotalFsiSqm: floorFsiSum > 0 ? floorFsiSum : totalBuiltup,
       proposedAncillaryResSqm: ancillary,
+      totalProposedAncillarySqm: floorAncillarySum > 0 ? floorAncillarySum : ancillary,
       proposedPlineTotalSqm: proposedPline,
       totalProposedPlineSqm: floorPlineSum,
       totalLobbyAreaSqm: floorLobbySum,
       totalBuiltupForOwnersSqm: floorOwnersSum,
       totalBuiltupForSaleSqm: floorSaleSum,
       totalHeightMeters: floorHeightSum,
+      totalUnitsCount,
       baseDividingFactorSqm: baseDiv,
       derivedAncillaryAreaSqm: derivedAnc,
       paidFsiRequiredSqm: paidReq
@@ -254,6 +268,45 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
       toast.error(err.response?.data?.error || 'Failed to add floor');
     } finally {
       setIsAddingFloor(false);
+    }
+  };
+
+  const handleReconcileFloors = async () => {
+    try {
+      const res = await api.post(`/projects/${projectId}/feasibility/area/reconcile-floors`);
+      setFloors(res.data.floors || []);
+      toast.success(res.data.message || 'Floors reconciled with Building Configuration');
+      fetchData();
+    } catch (err) {
+      console.error('Error reconciling floors:', err);
+      toast.error(err.response?.data?.error || 'Failed to reconcile floors');
+    }
+  };
+
+  const handleSaveFinancialOverride = async (key, val, basisVal, reason) => {
+    try {
+      await api.put(`/projects/${projectId}/feasibility/financial/overrides`, {
+        key,
+        override_val: val,
+        calculated_basis_val: basisVal,
+        reason
+      });
+      toast.success(`Override saved for ${key}`);
+      fetchData();
+    } catch (err) {
+      console.error('Error saving financial override:', err);
+      toast.error(err.response?.data?.error || 'Failed to save override');
+    }
+  };
+
+  const handleResetFinancialOverride = async (key) => {
+    try {
+      await api.post(`/projects/${projectId}/feasibility/financial/overrides/reset`, { key });
+      toast.success(`Override reset for ${key}`);
+      fetchData();
+    } catch (err) {
+      console.error('Error resetting financial override:', err);
+      toast.error(err.response?.data?.error || 'Failed to reset override');
     }
   };
 
@@ -442,16 +495,28 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
       { 'Sr.': 'H', 'Particulars': 'TOTAL PROPOSED P-LINE AREA (E + G)', 'Proposed Value': areaMetrics.proposedPlineTotalSqm }
     ];
 
-    // Floor breakdown: 7-column sequence
-    const floorRows = floors.map(f => ({
-      'Floor Level': f.floor_name,
-      'Height (m)': f.height_meters,
-      'P-Line Area (sq m)': f.pline_area_sqm,
-      'Lobby Area (sq m)': f.lobby_area_sqm,
-      'Built-up for Sale (sq m)': f.builtup_for_sale_sqm,
-      'No. Of Units': f.no_of_units || 1,
-      'Area For 1 Unit': f.area_for_1_unit || (f.no_of_units > 0 ? ((f.builtup_for_sale_sqm || 0) / f.no_of_units).toFixed(2) : '0.00')
-    }));
+    // Floor breakdown: 10-column sequence matching Section G
+    const floorRows = floors.map(f => {
+      const isParking = ['parking', 'BASEMENT_1', 'BASEMENT_2', 'STILT', 'UPPER_PARKING'].includes(f.floor_type?.toUpperCase?.() || f.floor_type);
+      const isTerrace = f.floor_type === 'terrace';
+      const isHabitable = !isParking && !isTerrace;
+      const u = f.usage_type || (statement.building_use === 'Commercial' ? 'Commercial' : (isParking ? 'Parking' : isTerrace ? 'Terrace' : 'Residential'));
+      const units = parseInt(f.no_of_units, 10) || 0;
+      const sale = parseFloat(f.builtup_for_sale_sqm) || 0;
+
+      return {
+        '1. Floor Level': f.floor_name,
+        '2. Building Use': u,
+        '3. Height (m)': f.height_meters || 3.0,
+        '4. Proposed FSI Area (sq m)': isHabitable ? parseFloat(f.fsi_area_sqm || 0) : 0,
+        '5. Ancillary Area (sq m)': isHabitable ? parseFloat(f.ancillary_area_sqm || 0) : 0,
+        '6. Proposed P-Line Area (sq m)': parseFloat(f.pline_area_sqm || 0),
+        '7. Lobby Area (sq m)': parseFloat(f.lobby_area_sqm || 0),
+        '8. Built-up for Sale (sq m)': isHabitable ? sale : 0,
+        '9. No. Of Units': isHabitable ? units : 0,
+        '10. Area For 1 Unit (sq m)': isHabitable ? (f.area_for_1_unit || (units > 0 ? (sale / units).toFixed(2) : '0.00')) : 0
+      };
+    });
 
     const finRows = [
       { 'Category': 'Total Statutory Demand (A)', 'Amount (Rs)': financialMetrics.totalStatutoryDemandA },
@@ -654,31 +719,31 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
               <AreaStatementForm
                 statement={statement}
                 floors={floors}
+                areaMetrics={areaMetrics}
                 onUpdateStatement={handleUpdateStatement}
-                onAddFloor={handleAddFloor}
                 onUpdateFloor={handleUpdateFloor}
-                onDeleteFloor={handleDeleteFloor}
+                onReconcileFloors={handleReconcileFloors}
                 unitDisplay={unitDisplay}
                 isPrivileged={isPrivileged}
-                isAddingFloor={isAddingFloor}
               />
             )}
 
             {activeSubSection === 'financial' && (
               <FinancialViabilityForm
                 financial={financial}
+                statement={statement}
                 floors={floors}
                 statutoryCharges={statutoryCharges}
                 salableUnits={salableUnits}
+                areaMetrics={areaMetrics}
+                financialMetrics={financialMetrics}
                 onUpdateFinancial={handleUpdateFinancial}
                 onUpdateFloor={handleUpdateFloor}
-                onAddFloor={handleAddFloor}
-                onDeleteFloor={handleDeleteFloor}
                 onUpdateStatutoryCharge={handleUpdateStatutoryCharge}
-                onArchiveStatutoryCharge={handleArchiveStatutoryCharge}
+                onSaveOverride={handleSaveFinancialOverride}
+                onResetOverride={handleResetFinancialOverride}
                 unitDisplay={unitDisplay}
                 isPrivileged={isPrivileged}
-                isAddingFloor={isAddingFloor}
               />
             )}
           </div>

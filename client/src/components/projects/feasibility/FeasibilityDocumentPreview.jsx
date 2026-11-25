@@ -180,11 +180,31 @@ export default function FeasibilityDocumentPreview({
                     <td className="border border-slate-300 px-3 py-1 text-slate-700">TOTAL FSI CONSUMPTION RATIO</td>
                     <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber(areaMetrics.permissibleTotalFsi || 0, 3)}</td>
                   </tr>
-                  <tr>
-                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">G</td>
-                    <td className="border border-slate-300 px-3 py-1 text-slate-800">{ancillaryLabel}</td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.permissibleAncillaryResSqm || 0) * unitFactor)}</td>
-                  </tr>
+                  {statement.building_use === 'Mixed Use' ? (
+                    <>
+                      <tr>
+                        <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">G1</td>
+                        <td className="border border-slate-300 px-3 py-1 text-slate-800">Residential Ancillary FSI (60%)</td>
+                        <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.permissibleResidentialAncillarySqm || 0) * unitFactor)}</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">G2</td>
+                        <td className="border border-slate-300 px-3 py-1 text-slate-800">Commercial Ancillary FSI (80%)</td>
+                        <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.permissibleCommercialAncillarySqm || 0) * unitFactor)}</td>
+                      </tr>
+                      <tr className="bg-slate-50 font-semibold">
+                        <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">G</td>
+                        <td className="border border-slate-300 px-3 py-1 text-slate-900">Total Permissible Ancillary Area (G1 + G2)</td>
+                        <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.permissibleTotalAncillarySqm || 0) * unitFactor)}</td>
+                      </tr>
+                    </>
+                  ) : (
+                    <tr>
+                      <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">G</td>
+                      <td className="border border-slate-300 px-3 py-1 text-slate-800">{ancillaryLabel}</td>
+                      <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.permissibleAncillaryResSqm || 0) * unitFactor)}</td>
+                    </tr>
+                  )}
                   <tr className="bg-emerald-50 font-bold border-t-2 border-slate-400">
                     <td className="border border-slate-300 px-2.5 py-1.5 text-center font-mono text-emerald-950">H</td>
                     <td className="border border-slate-300 px-3 py-1.5 text-emerald-950 font-extrabold">TOTAL PERMISSIBLE P-LINE AREA (E + G)</td>
@@ -264,11 +284,35 @@ export default function FeasibilityDocumentPreview({
                     <td className="border border-slate-300 px-3 py-1 text-slate-700">TOTAL FSI CONSUMPTION RATIO</td>
                     <td className="border border-slate-300 px-3 py-1 text-right font-mono font-bold">{formatNumber(areaMetrics.proposedTotalFsi || 0, 3)}</td>
                   </tr>
-                  <tr>
-                    <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">G</td>
-                    <td className="border border-slate-300 px-3 py-1 text-slate-800">{ancillaryLabel}</td>
-                    <td className="border border-slate-300 px-3 py-1 text-right font-mono font-semibold">{formatNumber((areaMetrics.proposedAncillaryResSqm || 0) * unitFactor)}</td>
-                  </tr>
+                  {statement.building_use === 'Mixed Use' ? (
+                    <>
+                      <tr>
+                        <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">G1</td>
+                        <td className="border border-slate-300 px-3 py-1 text-slate-800">
+                          Residential Ancillary Area (60% × {formatNumber((areaMetrics.proposedResidentialFsiSqm || 0) * unitFactor)})
+                        </td>
+                        <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.proposedResidentialAncillarySqm || 0) * unitFactor)}</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">G2</td>
+                        <td className="border border-slate-300 px-3 py-1 text-slate-800">
+                          Commercial Ancillary Area (80% × {formatNumber((areaMetrics.proposedCommercialFsiSqm || 0) * unitFactor)})
+                        </td>
+                        <td className="border border-slate-300 px-3 py-1 text-right font-mono">{formatNumber((areaMetrics.proposedCommercialAncillarySqm || 0) * unitFactor)}</td>
+                      </tr>
+                      <tr className="bg-slate-50 font-semibold">
+                        <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">G</td>
+                        <td className="border border-slate-300 px-3 py-1 text-slate-900">Total Proposed Ancillary Area (G1 + G2)</td>
+                        <td className="border border-slate-300 px-3 py-1 text-right font-mono text-[#E05A1E] font-bold">{formatNumber((areaMetrics.totalProposedAncillarySqm || areaMetrics.proposedAncillaryResSqm || 0) * unitFactor)}</td>
+                      </tr>
+                    </>
+                  ) : (
+                    <tr>
+                      <td className="border border-slate-300 px-2.5 py-1 text-center font-mono">G</td>
+                      <td className="border border-slate-300 px-3 py-1 text-slate-800">{ancillaryLabel}</td>
+                      <td className="border border-slate-300 px-3 py-1 text-right font-mono font-semibold">{formatNumber((areaMetrics.proposedAncillaryResSqm || 0) * unitFactor)}</td>
+                    </tr>
+                  )}
                   <tr className="bg-emerald-50 font-bold border-t-2 border-slate-400">
                     <td className="border border-slate-300 px-2.5 py-1.5 text-center font-mono text-emerald-950">H</td>
                     <td className="border border-slate-300 px-3 py-1.5 text-emerald-950 font-extrabold">TOTAL PROPOSED P-LINE AREA (E + G)</td>
@@ -278,78 +322,111 @@ export default function FeasibilityDocumentPreview({
               </table>
             </div>
 
-            {/* TABLE 3 — PROPOSED FLOOR-WISE P-LINE STATEMENT (REQ-H EXACT SEQUENCE) */}
+            {/* TABLE 3 — PROPOSED FLOOR-WISE P-LINE STATEMENT (MANDATORY 10 COLUMNS) */}
             <div className="space-y-2">
               <div className="bg-slate-800 text-white px-3.5 py-2 font-bold rounded-t text-xs uppercase tracking-wider flex items-center justify-between">
                 <span>Table 3 — Proposed Floor-wise P-Line Area Statement</span>
-                <span className="text-[10px] font-mono font-normal">Sequence: Level | Height | P-Line | Lobby | Saleable | Units | Area/Unit</span>
+                <span className="text-[10px] font-mono font-normal">10 Columns: Level | Use | Height | FSI Area | Ancillary | P-Line | Lobby | Saleable | Units | Area/Unit</span>
               </div>
 
               <table className="w-full border-collapse border border-slate-300 text-left text-xs">
                 <thead>
-                  <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                    <th className="border border-slate-300 px-3 py-1.5">Floor Level</th>
-                    <th className="border border-slate-300 px-2.5 py-1.5 text-right w-24">Height (m)</th>
-                    <th className="border border-slate-300 px-2.5 py-1.5 text-right w-32">P-Line Area ({unitLabel})</th>
-                    <th className="border border-slate-300 px-2.5 py-1.5 text-right w-32">Lobby Area ({unitLabel})</th>
-                    <th className="border border-slate-300 px-2.5 py-1.5 text-right w-32">Built-up for Sale ({unitLabel})</th>
-                    <th className="border border-slate-300 px-2.5 py-1.5 text-center w-24">No. Of Units</th>
-                    <th className="border border-slate-300 px-2.5 py-1.5 text-right w-32">Area For 1 Unit ({unitLabel})</th>
+                  <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300 text-[10px]">
+                    <th className="border border-slate-300 px-2.5 py-1.5">1. Level</th>
+                    <th className="border border-slate-300 px-2 py-1.5 text-center w-24">2. Use</th>
+                    <th className="border border-slate-300 px-2 py-1.5 text-right w-20">3. Height (m)</th>
+                    <th className="border border-slate-300 px-2 py-1.5 text-right w-24">4. FSI ({unitLabel})</th>
+                    <th className="border border-slate-300 px-2 py-1.5 text-right w-24">5. Ancillary ({unitLabel})</th>
+                    <th className="border border-slate-300 px-2 py-1.5 text-right w-24">6. P-Line ({unitLabel})</th>
+                    <th className="border border-slate-300 px-2 py-1.5 text-right w-24">7. Lobby ({unitLabel})</th>
+                    <th className="border border-slate-300 px-2 py-1.5 text-right w-24">8. Built-up Sale ({unitLabel})</th>
+                    <th className="border border-slate-300 px-2 py-1.5 text-center w-16">9. Units</th>
+                    <th className="border border-slate-300 px-2 py-1.5 text-right w-24">10. Area/Unit ({unitLabel})</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {floors.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="border border-slate-300 py-8 text-center text-slate-400 italic">
+                      <td colSpan="10" className="border border-slate-300 py-8 text-center text-slate-400 italic">
                         No floor plates defined yet. Add floor levels in the Area Statement input form.
                       </td>
                     </tr>
                   ) : (
                     floors.map((f, idx) => {
                       const isParking = ['parking', 'BASEMENT_1', 'BASEMENT_2', 'STILT', 'UPPER_PARKING'].includes(f.floor_type?.toUpperCase?.() || f.floor_type);
+                      const isTerrace = f.floor_type === 'terrace';
+                      const isHabitable = !isParking && !isTerrace;
                       const units = parseInt(f.no_of_units, 10) || 0;
+                      const fsi = parseFloat(f.fsi_area_sqm) || 0;
+                      const ancillary = parseFloat(f.ancillary_area_sqm) || 0;
+                      const ancPct = f.ancillary_pct || (f.usage_type === 'Commercial' ? 0.8 : 0.6);
+                      const pline = parseFloat(f.pline_area_sqm) || 0;
+                      const lobby = parseFloat(f.lobby_area_sqm) || 0;
                       const sale = parseFloat(f.builtup_for_sale_sqm) || 0;
-                      const areaFor1Unit = units > 0 ? (sale / units) * unitFactor : 0;
+                      const areaFor1Unit = parseFloat(f.area_for_1_unit) || (units > 0 ? (sale / units) * unitFactor : 0);
+                      const floorUsage = f.usage_type || (statement.building_use === 'Commercial' ? 'Commercial' : (isParking ? 'Parking' : isTerrace ? 'Terrace' : 'Residential'));
 
                       return (
                         <tr key={idx} className={isParking ? 'bg-amber-50/40' : (idx % 2 === 1 ? 'bg-slate-50/50' : '')}>
-                          <td className="border border-slate-300 px-3 py-1 font-medium">
+                          <td className="border border-slate-300 px-2.5 py-1 font-medium">
                             {f.floor_name}
                             {isParking && (
-                              <span className="ml-1.5 text-[9px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">
-                                Parking (Non-FSI)
+                              <span className="ml-1 text-[8px] font-bold text-amber-800 bg-amber-100 px-1 py-0.5 rounded border border-amber-300">
+                                Parking
                               </span>
                             )}
                           </td>
-                          <td className="border border-slate-300 px-2.5 py-1 text-right font-mono">{formatNumber(f.height_meters)}m</td>
-                          <td className="border border-slate-300 px-2.5 py-1 text-right font-mono font-semibold">{formatNumber((f.pline_area_sqm || 0) * unitFactor)}</td>
-                          <td className="border border-slate-300 px-2.5 py-1 text-right font-mono">
-                            {formatNumber((f.lobby_area_sqm || 0) * unitFactor)}
-                            {f.is_lobby_overridden && (
-                              <span className="text-[8px] text-[#E05A1E] font-bold block leading-tight">*manual override</span>
+                          <td className="border border-slate-300 px-2 py-1 text-center font-medium">
+                            {isHabitable ? (
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${floorUsage === 'Commercial' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
+                                {floorUsage}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 font-mono text-[9px]">{isParking ? 'Parking' : 'Terrace'}</span>
                             )}
                           </td>
-                          <td className="border border-slate-300 px-2.5 py-1 text-right font-mono text-[#E05A1E] font-semibold">
-                            {isParking ? '—' : formatNumber((f.builtup_for_sale_sqm || 0) * unitFactor)}
+                          <td className="border border-slate-300 px-2 py-1 text-right font-mono">{formatNumber(f.height_meters)}m</td>
+                          <td className="border border-slate-300 px-2 py-1 text-right font-mono font-medium text-slate-800">
+                            {isHabitable ? formatNumber(fsi * unitFactor) : '—'}
                           </td>
-                          <td className="border border-slate-300 px-2.5 py-1 text-center font-mono font-bold">
+                          <td className="border border-slate-300 px-2 py-1 text-right font-mono text-slate-700">
+                            {isHabitable ? (
+                              <span>{formatNumber(ancillary * unitFactor)} <span className="text-[8px] text-muted">({Math.round(ancPct * 100)}%)</span></span>
+                            ) : '—'}
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1 text-right font-mono font-semibold text-slate-900">
+                            {formatNumber(pline * unitFactor)}
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1 text-right font-mono">
+                            {formatNumber(lobby * unitFactor)}
+                            {f.is_lobby_overridden && (
+                              <span className="text-[7px] text-[#E05A1E] font-bold block leading-tight">*override</span>
+                            )}
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1 text-right font-mono text-[#E05A1E] font-semibold">
+                            {isParking ? '—' : formatNumber(sale * unitFactor)}
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1 text-center font-mono font-bold">
                             {isParking ? '—' : units}
                           </td>
-                          <td className="border border-slate-300 px-2.5 py-1 text-right font-mono font-bold text-slate-800">
+                          <td className="border border-slate-300 px-2 py-1 text-right font-mono font-bold text-slate-800">
                             {isParking || units === 0 ? '—' : formatNumber(areaFor1Unit)}
                           </td>
                         </tr>
                       );
                     })
                   )}
-                  <tr className="bg-slate-200 font-bold border-t-2 border-slate-400">
-                    <td className="border border-slate-300 px-3 py-1.5">TOTAL PROPOSED P-LINE (A)</td>
-                    <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono">{formatNumber(areaMetrics.totalHeightMeters)}m</td>
-                    <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono text-slate-900 font-extrabold">{formatNumber((areaMetrics.totalProposedPlineSqm || 0) * unitFactor)}</td>
-                    <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono">{formatNumber((areaMetrics.totalLobbyAreaSqm || 0) * unitFactor)}</td>
-                    <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono text-[#E05A1E] font-extrabold">{formatNumber((areaMetrics.totalBuiltupForSaleSqm || 0) * unitFactor)}</td>
-                    <td className="border border-slate-300 px-2.5 py-1.5 text-center font-mono font-bold">{areaMetrics.totalUnitsCount || 0}</td>
-                    <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono text-slate-400">—</td>
+                  <tr className="bg-slate-200 font-bold border-t-2 border-slate-400 text-[11px]">
+                    <td className="border border-slate-300 px-2.5 py-1.5 uppercase font-extrabold">TOTAL ({floors.length})</td>
+                    <td className="border border-slate-300 px-2 py-1.5 text-center text-slate-400 font-normal">—</td>
+                    <td className="border border-slate-300 px-2 py-1.5 text-right font-mono">{formatNumber(areaMetrics.totalHeightMeters)}m</td>
+                    <td className="border border-slate-300 px-2 py-1.5 text-right font-mono text-slate-800 font-bold">{formatNumber((areaMetrics.proposedTotalFsiSqm || 0) * unitFactor)}</td>
+                    <td className="border border-slate-300 px-2 py-1.5 text-right font-mono text-slate-700">{formatNumber((areaMetrics.totalProposedAncillarySqm || 0) * unitFactor)}</td>
+                    <td className="border border-slate-300 px-2 py-1.5 text-right font-mono text-slate-900 font-extrabold">{formatNumber((areaMetrics.totalProposedPlineSqm || 0) * unitFactor)}</td>
+                    <td className="border border-slate-300 px-2 py-1.5 text-right font-mono">{formatNumber((areaMetrics.totalLobbyAreaSqm || 0) * unitFactor)}</td>
+                    <td className="border border-slate-300 px-2 py-1.5 text-right font-mono text-[#E05A1E] font-extrabold">{formatNumber((areaMetrics.totalBuiltupForSaleSqm || 0) * unitFactor)}</td>
+                    <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-bold">{areaMetrics.totalUnitsCount || 0}</td>
+                    <td className="border border-slate-300 px-2 py-1.5 text-right font-mono text-slate-400">—</td>
                   </tr>
                 </tbody>
               </table>
