@@ -1,5 +1,6 @@
 // client/src/components/projects/feasibility/AreaFeasibilityTab.jsx
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Calculator,
   FileSpreadsheet,
@@ -9,7 +10,12 @@ import {
   Layers,
   Sparkles,
   BarChart3,
-  FileText
+  FileText,
+  ArrowRight,
+  TrendingUp,
+  Coins,
+  Building2,
+  CheckCircle2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../../api/client';
@@ -35,8 +41,23 @@ const formatNum = (val, decimals = 2) => {
 };
 
 export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const VALID_SUB_TABS = ['area-statement', 'financial-viability', 'project-summary', 'report-preview'];
+  const normalizeTab = (raw) => {
+    if (!raw) return 'area-statement';
+    if (raw === 'section-area-statement') return 'area-statement';
+    if (raw === 'section-financial-viability') return 'financial-viability';
+    if (raw === 'section-project-summary') return 'project-summary';
+    if (raw === 'section-report-preview') return 'report-preview';
+    return VALID_SUB_TABS.includes(raw) ? raw : 'area-statement';
+  };
+
+  const [activeSubTab, setActiveSubTab] = useState(() => {
+    return normalizeTab(searchParams.get('subtab') || searchParams.get('feasibilityTab'));
+  });
+
   const [unitDisplay, setUnitDisplay] = useState('sq_m'); // 'sq_m' or 'sq_ft'
-  const [activeNav, setActiveNav] = useState('section-area-statement');
 
   const [project, setProject] = useState(null);
   const [statement, setStatement] = useState({});
@@ -51,6 +72,31 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+
+  // Sync state if URL query param changes (e.g. browser back/forward)
+  useEffect(() => {
+    const currentParam = normalizeTab(searchParams.get('subtab') || searchParams.get('feasibilityTab'));
+    if (currentParam !== activeSubTab) {
+      setActiveSubTab(currentParam);
+    }
+  }, [searchParams]);
+
+  // Ensure valid sub-tab when projectId changes
+  useEffect(() => {
+    const currentParam = searchParams.get('subtab');
+    if (currentParam && !VALID_SUB_TABS.includes(currentParam)) {
+      setActiveSubTab('area-statement');
+    }
+  }, [projectId]);
+
+  const handleSubTabChange = (tabId) => {
+    setActiveSubTab(tabId);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('subtab', tabId);
+      return next;
+    }, { replace: true });
+  };
 
   // Fetch feasibility bundle
   const fetchData = useCallback(async () => {
@@ -529,9 +575,15 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
   const handleExportPDF = async () => {
     setExporting(true);
     try {
+      if (activeSubTab !== 'report-preview') {
+        handleSubTabChange('report-preview');
+        // Wait a frame for DOM to mount FeasibilityDocumentPreview
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+
       const element = document.getElementById('feasibility-document-canvas');
       if (!element) {
-        toast.error('Unable to locate document canvas');
+        toast.error('Unable to locate document canvas for PDF export');
         return;
       }
 
@@ -565,14 +617,6 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
     }
   };
 
-  const scrollToSection = (sectionId) => {
-    setActiveNav(sectionId);
-    const el = document.getElementById(sectionId);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
-
   if (loading) {
     return (
       <div className="space-y-4">
@@ -586,42 +630,47 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
   const unitFactor = isSqft ? 10.764 : 1;
   const unitLabel = isSqft ? 'sq ft' : 'sq m';
 
-  const navItems = [
-    { id: 'section-area-statement', label: 'Area Statement', icon: Layers },
-    { id: 'section-financial-viability', label: 'Financial Viability', icon: Calculator },
-    { id: 'section-project-summary', label: 'Project Summary', icon: BarChart3 },
-    { id: 'section-report-preview', label: 'Report Preview', icon: FileText }
+  const SUB_TABS = [
+    { id: 'area-statement', label: 'Area Statement', icon: Layers },
+    { id: 'financial-viability', label: 'Financial Viability', icon: Calculator },
+    { id: 'project-summary', label: 'Project Summary', icon: BarChart3 },
+    { id: 'report-preview', label: 'Report Preview', icon: FileText }
   ];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      {/* Compact Sticky Section Navigation & Save Toolbar */}
-      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border border-slate-200 rounded-xl shadow-sm p-2.5 sm:px-4 sm:py-2.5 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
-        {/* Section Jump Links */}
-        <nav aria-label="Feasibility sections" className="flex items-center gap-1.5 flex-wrap">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeNav === item.id;
+      {/* ===================================================================== */}
+      {/* INDEPENDENT SUB-TAB NAVIGATION & GLOBAL ACTION TOOLBAR                */}
+      {/* ===================================================================== */}
+      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border border-slate-200 rounded-xl shadow-sm p-2 sm:p-2.5 flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
+        {/* 4 Independent Sub-tabs */}
+        <nav aria-label="Feasibility Sub-tabs" className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar max-w-full py-0.5">
+          {SUB_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeSubTab === tab.id;
             return (
               <button
-                key={item.id}
+                key={tab.id}
                 type="button"
-                onClick={() => scrollToSection(item.id)}
-                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => handleSubTabChange(tab.id)}
+                className={`px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 whitespace-nowrap flex-shrink-0 ${
                   isActive
-                    ? 'bg-[#E05A1E] text-white shadow-sm'
+                    ? 'bg-[#E05A1E] text-white shadow-sm ring-1 ring-[#E05A1E]'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
-                <Icon size={13} />
-                <span>{item.label}</span>
+                <Icon size={14} className={isActive ? 'text-white' : 'text-slate-500'} />
+                <span>{tab.label}</span>
               </button>
             );
           })}
         </nav>
 
-        {/* Global Actions & Save */}
-        <div className="flex items-center gap-2 flex-wrap justify-start lg:justify-end">
+        {/* Global Controls & Actions */}
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-between sm:justify-end">
+          {/* Unit Toggle */}
           <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200 text-xs">
             <button
               type="button"
@@ -650,7 +699,7 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
             title="Snapshot calculation"
           >
             <Camera size={13} className="text-[#E05A1E]" />
-            <span>Snapshot</span>
+            <span className="hidden sm:inline">Snapshot</span>
           </button>
 
           <button
@@ -660,7 +709,7 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
             title="Export Excel"
           >
             <FileSpreadsheet size={13} className="text-emerald-600" />
-            <span>Excel</span>
+            <span className="hidden sm:inline">Excel</span>
           </button>
 
           <button
@@ -671,7 +720,7 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
             title="Export PDF"
           >
             <Download size={13} className="text-red-600" />
-            <span>{exporting ? 'Generating...' : 'PDF'}</span>
+            <span className="hidden sm:inline">{exporting ? 'Generating...' : 'PDF'}</span>
           </button>
 
           {isPrivileged && (
@@ -689,210 +738,372 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
       </div>
 
       {/* ===================================================================== */}
-      {/* SECTION A — AREA STATEMENT FORM                                       */}
+      {/* 1. AREA STATEMENT SUB-TAB PAGE                                        */}
       {/* ===================================================================== */}
-      <section id="section-area-statement" className="scroll-mt-24 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 shadow-soft-sm space-y-5">
-        <div className="border-b border-slate-200 pb-3 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-              <Layers size={16} className="text-[#E05A1E]" />
-              Section A — Area Statement
-            </h2>
-            <p className="text-xs text-muted mt-0.5">
-              Plot baseline, regulatory FSI &amp; TDR factors, building structure, and floor-wise P-Line distribution.
-            </p>
+      {activeSubTab === 'area-statement' && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 shadow-soft-sm space-y-5 animate-in fade-in duration-200">
+          <div className="border-b border-slate-200 pb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                <Layers size={16} className="text-[#E05A1E]" />
+                Area Statement
+              </h2>
+              <p className="text-xs text-muted mt-0.5">
+                Plot baseline, regulatory FSI &amp; TDR factors, building structure, and floor-wise P-Line distribution.
+              </p>
+            </div>
+            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
+              <Sparkles size={12} /> Live Auto-Calculate
+            </span>
           </div>
-          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
-            <Sparkles size={12} /> Live Auto-Calculate
-          </span>
+
+          <AreaStatementForm
+            statement={statement}
+            floors={floors}
+            areaMetrics={areaMetrics}
+            onUpdateStatement={handleUpdateStatement}
+            onUpdateFloor={handleUpdateFloor}
+            onReconcileFloors={handleReconcileFloors}
+            unitDisplay={unitDisplay}
+            isPrivileged={isPrivileged}
+          />
         </div>
-
-        <AreaStatementForm
-          statement={statement}
-          floors={floors}
-          areaMetrics={areaMetrics}
-          onUpdateStatement={handleUpdateStatement}
-          onUpdateFloor={handleUpdateFloor}
-          onReconcileFloors={handleReconcileFloors}
-          unitDisplay={unitDisplay}
-          isPrivileged={isPrivileged}
-        />
-      </section>
+      )}
 
       {/* ===================================================================== */}
-      {/* SECTION B — FINANCIAL VIABILITY FORM                                  */}
+      {/* 2. FINANCIAL VIABILITY SUB-TAB PAGE                                   */}
       {/* ===================================================================== */}
-      <section id="section-financial-viability" className="scroll-mt-24 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 shadow-soft-sm space-y-5">
-        <div className="border-b border-slate-200 pb-3 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-              <Calculator size={16} className="text-[#E05A1E]" />
-              Section B — Financial Viability
-            </h2>
-            <p className="text-xs text-muted mt-0.5">
-              Ready Reckoner assumptions, statutory cost norms, construction costs, floor-wise sales realisation, and NMC statutory charges.
-            </p>
+      {activeSubTab === 'financial-viability' && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 shadow-soft-sm space-y-5 animate-in fade-in duration-200">
+          <div className="border-b border-slate-200 pb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                <Calculator size={16} className="text-[#E05A1E]" />
+                Financial Viability
+              </h2>
+              <p className="text-xs text-muted mt-0.5">
+                Ready Reckoner assumptions, statutory cost norms, construction costs, floor-wise sales realisation, and NMC statutory charges.
+              </p>
+            </div>
+            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
+              <Sparkles size={12} /> Synced with Area Statement
+            </span>
           </div>
-          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
-            <Sparkles size={12} /> Synced with Area Statement
-          </span>
+
+          <FinancialViabilityForm
+            financial={financial}
+            statement={statement}
+            floors={floors}
+            statutoryCharges={statutoryCharges}
+            salableUnits={salableUnits}
+            areaMetrics={areaMetrics}
+            financialMetrics={financialMetrics}
+            onUpdateFinancial={handleUpdateFinancial}
+            onUpdateFloor={handleUpdateFloor}
+            onUpdateStatutoryCharge={handleUpdateStatutoryCharge}
+            onSaveOverride={handleSaveFinancialOverride}
+            onResetOverride={handleResetFinancialOverride}
+            unitDisplay={unitDisplay}
+            isPrivileged={isPrivileged}
+          />
         </div>
-
-        <FinancialViabilityForm
-          financial={financial}
-          statement={statement}
-          floors={floors}
-          statutoryCharges={statutoryCharges}
-          salableUnits={salableUnits}
-          areaMetrics={areaMetrics}
-          financialMetrics={financialMetrics}
-          onUpdateFinancial={handleUpdateFinancial}
-          onUpdateFloor={handleUpdateFloor}
-          onUpdateStatutoryCharge={handleUpdateStatutoryCharge}
-          onSaveOverride={handleSaveFinancialOverride}
-          onResetOverride={handleResetFinancialOverride}
-          unitDisplay={unitDisplay}
-          isPrivileged={isPrivileged}
-        />
-      </section>
+      )}
 
       {/* ===================================================================== */}
-      {/* SECTION C — CONSOLIDATED PROJECT SUMMARY                              */}
+      {/* 3. CONSOLIDATED PROJECT SUMMARY SUB-TAB PAGE                          */}
       {/* ===================================================================== */}
-      <section id="section-project-summary" className="scroll-mt-24 bg-slate-900 text-white rounded-xl p-5 sm:p-6 shadow-md space-y-5">
-        <div className="border-b border-slate-800 pb-3 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-extrabold uppercase tracking-wide text-orange-400 flex items-center gap-2">
-              <BarChart3 size={16} />
-              Section C — Consolidated Project Summary
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Authoritative area potential, development cost, and profitability snapshot.
-            </p>
+      {activeSubTab === 'project-summary' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          {/* Header Banner */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-soft-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                <BarChart3 size={16} className="text-[#E05A1E]" />
+                Consolidated Project Summary
+              </h2>
+              <p className="text-xs text-muted mt-0.5">
+                Authoritative executive overview of development potential, total project costs, and projected returns.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-mono text-slate-700 bg-slate-100 px-2.5 py-1 rounded border border-slate-200">
+                Unit Basis: {unitLabel}
+              </span>
+              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
+                {statement.building_use || 'Residential'}
+              </span>
+            </div>
           </div>
-          <span className="text-[11px] font-mono text-slate-300 bg-slate-800 px-2.5 py-1 rounded border border-slate-700">
-            Unit Basis: {unitLabel}
-          </span>
+
+          {/* Primary Executive KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-soft-sm">
+              <div className="flex items-center justify-between text-slate-500 mb-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider">Permissible Builtup</span>
+                <Building2 size={16} className="text-slate-400" />
+              </div>
+              <div className="font-mono text-xl font-black text-slate-900">
+                {formatNum((areaMetrics.permissibleTotalBuiltupSqm || 0) * unitFactor)} <span className="text-xs font-normal text-slate-500">{unitLabel}</span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+                <span>Total P-Line Potential:</span>
+                <span className="font-bold text-slate-700">{formatNum((areaMetrics.permissiblePlineTotalSqm || 0) * unitFactor)} {unitLabel}</span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-soft-sm">
+              <div className="flex items-center justify-between text-slate-500 mb-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider">Proposed P-Line</span>
+                <Layers size={16} className="text-[#E05A1E]" />
+              </div>
+              <div className="font-mono text-xl font-black text-[#E05A1E]">
+                {formatNum((areaMetrics.effectiveProposedPlineSqm || areaMetrics.totalProposedPlineSqm || areaMetrics.proposedPlineTotalSqm || 0) * unitFactor)} <span className="text-xs font-normal text-slate-500">{unitLabel}</span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+                <span>FSI Consumption:</span>
+                <span className="font-bold text-slate-700">{formatNum(areaMetrics.proposedTotalFsi || 0, 2)} (Max: {formatNum(areaMetrics.permissibleTotalFsi || 0, 2)})</span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-soft-sm">
+              <div className="flex items-center justify-between text-slate-500 mb-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider">Total Project Cost</span>
+                <Coins size={16} className="text-slate-400" />
+              </div>
+              <div className="font-mono text-xl font-black text-slate-900">
+                {formatINR(financialMetrics.totalProjectCost)}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+                <span>Statutory Demand:</span>
+                <span className="font-bold text-slate-700">{formatINR(financialMetrics.totalStatutoryDemandA)}</span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-soft-sm">
+              <div className="flex items-center justify-between text-slate-500 mb-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider">Projected Profit &amp; ROI</span>
+                <TrendingUp size={16} className={(financialMetrics.netProfit || 0) >= 0 ? 'text-emerald-500' : 'text-red-500'} />
+              </div>
+              <div className={`font-mono text-xl font-black ${(financialMetrics.netProfit || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {formatINR(financialMetrics.netProfit)}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+                <span>ROI / Margin:</span>
+                <span className="font-bold text-emerald-700">{formatNum(financialMetrics.roiPct || 0, 1)}% / {formatNum(financialMetrics.profitMarginPct || 0, 1)}%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Detailed Dual Breakdown Panels */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left: Area Potential & Consumption Breakdown */}
+            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-soft-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                  <Layers size={14} className="text-[#E05A1E]" />
+                  Area Statement Breakdown
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => handleSubTabChange('area-statement')}
+                  className="text-xs font-semibold text-[#E05A1E] hover:underline flex items-center gap-1"
+                >
+                  Edit Inputs <ArrowRight size={12} />
+                </button>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Plot Area</span>
+                  <span className="font-mono font-bold text-slate-900">{formatNum((parseFloat(statement.plot_area_sqm) || 0) * unitFactor)} {unitLabel}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Net Plotable Area</span>
+                  <span className="font-mono font-bold text-slate-900">{formatNum((areaMetrics.plotableAreaSqm || 0) * unitFactor)} {unitLabel}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Basic Permissible FSI Area</span>
+                  <span className="font-mono font-bold text-slate-900">{formatNum((areaMetrics.permissibleFsiSqm || 0) * unitFactor)} {unitLabel}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Paid FSI Area</span>
+                  <span className="font-mono font-bold text-slate-900">{formatNum((areaMetrics.permissiblePaidFsiSqm || 0) * unitFactor)} {unitLabel}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Regular TDR Area</span>
+                  <span className="font-mono font-bold text-slate-900">{formatNum((areaMetrics.permissibleRegularTdrSqm || 0) * unitFactor)} {unitLabel}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Slum TDR Area</span>
+                  <span className="font-mono font-bold text-slate-900">{formatNum((areaMetrics.permissibleSlumTdrSqm || 0) * unitFactor)} {unitLabel}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Total Built-up Area</span>
+                  <span className="font-mono font-bold text-slate-900">{formatNum((areaMetrics.proposedTotalBuiltupSqm || 0) * unitFactor)} {unitLabel}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Ancillary FSI Area</span>
+                  <span className="font-mono font-bold text-slate-900">{formatNum((areaMetrics.totalProposedAncillarySqm || 0) * unitFactor)} {unitLabel}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100 bg-orange-50/50 px-2 rounded font-bold">
+                  <span className="text-slate-800">Total Proposed P-Line</span>
+                  <span className="font-mono text-[#E05A1E]">{formatNum((areaMetrics.effectiveProposedPlineSqm || areaMetrics.totalProposedPlineSqm || 0) * unitFactor)} {unitLabel}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Total Saleable Area</span>
+                  <span className="font-mono font-bold text-slate-900">{formatNum((areaMetrics.totalBuiltupForSaleSqm || 0) * unitFactor)} {unitLabel}</span>
+                </div>
+                <div className="flex justify-between py-1.5">
+                  <span className="text-slate-600">Total Configured Units</span>
+                  <span className="font-mono font-bold text-slate-900">{areaMetrics.totalUnitsCount || 0} Units</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Financial Cost & Revenue Breakdown */}
+            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-soft-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                  <Calculator size={14} className="text-[#E05A1E]" />
+                  Financial Viability Breakdown
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => handleSubTabChange('financial-viability')}
+                  className="text-xs font-semibold text-[#E05A1E] hover:underline flex items-center gap-1"
+                >
+                  Edit Assumptions <ArrowRight size={12} />
+                </button>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Total Statutory Demand (A)</span>
+                  <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.totalStatutoryDemandA)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Cost of TDR Purchase (B)</span>
+                  <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.costOfTdrB)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">BPMS &amp; NOC Expenses (C)</span>
+                  <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.totalExpensesC)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Civil Construction Cost (D)</span>
+                  <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.costOfConstructionD)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Basement Construction (E)</span>
+                  <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.costOfBasementE)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Rent during Construction (F)</span>
+                  <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.rentCostF)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Stacked Parking Cost (G)</span>
+                  <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.stackedParkingCostG)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100">
+                  <span className="text-slate-600">Plot Land Cost (H)</span>
+                  <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.costOfPlotH)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100 bg-slate-50 px-2 rounded font-bold">
+                  <span className="text-slate-900">Total Project Cost</span>
+                  <span className="font-mono text-slate-900">{formatINR(financialMetrics.totalProjectCost)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-100 bg-emerald-50/50 px-2 rounded font-bold">
+                  <span className="text-emerald-800">Total Estimated Receipts</span>
+                  <span className="font-mono text-emerald-700">{formatINR(financialMetrics.totalReceipts)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 bg-orange-50/50 px-2 rounded font-black">
+                  <span className="text-slate-900">Net Project Profit</span>
+                  <span className={`font-mono ${(financialMetrics.netProfit || 0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                    {formatINR(financialMetrics.netProfit)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Actions Footer */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-soft-sm flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-muted flex items-center gap-2">
+              <CheckCircle2 size={15} className="text-emerald-600" />
+              <span>Consolidated summary synchronized with Area Statement and Financial Viability models.</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="text-xs font-semibold px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1.5"
+              >
+                <FileSpreadsheet size={13} className="text-emerald-600" />
+                <span>Export Workbook</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSubTabChange('report-preview')}
+                className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1.5"
+              >
+                <FileText size={13} />
+                <span>Open Full Report Preview</span>
+              </button>
+            </div>
+          </div>
         </div>
-
-        {/* Area & FSI Metrics */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="bg-slate-800/90 p-3.5 rounded-lg border border-slate-700">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Plot Area</span>
-            <span className="font-mono text-base font-extrabold text-white mt-1 block">
-              {formatNum((parseFloat(statement.plot_area_sqm) || areaMetrics.plotAreaSqm || 0) * unitFactor)}
-            </span>
-            <span className="text-[10px] text-slate-400">{unitLabel}</span>
-          </div>
-
-          <div className="bg-slate-800/90 p-3.5 rounded-lg border border-slate-700">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Permissible P-Line</span>
-            <span className="font-mono text-base font-extrabold text-emerald-400 mt-1 block">
-              {formatNum((areaMetrics.permissiblePlineTotalSqm || 0) * unitFactor)}
-            </span>
-            <span className="text-[10px] text-slate-400">{unitLabel}</span>
-          </div>
-
-          <div className="bg-slate-800/90 p-3.5 rounded-lg border border-slate-700">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Proposed P-Line</span>
-            <span className="font-mono text-base font-extrabold text-orange-400 mt-1 block">
-              {formatNum((areaMetrics.effectiveProposedPlineSqm || areaMetrics.totalProposedPlineSqm || areaMetrics.proposedPlineTotalSqm || 0) * unitFactor)}
-            </span>
-            <span className="text-[10px] text-slate-400">{unitLabel}</span>
-          </div>
-
-          <div className="bg-slate-800/90 p-3.5 rounded-lg border border-slate-700">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Total Ancillary Area</span>
-            <span className="font-mono text-base font-extrabold text-slate-100 mt-1 block">
-              {formatNum((areaMetrics.totalProposedAncillarySqm || areaMetrics.proposedAncillaryResSqm || 0) * unitFactor)}
-            </span>
-            <span className="text-[10px] text-slate-400">{unitLabel}</span>
-          </div>
-
-          <div className="bg-slate-800/90 p-3.5 rounded-lg border border-slate-700">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">FSI Potential / Used</span>
-            <span className="font-mono text-base font-extrabold text-slate-100 mt-1 block">
-              {formatNum(areaMetrics.permissibleTotalFsi || 0, 2)} / {formatNum(areaMetrics.proposedTotalFsi || 0, 2)}
-            </span>
-            <span className="text-[10px] text-slate-400">FSI Ratio</span>
-          </div>
-
-          <div className="bg-slate-800/90 p-3.5 rounded-lg border border-slate-700">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Total Units</span>
-            <span className="font-mono text-base font-extrabold text-white mt-1 block">
-              {areaMetrics.totalUnitsCount || 0}
-            </span>
-            <span className="text-[10px] text-slate-400">Saleable Units</span>
-          </div>
-        </div>
-
-        {/* Financial Metrics */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          <div className="bg-slate-800/90 p-3.5 rounded-lg border border-slate-700">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Total Statutory Demand</span>
-            <span className="font-mono text-sm font-extrabold text-slate-100 mt-1 block">
-              {formatINR(financialMetrics.totalStatutoryDemandA)}
-            </span>
-          </div>
-
-          <div className="bg-slate-800/90 p-3.5 rounded-lg border border-slate-700">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Total Project Cost</span>
-            <span className="font-mono text-sm font-extrabold text-slate-100 mt-1 block">
-              {formatINR(financialMetrics.totalProjectCost)}
-            </span>
-          </div>
-
-          <div className="bg-slate-800/90 p-3.5 rounded-lg border border-slate-700">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Expected Receipts</span>
-            <span className="font-mono text-sm font-extrabold text-emerald-400 mt-1 block">
-              {formatINR(financialMetrics.totalReceipts)}
-            </span>
-          </div>
-
-          <div className="bg-slate-800/90 p-3.5 rounded-lg border border-slate-700">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Projected Profit</span>
-            <span className={`font-mono text-sm font-extrabold mt-1 block ${(financialMetrics.netProfit || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {formatINR(financialMetrics.netProfit)}
-            </span>
-          </div>
-
-          <div className="bg-slate-800/90 p-3.5 rounded-lg border border-slate-700">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">ROI / Profit Margin</span>
-            <span className="font-mono text-sm font-extrabold text-orange-400 mt-1 block">
-              {formatNum(financialMetrics.roiPct || 0, 1)}% / {formatNum(financialMetrics.profitMarginPct || 0, 1)}%
-            </span>
-          </div>
-        </div>
-      </section>
+      )}
 
       {/* ===================================================================== */}
-      {/* SECTION D — FULL-WIDTH REPORT PREVIEW                                 */}
+      {/* 4. FULL-WIDTH REPORT PREVIEW SUB-TAB PAGE                             */}
       {/* ===================================================================== */}
-      <section id="section-report-preview" className="scroll-mt-24 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-          <div>
-            <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-              <FileText size={16} className="text-[#E05A1E]" />
-              Section D — Full-Width Formatted Report Preview
-            </h2>
-            <p className="text-xs text-muted mt-0.5">
-              Complete printable Area Statement and Financial Viability report updated live from the inputs above.
-            </p>
+      {activeSubTab === 'report-preview' && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-soft-sm flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                <FileText size={16} className="text-[#E05A1E]" />
+                Full-Width Report Preview
+              </h2>
+              <p className="text-xs text-muted mt-0.5">
+                Complete printable Area Statement and Financial Viability document preview, updated live from project inputs.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExportPDF}
+                disabled={exporting}
+                className="text-xs font-bold px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+              >
+                <Download size={13} />
+                <span>{exporting ? 'Generating PDF...' : 'Download PDF Report'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="text-xs font-bold px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+              >
+                <FileSpreadsheet size={13} />
+                <span>Export Excel</span>
+              </button>
+            </div>
           </div>
-        </div>
 
-        <FeasibilityDocumentPreview
-          project={project}
-          statement={statement}
-          floors={floors}
-          financial={financial}
-          statutoryCharges={statutoryCharges}
-          salableUnits={salableUnits}
-          areaMetrics={areaMetrics}
-          financialMetrics={financialMetrics}
-          unitDisplay={unitDisplay}
-        />
-      </section>
+          <FeasibilityDocumentPreview
+            project={project}
+            statement={statement}
+            floors={floors}
+            financial={financial}
+            statutoryCharges={statutoryCharges}
+            salableUnits={salableUnits}
+            areaMetrics={areaMetrics}
+            financialMetrics={financialMetrics}
+            unitDisplay={unitDisplay}
+          />
+        </div>
+      )}
     </div>
   );
 }
