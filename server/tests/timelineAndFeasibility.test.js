@@ -407,6 +407,7 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
         .set('Authorization', `Bearer ${testUsers.employee.token}`)
         .send({
           status: 'Completed',
+          actual_start_date: '2026-09-01',
           actual_finish_date: '2026-09-25',
           remarks: 'Concrete pour verified by site engineer'
         });
@@ -489,6 +490,7 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       const { rows: slabRows } = await pool.query(
         `SELECT * FROM timeline_tasks 
          WHERE project_id = $1 AND is_draft = FALSE AND is_milestone = TRUE 
+           AND (floor_zone ILIKE '%3rd%' OR floor_zone ILIKE '%Third%')
          LIMIT 1`,
         [testProject.id]
       );

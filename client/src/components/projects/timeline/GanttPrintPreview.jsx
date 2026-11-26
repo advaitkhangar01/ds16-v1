@@ -1,4 +1,7 @@
 // client/src/components/projects/timeline/GanttPrintPreview.jsx
+// High-fidelity vector-accurate single-page preview for DS16 Construction Schedule.
+// Shows the complete continuous Gantt chart composition on exactly ONE canvas sheet.
+
 import React from 'react';
 import { STATUS_COLORS, formatShortDate, formatDateDisplay } from '../../../utils/a3GanttPdfEngine';
 
@@ -6,19 +9,20 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
   if (!pageData) {
     return (
       <div className="flex items-center justify-center h-96 text-slate-400 text-sm">
-        No page preview data available.
+        No schedule preview data available.
       </div>
     );
   }
 
-  const { layout, project, slice, rows, pageNumber, totalPages, rowSheetIndex, totalRowSheets, timelineSliceIndex, totalTimelineSlices, dims } = pageData;
-  const { sidebarCols, sidebarWidth, timelineWidth, printableWidth, headerHeight, tableHeaderHeight } = layout;
+  const { layout, project, slice, rows, dims } = pageData;
+  const { sidebarCols, sidebarWidth, timelineWidth, headerHeight, tableHeaderHeight } = layout;
 
   // Scale in millimeters to pixels for crisp screen preview (1mm approx 3.78px at standard 96dpi screen)
   const mmToPx = 3.78 * zoom;
 
   const sheetWidthPx = dims.width * mmToPx;
   const sheetHeightPx = dims.height * mmToPx;
+  const taskCount = rows.filter(r => r.type === 'task').length;
 
   return (
     <div className="flex justify-center items-start overflow-auto p-4 bg-slate-200/70 min-h-full">
@@ -39,7 +43,7 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
           {options.includeProjectDetails !== false && (
             <div
               className="border border-slate-300 rounded-md bg-slate-50/80 mb-2 relative overflow-hidden flex flex-col justify-between"
-              style={{ height: `${(headerHeight - 2) * mmToPx}px`, padding: `${2 * mmToPx}px ${4 * mmToPx}px` }}
+              style={{ height: `${(headerHeight - 2.5) * mmToPx}px`, padding: `${2.5 * mmToPx}px ${4 * mmToPx}px` }}
             >
               {/* Brand orange top accent bar */}
               <div className="absolute top-0 left-0 right-0 h-1 bg-[#E05A1E]" />
@@ -47,15 +51,15 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
               {/* Title & Metadata Top Row */}
               <div className="flex items-center justify-between pt-1">
                 <div className="flex items-center gap-3">
-                  <span className="font-extrabold tracking-tight text-slate-900" style={{ fontSize: `${3.2 * mmToPx}px` }}>
+                  <span className="font-extrabold tracking-tight text-slate-900" style={{ fontSize: `${3.4 * mmToPx}px` }}>
                     DESIGN STUDIO 16
                   </span>
-                  <span className="font-bold text-[#E05A1E]" style={{ fontSize: `${2.4 * mmToPx}px` }}>
-                    CONSTRUCTION SCHEDULE & GANTT CHART
+                  <span className="font-bold text-[#E05A1E]" style={{ fontSize: `${2.5 * mmToPx}px` }}>
+                    COMPLETE CONSTRUCTION SCHEDULE & GANTT CHART
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-right">
-                  <span className="font-bold text-[#E05A1E]" style={{ fontSize: `${2.3 * mmToPx}px` }}>
+                  <span className="font-bold text-[#E05A1E]" style={{ fontSize: `${2.4 * mmToPx}px` }}>
                     {project.version}
                   </span>
                   <span className="text-slate-500 font-mono" style={{ fontSize: `${2.0 * mmToPx}px` }}>
@@ -75,7 +79,7 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
                   <span>{project.location}</span>
                 </div>
                 <div className="text-right">
-                  <span className="font-bold text-slate-400 mr-1.5 uppercase text-[9px]">Scope:</span>
+                  <span className="font-bold text-slate-400 mr-1.5 uppercase text-[9px]">Timeline:</span>
                   <span className="font-semibold text-slate-700">{slice.label}</span>
                 </div>
 
@@ -87,8 +91,8 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
                   <span className="font-bold text-slate-400 mr-1.5 uppercase text-[9px]">Start Date:</span>
                   <span>{formatDateDisplay(project.startDate)}</span>
                 </div>
-                <div className="text-right font-medium text-slate-500">
-                  <span>Sheet R{rowSheetIndex}/{totalRowSheets} · Period C{timelineSliceIndex}/{totalTimelineSlices}</span>
+                <div className="text-right font-medium text-emerald-600">
+                  <span>1 Complete Continuous Composition · {taskCount} Activities</span>
                 </div>
               </div>
             </div>
@@ -160,22 +164,24 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
               </div>
             </div>
 
-            {/* Table Rows Body */}
-            <div className="flex-1 flex flex-col divide-y divide-slate-100 relative">
-              {rows.map((row, rIdx) => {
+            {/* Table Rows (All Sections & Activities) */}
+            <div className="flex-1 flex flex-col">
+              {rows.map((row, rowIdx) => {
                 const rowHPx = row.rowHeight * mmToPx;
 
                 if (row.type === 'section_header') {
                   return (
                     <div
                       key={row.id}
-                      className="flex items-center px-2 bg-slate-200/80 font-extrabold text-slate-900 border-t border-slate-300"
-                      style={{ height: `${rowHPx}px`, fontSize: `${2.2 * mmToPx}px` }}
+                      className="flex items-center px-3 font-bold bg-slate-200/90 text-slate-900 border-b border-slate-300"
+                      style={{ height: `${rowHPx}px`, fontSize: `${2.3 * mmToPx}px` }}
                     >
-                      <span className="uppercase tracking-wider">{row.name}</span>
-                      <span className="ml-2 font-normal text-slate-600" style={{ fontSize: `${1.8 * mmToPx}px` }}>
-                        ({row.totalTasks} activities)
-                      </span>
+                      <div className="flex items-center justify-between w-full">
+                        <span>{row.name.toUpperCase()}</span>
+                        <span className="text-slate-600 font-semibold" style={{ fontSize: `${2.0 * mmToPx}px` }}>
+                          {row.totalTasks} activities
+                        </span>
+                      </div>
                     </div>
                   );
                 }
@@ -184,64 +190,129 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
                   return (
                     <div
                       key={row.id}
-                      className="flex items-center px-3 bg-slate-100/60 font-semibold text-slate-700"
+                      className="flex items-center px-4 font-semibold bg-slate-50 text-slate-800 border-b border-slate-200"
                       style={{ height: `${rowHPx}px`, fontSize: `${2.0 * mmToPx}px` }}
                     >
-                      <span>▸ {row.name}</span>
-                      <span className="ml-1.5 text-slate-400" style={{ fontSize: `${1.7 * mmToPx}px` }}>
-                        ({row.totalTasks})
-                      </span>
+                      <div className="flex items-center justify-between w-full">
+                        <span>▸ {row.name}</span>
+                        <span className="text-slate-400 text-xs font-normal" style={{ fontSize: `${1.8 * mmToPx}px` }}>
+                          {row.totalTasks} items
+                        </span>
+                      </div>
                     </div>
                   );
                 }
 
+                // Normal Task Row
                 const t = row.task;
-                const isEven = rIdx % 2 === 0;
+                const isEven = rowIdx % 2 === 0;
 
-                // Timeline bar calculation
+                // Task bar positioning across the full continuous timeline
                 const startDate = t.planned_start_date ? new Date(t.planned_start_date) : null;
                 const finishDate = t.planned_finish_date ? new Date(t.planned_finish_date) : startDate;
 
-                let barEl = null;
-                if (startDate && finishDate) {
-                  const sliceStartTime = slice.startDate.getTime();
-                  const sliceEndTime = slice.endDate.getTime();
-                  const taskStartTime = startDate.getTime();
-                  const taskEndTime = finishDate.getTime();
+                let barsEl = null;
 
-                  if (taskEndTime >= sliceStartTime && taskStartTime <= sliceEndTime) {
-                    const startsBefore = taskStartTime < sliceStartTime;
-                    const endsAfter = taskEndTime > sliceEndTime;
-
-                    const effectiveStart = startsBefore ? slice.startDate : startDate;
-                    const effectiveEnd = endsAfter ? slice.endDate : finishDate;
-
-                    const startOffsetDays = Math.max(0, Math.round((effectiveStart - slice.startDate) / 86400000));
-                    const durationDays = Math.max(1, Math.round((effectiveEnd - effectiveStart) / 86400000) + 1);
-
+                if (row.hasTwoBars) {
+                  // ─── TWO BARS: Planned (Top) + Actual (Bottom) ───────────────────
+                  let plannedEl = null;
+                  if (startDate && finishDate) {
+                    const startOffsetDays = Math.max(0, Math.round((startDate - slice.startDate) / 86400000));
+                    const durationDays = Math.max(1, Math.round((finishDate - startDate) / 86400000) + 1);
                     const barLeftPx = (startOffsetDays * slice.dayWidthMm) * mmToPx;
-                    const barWidthPx = Math.max(4, (durationDays * slice.dayWidthMm) * mmToPx);
+                    const barWidthPx = Math.max(3, (durationDays * slice.dayWidthMm) * mmToPx);
 
-                    const isOverdue = t.is_overdue || (t.status !== 'Completed' && taskEndTime < Date.now());
+                    const isOverdue = t.is_overdue || (t.status !== 'Completed' && finishDate.getTime() < Date.now());
                     const statusKey = isOverdue ? 'Overdue' : (t.status || 'Not Started');
                     const statusCfg = STATUS_COLORS[statusKey] || STATUS_COLORS['Not Started'];
+                    const isMilestone = Boolean(t.is_milestone || t.metadata?.is_trigger_milestone);
 
-                    barEl = (
+                    plannedEl = (
                       <div
                         className="absolute rounded flex items-center px-1 text-white truncate shadow-2xs font-semibold cursor-default"
                         style={{
                           left: `${barLeftPx}px`,
                           width: `${barWidthPx}px`,
-                          height: `${4.5 * mmToPx}px`,
-                          top: `${(row.rowHeight - 4.5) / 2 * mmToPx}px`,
+                          height: `${3.2 * mmToPx}px`,
+                          top: `${1.2 * mmToPx}px`,
+                          backgroundColor: statusCfg.hex,
+                          fontSize: `${1.6 * mmToPx}px`
+                        }}
+                        title={`Planned: ${t.task_name} (${t.planned_start_date} to ${t.planned_finish_date})`}
+                      >
+                        {isMilestone && <span className="mr-0.5 text-amber-300 font-bold">★</span>}
+                        <span className="truncate">{barWidthPx > 45 ? `Planned: ${t.task_name}` : ''}</span>
+                      </div>
+                    );
+                  }
+
+                  let actualEl = null;
+                  const actualStart = t.actual_start_date ? new Date(t.actual_start_date) : null;
+                  const actualFinish = t.actual_finish_date ? new Date(t.actual_finish_date) : new Date();
+                  const isOngoing = Boolean(t.actual_start_date && !t.actual_finish_date);
+
+                  if (actualStart) {
+                    const actStartOffset = Math.max(0, Math.round((actualStart - slice.startDate) / 86400000));
+                    const actDuration = Math.max(1, Math.round((actualFinish - actualStart) / 86400000) + 1);
+                    const actBarLeftPx = (actStartOffset * slice.dayWidthMm) * mmToPx;
+                    const actBarWidthPx = Math.max(3, (actDuration * slice.dayWidthMm) * mmToPx);
+
+                    actualEl = (
+                      <div
+                        className={`absolute rounded flex items-center px-1 text-white truncate shadow-2xs font-semibold cursor-default ${
+                          isOngoing ? 'border border-cyan-400 border-dashed' : ''
+                        }`}
+                        style={{
+                          left: `${actBarLeftPx}px`,
+                          width: `${actBarWidthPx}px`,
+                          height: `${3.2 * mmToPx}px`,
+                          top: `${4.8 * mmToPx}px`,
+                          backgroundColor: '#0e7490',
+                          backgroundImage: isOngoing ? 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255,255,255,0.2) 4px, rgba(255,255,255,0.2) 8px)' : undefined,
+                          fontSize: `${1.6 * mmToPx}px`
+                        }}
+                        title={`Actual Execution: ${t.actual_start_date || ''} to ${t.actual_finish_date || 'Ongoing'}`}
+                      >
+                        <span className="truncate">{actBarWidthPx > 45 ? (isOngoing ? 'Actual (Ongoing)' : 'Actual Execution') : ''}</span>
+                      </div>
+                    );
+                  }
+
+                  barsEl = (
+                    <>
+                      {plannedEl}
+                      {actualEl}
+                    </>
+                  );
+                } else {
+                  // ─── SINGLE BAR: Planned Schedule ─────────────────────────────────
+                  if (startDate && finishDate) {
+                    const startOffsetDays = Math.max(0, Math.round((startDate - slice.startDate) / 86400000));
+                    const durationDays = Math.max(1, Math.round((finishDate - startDate) / 86400000) + 1);
+
+                    const barLeftPx = (startOffsetDays * slice.dayWidthMm) * mmToPx;
+                    const barWidthPx = Math.max(3, (durationDays * slice.dayWidthMm) * mmToPx);
+
+                    const isOverdue = t.is_overdue || (t.status !== 'Completed' && finishDate.getTime() < Date.now());
+                    const statusKey = isOverdue ? 'Overdue' : (t.status || 'Not Started');
+                    const statusCfg = STATUS_COLORS[statusKey] || STATUS_COLORS['Not Started'];
+                    const isMilestone = Boolean(t.is_milestone || t.metadata?.is_trigger_milestone);
+
+                    barsEl = (
+                      <div
+                        className="absolute rounded flex items-center px-1 text-white truncate shadow-2xs font-semibold cursor-default"
+                        style={{
+                          left: `${barLeftPx}px`,
+                          width: `${barWidthPx}px`,
+                          height: `${4.2 * mmToPx}px`,
+                          top: `${(row.rowHeight - 4.2) / 2 * mmToPx}px`,
                           backgroundColor: statusCfg.hex,
                           fontSize: `${1.8 * mmToPx}px`
                         }}
                         title={`${t.task_name} (${t.planned_start_date} to ${t.planned_finish_date})`}
                       >
-                        {startsBefore && <span className="mr-0.5 text-[8px]">◀</span>}
+                        {isMilestone && <span className="mr-0.5 text-amber-300 font-bold">★</span>}
                         <span className="truncate">{barWidthPx > 45 ? t.task_name : ''}</span>
-                        {endsAfter && <span className="ml-0.5 text-[8px]">▶</span>}
                       </div>
                     );
                   }
@@ -250,7 +321,7 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
                 return (
                   <div
                     key={row.id}
-                    className={`flex items-center ${isEven ? 'bg-white' : 'bg-slate-50/40'} hover:bg-slate-100/40`}
+                    className={`flex items-center ${isEven ? 'bg-white' : 'bg-slate-50/40'} hover:bg-slate-100/40 border-b border-slate-100`}
                     style={{ height: `${rowHPx}px` }}
                   >
                     {/* Left Sidebar Row Columns */}
@@ -264,6 +335,11 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
                             cellVal = (
                               <span className="truncate flex items-center gap-1 font-semibold text-slate-800">
                                 {isMilestone && <span className="text-amber-500 font-bold">★</span>}
+                                {t.photo_path && (
+                                  <span className="text-emerald-600 text-xs flex-shrink-0" title="Photo evidence attached">
+                                    📷
+                                  </span>
+                                )}
                                 <span className="truncate">{t.task_name}</span>
                               </span>
                             );
@@ -275,8 +351,6 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
                             cellVal = <span className="font-mono text-slate-500">{formatShortDate(t.planned_start_date)}</span>;
                           } else if (col.key === 'finish') {
                             cellVal = <span className="font-mono text-slate-500">{formatShortDate(t.planned_finish_date)}</span>;
-                          } else if (col.key === 'dates') {
-                            cellVal = <span className="font-mono text-slate-500">{formatShortDate(t.planned_start_date)} - {formatShortDate(t.planned_finish_date)}</span>;
                           }
 
                           return (
@@ -311,7 +385,7 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
                         );
                       })}
 
-                      {barEl}
+                      {barsEl}
                     </div>
                   </div>
                 );
@@ -322,7 +396,7 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
 
         {/* ─── 3. Legend & Footer Strip ─────────────────────────────── */}
         <div
-          className="flex items-center justify-between text-slate-500 border-t border-slate-200/80 pt-1.5"
+          className="flex items-center justify-between text-slate-500 border-t border-slate-200/80 pt-2"
           style={{ fontSize: `${2.0 * mmToPx}px` }}
         >
           {/* Status Color Legend */}
@@ -335,6 +409,25 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
                   <span>{sc.label}</span>
                 </div>
               ))}
+              <div className="flex items-center gap-1 text-cyan-800 font-medium">
+                <div className="rounded-xs bg-[#0e7490]" style={{ width: `${3.2 * mmToPx}px`, height: `${2.8 * mmToPx}px` }} />
+                <span>Actual Execution</span>
+              </div>
+              <div className="flex items-center gap-1 text-cyan-800 font-medium">
+                <div
+                  className="rounded-xs bg-[#0e7490] border border-cyan-400 border-dashed"
+                  style={{
+                    width: `${3.2 * mmToPx}px`,
+                    height: `${2.8 * mmToPx}px`,
+                    backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(255,255,255,0.4) 2px, rgba(255,255,255,0.4) 4px)'
+                  }}
+                />
+                <span>Actual (Ongoing)</span>
+              </div>
+              <div className="flex items-center gap-1 ml-1 text-emerald-700 font-semibold">
+                <span>📷</span>
+                <span>Photo Evidence</span>
+              </div>
               <div className="flex items-center gap-1 ml-1 text-amber-600 font-semibold">
                 <span>★</span>
                 <span>Milestone / Slab Trigger</span>
@@ -342,20 +435,15 @@ export default function GanttPrintPreview({ pageData, options = {}, zoom = 1.0 }
             </div>
           )}
 
-          {/* Continuation Notice */}
+          {/* Single-Page Authority Notice */}
           <div className="italic text-slate-400">
-            {timelineSliceIndex < totalTimelineSlices && (
-              <span>↳ Timeline continues horizontally on Page {pageNumber + 1}</span>
-            )}
-            {rowSheetIndex < totalRowSheets && timelineSliceIndex === totalTimelineSlices && (
-              <span>↓ Activities continue vertically on Page {pageNumber + 1}</span>
-            )}
+            Design Studio 16 Enterprise Management · Authoritative Single-Page Construction Schedule
           </div>
 
-          {/* Page numbers */}
+          {/* Page numbers: Exactly Page 1 of 1 */}
           {options.includePageNumbers !== false && (
             <div className="font-bold text-slate-700">
-              Page {pageNumber} of {totalPages}
+              Page 1 of 1 (Complete Schedule)
             </div>
           )}
         </div>

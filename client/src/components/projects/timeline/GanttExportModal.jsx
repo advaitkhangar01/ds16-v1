@@ -4,31 +4,30 @@ import {
   X,
   Printer,
   Download,
-  Settings2,
   ZoomIn,
   ZoomOut,
   Maximize2,
-  ChevronLeft,
-  ChevronRight,
   Layers,
   Calendar,
   FileText,
   Sliders,
   CheckCircle2,
-  HelpCircle,
-  Sparkles,
-  Info
+  Info,
+  Sparkles
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { buildPaginatedScheduleMatrix, generateA3GanttPdf } from '../../../utils/a3GanttPdfEngine';
+import { buildSinglePageScheduleMatrix, generateA3GanttPdf } from '../../../utils/a3GanttPdfEngine';
 import GanttPrintPreview from './GanttPrintPreview';
 
 export default function GanttExportModal({ isOpen, onClose, tasks = [], project = {}, config = {} }) {
   if (!isOpen) return null;
 
   // Configuration options state
-  const [paperSize, setPaperSize] = useState('A3'); // 'A3' or 'A4'
-  const [orientation, setOrientation] = useState('landscape'); // 'landscape' or 'portrait'
+  // 'custom' = uncompressed continuous plotter (default)
+  // 'A3' = fit to single A3 sheet
+  // 'A4' = fit to single A4 sheet
+  const [paperSize, setPaperSize] = useState('custom');
+  const [orientation, setOrientation] = useState('landscape');
   const [timelineScale, setTimelineScale] = useState('auto'); // 'auto', 'monthly', 'weekly'
   const [activityGrouping, setActivityGrouping] = useState('groups'); // 'groups', 'floors', 'none'
 
@@ -42,8 +41,7 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
   const [includePageNumbers, setIncludePageNumbers] = useState(true);
 
   // Preview Viewport Controls
-  const [currentPageIndex, setCurrentPageIndex] = useState(0);
-  const [zoomLevel, setZoomLevel] = useState(0.85); // 0.5, 0.75, 0.85, 1.0, 1.25
+  const [zoomLevel, setZoomLevel] = useState(0.55); // Default comfortable overview
   const [isExporting, setIsExporting] = useState(false);
 
   // Consolidated options object
@@ -58,7 +56,8 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
     includeStatus,
     includeColorLegend,
     includeProjectDetails,
-    includePageNumbers
+    includePageNumbers,
+    fitToPaper: paperSize !== 'custom'
   }), [
     paperSize,
     orientation,
@@ -82,39 +81,28 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
     published_version: config.published_version || 1
   }), [project, tasks, config]);
 
-  // Compute 2D pagination matrix whenever settings or tasks change
+  // Compute Single-Page schedule composition
   const scheduleMatrix = useMemo(() => {
-    return buildPaginatedScheduleMatrix(tasks, exportOptions, projectMetadata);
+    return buildSinglePageScheduleMatrix(tasks, exportOptions, projectMetadata);
   }, [tasks, exportOptions, projectMetadata]);
 
-  const { pages, totalPages, totalVerticalPages, totalHorizontalSlices } = scheduleMatrix;
+  const activePageData = scheduleMatrix.pages[0];
+  const { layoutDimensions } = scheduleMatrix;
 
-  // Safe page navigation
-  const safePageIndex = Math.min(currentPageIndex, Math.max(0, totalPages - 1));
-  const activePageData = pages[safePageIndex] || pages[0];
-
-  const handlePrevPage = () => {
-    setCurrentPageIndex(prev => Math.max(0, prev - 1));
-  };
-
-  const handleNextPage = () => {
-    setCurrentPageIndex(prev => Math.min(totalPages - 1, prev + 1));
-  };
-
-  // Export to Vector PDF
+  // Export to Single-Page Vector PDF
   const handleDownloadPdf = async () => {
     setIsExporting(true);
-    const toastId = toast.loading('Generating vector A3 construction schedule PDF...');
+    const toastId = toast.loading('Generating complete single-page Gantt chart PDF...');
     try {
       // Yield to event loop to allow loading toast render
       await new Promise(r => setTimeout(r, 60));
 
       const doc = generateA3GanttPdf(scheduleMatrix, exportOptions);
       const cleanProjectName = (projectMetadata.name || 'Project').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const filename = `${cleanProjectName}_Gantt_Schedule_${paperSize}_${orientation}.pdf`;
+      const filename = `${cleanProjectName}_Complete_Schedule_${layoutDimensions.width}x${layoutDimensions.height}mm.pdf`;
 
       doc.save(filename);
-      toast.success(`Schedule exported successfully as ${paperSize} PDF`, { id: toastId });
+      toast.success(`Complete schedule exported successfully as 1-page PDF (${layoutDimensions.width}×${layoutDimensions.height} mm)`, { id: toastId });
     } catch (err) {
       console.error('PDF export error:', err);
       toast.error(err.message || 'Failed to generate PDF', { id: toastId });
@@ -130,7 +118,7 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-slate-100 rounded-2xl shadow-2xl border border-slate-300 w-full max-w-[1540px] h-[95vh] flex flex-col overflow-hidden animate-in fade-in duration-200">
+      <div className="bg-slate-100 rounded-2xl shadow-2xl border border-slate-300 w-full max-w-[1580px] h-[95vh] flex flex-col overflow-hidden animate-in fade-in duration-200">
         
         {/* Top Header Bar */}
         <div className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between border-b border-slate-800 flex-shrink-0">
@@ -140,13 +128,13 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-sm tracking-tight">A3 Construction Schedule Exporter</h3>
-                <span className="bg-slate-800 text-[#E05A1E] border border-[#E05A1E]/30 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold">
-                  Print-Ready Layout
+                <h3 className="font-bold text-sm tracking-tight">Complete Construction Schedule Exporter</h3>
+                <span className="bg-emerald-950 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                  <CheckCircle2 size={10} /> Exactly 1 Complete Page
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                {projectMetadata.name} · {tasks.length} Activities · {totalPages} Paginated Sheet{totalPages > 1 ? 's' : ''}
+                {projectMetadata.name} · {tasks.length} Activities · Entire Timeline {activePageData?.slice?.label}
               </p>
             </div>
           </div>
@@ -158,7 +146,7 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
               className="btn-primary text-xs py-1.5 px-3.5 flex items-center gap-1.5 shadow-sm disabled:opacity-50"
             >
               <Download size={14} />
-              <span>{isExporting ? 'Generating PDF...' : `Download ${paperSize} PDF`}</span>
+              <span>{isExporting ? 'Generating PDF...' : 'Download Complete PDF (1 Page)'}</span>
             </button>
 
             <button
@@ -178,63 +166,60 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
           <div className="w-80 md:w-88 border-r border-slate-200 bg-white flex flex-col justify-between overflow-y-auto flex-shrink-0 p-4 space-y-5">
             <div className="space-y-5">
               
-              {/* Paper & Orientation Section */}
+              {/* Paper Format Section */}
               <div className="space-y-2.5">
                 <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                   <Sliders size={13} className="text-[#E05A1E]" />
-                  Paper Size & Orientation
+                  Page Sizing & Layout Model
                 </label>
                 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
                   <button
                     type="button"
-                    onClick={() => setPaperSize('A3')}
-                    className={`py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-between transition-all ${
-                      paperSize === 'A3'
-                        ? 'border-[#E05A1E] bg-orange-50 text-[#E05A1E] shadow-2xs'
+                    onClick={() => setPaperSize('custom')}
+                    className={`w-full p-2.5 rounded-xl border text-left transition-all ${
+                      paperSize === 'custom'
+                        ? 'border-[#E05A1E] bg-orange-50/70 shadow-xs ring-1 ring-[#E05A1E]/30'
                         : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
                     }`}
                   >
-                    <span>A3 (Plotter/Arch)</span>
-                    <span className="text-[10px] text-muted">420×297</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-900 flex items-center gap-1">
+                        Continuous Full Plotter
+                        <span className="bg-[#E05A1E] text-white text-[9px] px-1.5 py-0.2 rounded font-bold">Recommended</span>
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Auto-calculates uncompressed dimensions ({layoutDimensions.width} × {layoutDimensions.height} mm) so all 283 activities and dates remain 100% legible.
+                    </p>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaperSize('A4')}
-                    className={`py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-between transition-all ${
-                      paperSize === 'A4'
-                        ? 'border-[#E05A1E] bg-orange-50 text-[#E05A1E] shadow-2xs'
-                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    <span>A4 (Office/Desktop)</span>
-                    <span className="text-[10px] text-muted">297×210</span>
-                  </button>
-                </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setOrientation('landscape')}
-                    className={`py-1.5 px-3 rounded-lg border text-xs font-semibold text-center transition-all ${
-                      orientation === 'landscape'
-                        ? 'border-[#E05A1E] bg-orange-50 text-[#E05A1E]'
-                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    Landscape (Default)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setOrientation('portrait')}
-                    className={`py-1.5 px-3 rounded-lg border text-xs font-semibold text-center transition-all ${
-                      orientation === 'portrait'
-                        ? 'border-[#E05A1E] bg-orange-50 text-[#E05A1E]'
-                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    Portrait
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPaperSize('A3')}
+                      className={`p-2 rounded-lg border text-xs font-semibold flex flex-col text-left transition-all ${
+                        paperSize === 'A3'
+                          ? 'border-[#E05A1E] bg-orange-50 text-[#E05A1E]'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="font-bold">A3 Single Sheet</span>
+                      <span className="text-[10px] text-slate-400">420 × 297 mm</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaperSize('A4')}
+                      className={`p-2 rounded-lg border text-xs font-semibold flex flex-col text-left transition-all ${
+                        paperSize === 'A4'
+                          ? 'border-[#E05A1E] bg-orange-50 text-[#E05A1E]'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="font-bold">A4 Single Sheet</span>
+                      <span className="text-[10px] text-slate-400">297 × 210 mm</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -252,9 +237,9 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
                     onChange={(e) => setTimelineScale(e.target.value)}
                     className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-700 focus:outline-none focus:border-[#E05A1E]"
                   >
-                    <option value="auto">Automatic (Intelligent Fit)</option>
+                    <option value="auto">Automatic (Optimal Fit)</option>
+                    <option value="weekly">Weekly View (Detailed 7-Day Subdivisions)</option>
                     <option value="monthly">Monthly View (Calendar Months)</option>
-                    <option value="weekly">Weekly View (7-Day Subdivisions)</option>
                   </select>
                 </div>
 
@@ -265,7 +250,7 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
                     onChange={(e) => setActivityGrouping(e.target.value)}
                     className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-700 focus:outline-none focus:border-[#E05A1E]"
                   >
-                    <option value="groups">Construction Groups (RCC, Masonry, etc.)</option>
+                    <option value="groups">Construction Groups (Site, RCC, Masonry, etc.)</option>
                     <option value="floors">Floor-wise (Level Hierarchy)</option>
                     <option value="none">No Grouping (Flat Sequential)</option>
                   </select>
@@ -287,7 +272,7 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
                       onChange={(e) => setIncludeSidebar(e.target.checked)}
                       className="rounded border-slate-300 text-[#E05A1E] focus:ring-[#E05A1E]"
                     />
-                    <span>Include Activity Sidebar</span>
+                    <span>Include Activity Sidebar Columns</span>
                   </label>
 
                   <label className="flex items-center gap-2 cursor-pointer hover:text-slate-900">
@@ -307,7 +292,7 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
                       onChange={(e) => setIncludeDates(e.target.checked)}
                       className="rounded border-slate-300 text-[#E05A1E] focus:ring-[#E05A1E]"
                     />
-                    <span>Include Start & End Dates</span>
+                    <span>Include Planned Start & Finish Dates</span>
                   </label>
 
                   <label className="flex items-center gap-2 cursor-pointer hover:text-slate-900">
@@ -347,24 +332,27 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
                       onChange={(e) => setIncludePageNumbers(e.target.checked)}
                       className="rounded border-slate-300 text-[#E05A1E] focus:ring-[#E05A1E]"
                     />
-                    <span>Include Page & Sheet Numbers</span>
+                    <span>Include Page 1 of 1 Indicator</span>
                   </label>
                 </div>
               </div>
 
-              {/* 2D Pagination Summary Card */}
+              {/* Single Page Composition Summary Card */}
               <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs space-y-1.5">
                 <div className="flex items-center justify-between font-bold text-slate-800">
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1 text-slate-900">
                     <Info size={13} className="text-[#E05A1E]" />
-                    Pagination Matrix:
+                    Single-Page Composition:
                   </span>
-                  <span className="text-[#E05A1E] font-mono">{totalPages} Total Page{totalPages > 1 ? 's' : ''}</span>
+                  <span className="text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded font-mono font-bold">
+                    Exactly 1 Page
+                  </span>
                 </div>
-                <div className="text-[11px] text-slate-500 space-y-0.5">
-                  <p>• Vertical Sheets (Activity Rows): <strong>{totalVerticalPages}</strong></p>
-                  <p>• Horizontal Slices (Date Periods): <strong>{totalHorizontalSlices}</strong></p>
-                  <p>• Current View: Sheet R{activePageData?.rowSheetIndex} · C{activePageData?.timelineSliceIndex}</p>
+                <div className="text-[11px] text-slate-600 space-y-1 pt-1">
+                  <p>• Activities: <strong>{tasks.length} tasks</strong> across all construction groups</p>
+                  <p>• Timeline Span: <strong>{activePageData?.slice?.label}</strong> ({activePageData?.slice?.totalDays} days)</p>
+                  <p>• Document Size: <strong>{layoutDimensions.width} mm × {layoutDimensions.height} mm</strong> ({activePageData?.orientation})</p>
+                  <p className="text-emerald-600 font-semibold">• Zero pagination fragmentation: entire schedule in one continuous view</p>
                 </div>
               </div>
             </div>
@@ -378,7 +366,7 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
                 className="w-full btn-primary text-xs py-2.5 flex items-center justify-center gap-2 shadow-xs disabled:opacity-50"
               >
                 <Download size={14} />
-                <span>{isExporting ? 'Generating PDF...' : `Download ${paperSize} PDF`}</span>
+                <span>{isExporting ? 'Generating PDF...' : 'Download Complete PDF (1 Page)'}</span>
               </button>
 
               <button
@@ -391,41 +379,21 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
             </div>
           </div>
 
-          {/* ─── Right Document Viewer & Navigation ─────────────────────── */}
+          {/* ─── Right Document Viewer & Controls ───────────────────────── */}
           <div className="flex-1 flex flex-col overflow-hidden bg-slate-200/90 relative">
             
-            {/* Viewer Navigation Toolbar */}
+            {/* Viewer Navigation & Zoom Toolbar */}
             <div className="bg-white px-4 py-2 border-b border-slate-300 flex items-center justify-between text-xs z-10 flex-shrink-0">
-              {/* Page Navigator */}
+              
+              {/* Status Badge */}
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePrevPage}
-                  disabled={safePageIndex === 0}
-                  className="p-1 rounded bg-slate-100 border border-slate-300 text-slate-700 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none"
-                  title="Previous Page"
-                >
-                  <ChevronLeft size={16} />
-                </button>
-
-                <span className="font-semibold text-slate-700 text-xs">
-                  Page <span className="font-bold text-slate-900">{safePageIndex + 1}</span> of <span className="font-bold text-slate-900">{totalPages}</span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  Continuous Composition Preview (1 Page)
                 </span>
 
-                <button
-                  type="button"
-                  onClick={handleNextPage}
-                  disabled={safePageIndex >= totalPages - 1}
-                  className="p-1 rounded bg-slate-100 border border-slate-300 text-slate-700 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none"
-                  title="Next Page"
-                >
-                  <ChevronRight size={16} />
-                </button>
-
-                <div className="h-4 w-px bg-slate-200 mx-1" />
-
                 <span className="text-[11px] text-slate-500 hidden sm:inline">
-                  Period: <strong>{activePageData?.slice?.label}</strong>
+                  Timeline: <strong>{activePageData?.slice?.label}</strong>
                 </span>
               </div>
 
@@ -433,7 +401,7 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setZoomLevel(prev => Math.max(0.4, prev - 0.15))}
+                  onClick={() => setZoomLevel(prev => Math.max(0.2, +(prev - 0.1).toFixed(2)))}
                   className="p-1 rounded bg-slate-100 border border-slate-300 text-slate-700 hover:bg-slate-200"
                   title="Zoom Out"
                 >
@@ -446,19 +414,31 @@ export default function GanttExportModal({ isOpen, onClose, tasks = [], project 
 
                 <button
                   type="button"
-                  onClick={() => setZoomLevel(prev => Math.min(1.8, prev + 0.15))}
+                  onClick={() => setZoomLevel(prev => Math.min(1.5, +(prev + 0.1).toFixed(2)))}
                   className="p-1 rounded bg-slate-100 border border-slate-300 text-slate-700 hover:bg-slate-200"
                   title="Zoom In"
                 >
                   <ZoomIn size={15} />
                 </button>
 
+                <div className="h-4 w-px bg-slate-200 mx-1" />
+
                 <button
                   type="button"
-                  onClick={() => setZoomLevel(0.85)}
-                  className="text-[11px] font-semibold px-2 py-1 bg-slate-100 border border-slate-300 rounded text-slate-700 hover:bg-slate-200 ml-1"
+                  onClick={() => setZoomLevel(0.35)}
+                  className="text-[11px] font-semibold px-2 py-1 bg-slate-100 border border-slate-300 rounded text-slate-700 hover:bg-slate-200"
+                  title="Fit whole chart height on screen"
                 >
-                  Fit
+                  Fit View
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setZoomLevel(1.0)}
+                  className="text-[11px] font-semibold px-2 py-1 bg-slate-100 border border-slate-300 rounded text-slate-700 hover:bg-slate-200"
+                  title="100% full scale inspection"
+                >
+                  100%
                 </button>
               </div>
             </div>

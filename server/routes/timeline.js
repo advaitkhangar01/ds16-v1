@@ -69,6 +69,89 @@ const handleEvidenceUpload = (req, res, next) => {
   });
 };
 
+// Configure upload storage for single activity site execution photo (max 5 MB)
+const ALLOWED_PHOTO_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+const ALLOWED_PHOTO_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+const photoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const projectId = parseInt(req.params.projectId, 10);
+    if (isNaN(projectId) || projectId <= 0) {
+      return cb(new Error('Invalid project ID for photo upload'));
+    }
+    const dir = path.join(__dirname, '..', 'uploads', 'projects', String(projectId), 'timeline_photos');
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    } catch (e) {
+      cb(e);
+    }
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const cleanBase = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
+    cb(null, `photo_${Date.now()}_${cleanBase}${ext}`);
+  }
+});
+
+const uploadPhoto = multer({
+  storage: photoStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB strictly enforced
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ALLOWED_PHOTO_EXTENSIONS.has(ext)) {
+      return cb(new Error(`File type '${ext}' is not permitted. Only JPG, PNG, and WebP images are allowed.`));
+    }
+    if (!ALLOWED_PHOTO_MIMES.has(file.mimetype)) {
+      return cb(new Error(`MIME type '${file.mimetype}' is not permitted. Only image/jpeg, image/png, and image/webp are allowed.`));
+    }
+    cb(null, true);
+  }
+});
+
+const handlePhotoUpload = (req, res, next) => {
+  uploadPhoto.single('photo')(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File size exceeds maximum 5 MB limit' });
+      }
+      return res.status(400).json({ error: err.message });
+    }
+    next();
+  });
+};
+
+/**
+ * Validates file magic bytes to verify genuine image headers (JPEG, PNG, WebP)
+ */
+const verifyImageSignature = (filePath) => {
+  try {
+    const buffer = Buffer.alloc(12);
+    const fd = fs.openSync(filePath, 'r');
+    fs.readSync(fd, buffer, 0, 12, 0);
+    fs.closeSync(fd);
+
+    // JPEG: FF D8 FF
+    if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+      return true;
+    }
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+      return true;
+    }
+    // WebP: RIFF (bytes 0-3: 52 49 46 46) ... WEBP (bytes 8-11: 57 45 42 50)
+    if (
+      buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+      buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50
+    ) {
+      return true;
+    }
+    return false;
+  } catch (err) {
+    return false;
+  }
+};
+
 // Role helpers
 const isManagement = (user) => {
   if (!user) return false;
@@ -1011,9 +1094,23 @@ router.patch('/tasks/:taskId', authenticate, checkProjectAccess(), async (req, r
       if (status === 'In Progress' && !existingTask.actual_start_date && !actual_start_date) {
         updates.push(`actual_start_date = CURRENT_DATE`);
       }
-      // Auto-set actual finish date when Completed if unset
-      if (status === 'Completed' && !existingTask.actual_finish_date && !actual_finish_date) {
-        updates.push(`actual_finish_date = CURRENT_DATE`);
+      // Note: Actual finish date is strictly manually entered from site execution records and not auto-filled
+    }
+
+    // Validate actual execution dates
+    const effectiveActualStart = actual_start_date !== undefined ? (actual_start_date || null) : existingTask.actual_start_date;
+    const effectiveActualFinish = actual_finish_date !== undefined ? (actual_finish_date || null) : existingTask.actual_finish_date;
+
+    if (effectiveActualStart && effectiveActualFinish) {
+      const sTime = new Date(effectiveActualStart).getTime();
+      const fTime = new Date(effectiveActualFinish).getTime();
+      if (isNaN(sTime) || isNaN(fTime)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Actual execution dates must be valid calendar dates' });
+      }
+      if (fTime < sTime) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Actual finish date cannot precede actual start date' });
       }
     }
 
@@ -1509,6 +1606,153 @@ router.get('/tasks/:taskId/evidence', authenticate, checkProjectAccess(), async 
   }
 });
 
+// 14. POST /api/projects/:projectId/timeline/tasks/:taskId/photo
+// Upload or replace the single site execution photo for an activity (max 5 MB, JPG/PNG/WebP)
+router.post('/tasks/:taskId/photo', authenticate, checkProjectAccess({ requireAssignmentOnMutation: true }), handlePhotoUpload, async (req, res) => {
+  const projectId = parseInt(req.params.projectId, 10);
+  const taskId = parseInt(req.params.taskId, 10);
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'No photo file supplied' });
+  }
+
+  // Validate real image magic bytes (prevent disguised executables/scripts)
+  if (!verifyImageSignature(req.file.path)) {
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    return res.status(400).json({ error: 'Invalid or corrupted image file signature. File is not a valid JPG, PNG, or WebP image.' });
+  }
+
+  try {
+    const { rows: [task] } = await pool.query(
+      'SELECT id, task_name, photo_path, photo_name FROM timeline_tasks WHERE id = $1 AND project_id = $2',
+      [taskId, projectId]
+    );
+
+    if (!task) {
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      return res.status(404).json({ error: 'Task not found in this project' });
+    }
+
+    // Activity-level authorization: user must be management or assigned to the task
+    const { rows: assignmentRows } = await pool.query(
+      'SELECT 1 FROM timeline_task_assignments WHERE task_id = $1 AND user_id = $2',
+      [taskId, req.user.id]
+    );
+    const isAssigned = assignmentRows.length > 0;
+    const canManage = isManagement(req.user);
+
+    if (!canManage && !isAssigned) {
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      return res.status(403).json({ error: 'You are not authorized to upload photos for this task' });
+    }
+
+    const relPath = path.relative(path.join(__dirname, '..'), req.file.path).replace(/\\/g, '/');
+    const oldPhotoPath = task.photo_path;
+
+    // Atomically persist new photo reference
+    const { rows: [updatedTask] } = await pool.query(
+      `UPDATE timeline_tasks
+       SET photo_path = $1, photo_name = $2, photo_size = $3, photo_mime = $4, photo_uploaded_at = NOW(), updated_at = NOW()
+       WHERE id = $5 AND project_id = $6
+       RETURNING id, task_name, photo_path, photo_name, photo_size, photo_mime, photo_uploaded_at`,
+      [relPath, req.file.originalname, req.file.size, req.file.mimetype, taskId, projectId]
+    );
+
+    // Lifecycle replacement: Only unlink previously stored file once new reference is safely committed
+    if (oldPhotoPath && oldPhotoPath !== relPath) {
+      const absOldPath = path.resolve(__dirname, '..', oldPhotoPath);
+      if (fs.existsSync(absOldPath)) {
+        try { fs.unlinkSync(absOldPath); } catch (e) { console.warn('Could not remove replaced photo:', e.message); }
+      }
+    }
+
+    // Log in timeline audit history
+    const auditAction = oldPhotoPath ? 'REPLACE_PHOTO' : 'UPLOAD_PHOTO';
+    await pool.query(
+      `INSERT INTO timeline_audit_history (project_id, task_id, user_id, action, new_value)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [projectId, taskId, req.user.id, auditAction, JSON.stringify({ photo_name: req.file.originalname, photo_path: relPath, size: req.file.size })]
+    );
+
+    res.status(200).json({
+      message: 'Site execution photo uploaded successfully',
+      photo: {
+        photo_path: updatedTask.photo_path,
+        photo_name: updatedTask.photo_name,
+        photo_size: updatedTask.photo_size,
+        photo_mime: updatedTask.photo_mime,
+        photo_uploaded_at: updatedTask.photo_uploaded_at
+      }
+    });
+  } catch (err) {
+    if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    console.error('Error uploading activity photo:', err);
+    res.status(500).json({ error: 'Failed to record site execution photo' });
+  }
+});
+
+// 15. DELETE /api/projects/:projectId/timeline/tasks/:taskId/photo
+// Safely remove the site execution photo for an activity
+router.delete('/tasks/:taskId/photo', authenticate, checkProjectAccess({ requireAssignmentOnMutation: true }), async (req, res) => {
+  const projectId = parseInt(req.params.projectId, 10);
+  const taskId = parseInt(req.params.taskId, 10);
+
+  try {
+    const { rows: [task] } = await pool.query(
+      'SELECT id, photo_path, photo_name FROM timeline_tasks WHERE id = $1 AND project_id = $2',
+      [taskId, projectId]
+    );
+
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found in this project' });
+    }
+
+    // Activity-level authorization: user must be management or assigned to the task
+    const { rows: assignmentRows } = await pool.query(
+      'SELECT 1 FROM timeline_task_assignments WHERE task_id = $1 AND user_id = $2',
+      [taskId, req.user.id]
+    );
+    const isAssigned = assignmentRows.length > 0;
+    const canManage = isManagement(req.user);
+
+    if (!canManage && !isAssigned) {
+      return res.status(403).json({ error: 'You are not authorized to delete photos for this task' });
+    }
+
+    if (!task.photo_path) {
+      return res.status(200).json({ message: 'No photo to remove' });
+    }
+
+    const oldPath = task.photo_path;
+
+    // Atomically clear database reference
+    await pool.query(
+      `UPDATE timeline_tasks
+       SET photo_path = NULL, photo_name = NULL, photo_size = NULL, photo_mime = NULL, photo_uploaded_at = NULL, updated_at = NOW()
+       WHERE id = $1 AND project_id = $2`,
+      [taskId, projectId]
+    );
+
+    // Safely remove physical file
+    const absPath = path.resolve(__dirname, '..', oldPath);
+    if (fs.existsSync(absPath)) {
+      try { fs.unlinkSync(absPath); } catch (e) { console.warn('Could not remove photo file:', e.message); }
+    }
+
+    // Log in timeline audit history
+    await pool.query(
+      `INSERT INTO timeline_audit_history (project_id, task_id, user_id, action, new_value)
+       VALUES ($1, $2, $3, 'REMOVE_PHOTO', $4)`,
+      [projectId, taskId, req.user.id, JSON.stringify({ removed_photo: task.photo_name })]
+    );
+
+    res.status(200).json({ message: 'Site execution photo removed successfully' });
+  } catch (err) {
+    console.error('Error removing activity photo:', err);
+    res.status(500).json({ error: 'Failed to remove site execution photo' });
+  }
+});
+
 // 14. GET /api/projects/:projectId/timeline/versions
 // List all published revisions/versions of the project timeline
 router.get('/versions', authenticate, checkProjectAccess(), async (req, res) => {
@@ -1594,84 +1838,6 @@ router.get('/history', authenticate, checkProjectAccess(), requireManagement, as
   } catch (err) {
     console.error('Error fetching timeline history:', err);
     res.status(500).json({ error: 'Failed to fetch timeline activity history' });
-  }
-});
-
-// 17. GET /api/projects/:projectId/timeline/templates
-// List reusable construction templates
-router.get('/templates', authenticate, checkProjectAccess(), async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      'SELECT * FROM construction_templates ORDER BY is_system DESC, name ASC'
-    );
-    res.json({ templates: rows });
-  } catch (err) {
-    console.error('Error listing templates:', err);
-    res.status(500).json({ error: 'Failed to load construction templates' });
-  }
-});
-
-// 18. POST /api/projects/:projectId/timeline/templates/save-from-project
-// Save current project's timeline structure as a new reusable template (requires management)
-router.post('/templates/save-from-project', authenticate, checkProjectAccess(), requireManagement, async (req, res) => {
-  const projectId = parseInt(req.params.projectId, 10);
-  const { name, description, building_type } = req.body;
-
-  if (!name || !name.trim()) {
-    return res.status(400).json({ error: 'Template name is required' });
-  }
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    const { rows: [config] } = await client.query(
-      'SELECT * FROM timeline_configurations WHERE project_id = $1',
-      [projectId]
-    );
-
-    const { rows: tasks } = await client.query(
-      'SELECT * FROM timeline_tasks WHERE project_id = $1 AND is_archived = FALSE ORDER BY order_index ASC',
-      [projectId]
-    );
-
-    if (tasks.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Project has no timeline tasks to save as a template' });
-    }
-
-    const { rows: [tmpl] } = await client.query(
-      `INSERT INTO construction_templates (name, description, building_type, default_floors, default_config, is_system, created_by)
-       VALUES ($1, $2, $3, $4, $5, FALSE, $6)
-       RETURNING *`,
-      [
-        name.trim(),
-        description || `Generated from Project #${projectId}`,
-        building_type || config?.building_type || 'Residential Apartment',
-        config?.floors_above_ground || 4,
-        JSON.stringify(config?.settings || {}),
-        req.user.id
-      ]
-    );
-
-    for (let i = 0; i < tasks.length; i++) {
-      const t = tasks[i];
-      await client.query(
-        `INSERT INTO construction_template_activities 
-          (template_id, category, activity_name, stage_name, default_duration_days, order_index)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [tmpl.id, t.category, t.task_name, t.construction_stage, t.duration_days, i + 1]
-      );
-    }
-
-    await client.query('COMMIT');
-    res.status(201).json({ message: 'Template saved successfully', template: tmpl });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Error saving template from project:', err);
-    res.status(500).json({ error: 'Failed to save template' });
-  } finally {
-    client.release();
   }
 });
 

@@ -1,16 +1,23 @@
 // client/src/utils/a3GanttPdfEngine.js
-// Authoritative calculation, pagination, layout & PDF generation engine for DS16 Construction Schedules
-// Supports A3 & A4 in Landscape & Portrait with 2-Dimensional Intelligent Pagination
+// Authoritative single-page full-composition Gantt Chart & Schedule PDF generation engine for DS16.
+// Replaces multi-page fragmentation with exactly ONE continuous, print-ready PDF page.
+// Supports custom uncompressed plotter dimensions (default) and proportional single-page standard sizes.
 
 import { jsPDF } from 'jspdf';
 
 // ─── Standard Paper Dimensions (in mm) ─────────────────────────────────────────
 export const PAPER_SIZES = {
+  custom: {
+    label: 'Custom (Continuous Full Plotter)',
+    description: 'Auto-sized to fit 100% of activities and timeline at full scale with zero compression'
+  },
   A3: {
+    label: 'A3 (Single Sheet - Scaled)',
     landscape: { width: 420, height: 297 },
     portrait:  { width: 297, height: 420 }
   },
   A4: {
+    label: 'A4 (Single Sheet - Scaled)',
     landscape: { width: 297, height: 210 },
     portrait:  { width: 210, height: 297 }
   }
@@ -80,12 +87,22 @@ export function organizeTaskRows(tasks = [], groupingMode = 'groups') {
       if (aStart !== bStart) return aStart - bStart;
       return (a.order_index || 0) - (b.order_index || 0);
     });
-    return sorted.map((t, idx) => ({
-      type: 'task',
-      id: t.id || t.temp_id || `t-${idx}`,
-      task: t,
-      rowHeight: 6.5
-    }));
+    return sorted.map((t, idx) => {
+      const hasActualStart = Boolean(t.actual_start_date);
+      const hasActualFinish = Boolean(t.actual_finish_date);
+      const isSameAsPlanned = hasActualStart && hasActualFinish &&
+        t.actual_start_date === t.planned_start_date &&
+        t.actual_finish_date === t.planned_finish_date;
+      const hasTwoBars = hasActualStart && !isSameAsPlanned;
+
+      return {
+        type: 'task',
+        id: t.id || t.temp_id || `t-${idx}`,
+        task: t,
+        hasTwoBars,
+        rowHeight: hasTwoBars ? 9.2 : 6.5
+      };
+    });
   }
 
   if (groupingMode === 'floors') {
@@ -115,11 +132,19 @@ export function organizeTaskRows(tasks = [], groupingMode = 'groups') {
       });
       f.tasks.sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
       f.tasks.forEach(t => {
+        const hasActualStart = Boolean(t.actual_start_date);
+        const hasActualFinish = Boolean(t.actual_finish_date);
+        const isSameAsPlanned = hasActualStart && hasActualFinish &&
+          t.actual_start_date === t.planned_start_date &&
+          t.actual_finish_date === t.planned_finish_date;
+        const hasTwoBars = hasActualStart && !isSameAsPlanned;
+
         rows.push({
           type: 'task',
           id: t.id || t.temp_id || `t-${t.order_index}`,
           task: t,
-          rowHeight: 6.5
+          hasTwoBars,
+          rowHeight: hasTwoBars ? 9.2 : 6.5
         });
       });
     });
@@ -137,7 +162,7 @@ export function organizeTaskRows(tasks = [], groupingMode = 'groups') {
       id: `sec-${secName}`,
       name: secName,
       totalTasks: secTasks.length,
-      rowHeight: 8.0
+      rowHeight: 8.5
     });
 
     // Subgroup by floor
@@ -162,17 +187,25 @@ export function organizeTaskRows(tasks = [], groupingMode = 'groups') {
         name: sub.floor_name,
         sectionName: secName,
         totalTasks: sub.tasks.length,
-        rowHeight: 6.5
+        rowHeight: 7.0
       });
 
       sub.tasks.sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
       sub.tasks.forEach(t => {
+        const hasActualStart = Boolean(t.actual_start_date);
+        const hasActualFinish = Boolean(t.actual_finish_date);
+        const isSameAsPlanned = hasActualStart && hasActualFinish &&
+          t.actual_start_date === t.planned_start_date &&
+          t.actual_finish_date === t.planned_finish_date;
+        const hasTwoBars = hasActualStart && !isSameAsPlanned;
+
         rows.push({
           type: 'task',
           id: t.id || t.temp_id || `t-${t.order_index}`,
           task: t,
           sectionName: secName,
-          rowHeight: 6.5
+          hasTwoBars,
+          rowHeight: hasTwoBars ? 9.2 : 6.5
         });
       });
     });
@@ -181,393 +214,375 @@ export function organizeTaskRows(tasks = [], groupingMode = 'groups') {
   return rows;
 }
 
-// ─── Timeline Date Ranges & Horizontal Slices ─────────────────────────────────
+// ─── Full Timeline Calculation (Single Continuous Range) ──────────────────────
 
 /**
- * Calculates project overall date range and slices into horizontal printable segments.
+ * Calculates the complete project date range without horizontal slicing.
+ * Returns { projectStart, projectFinish, allMonths, totalDays, dayWidthMm }
  */
-export function calculateTimelineSlices(tasks = [], options = {}, availableTimelineWidthMm = 260) {
+export function calculateFullTimeline(tasks = [], options = {}, availableWidthMm = null) {
   let minTime = Infinity;
   let maxTime = -Infinity;
+
+  const now = new Date();
+  const nowTime = now.getTime();
 
   tasks.forEach(t => {
     const s = parseDateSafe(t.planned_start_date);
     const e = parseDateSafe(t.planned_finish_date);
     if (s && s.getTime() < minTime) minTime = s.getTime();
     if (e && e.getTime() > maxTime) maxTime = e.getTime();
-  });
 
-  const now = new Date();
+    const as = parseDateSafe(t.actual_start_date);
+    const af = parseDateSafe(t.actual_finish_date);
+    if (as && as.getTime() < minTime) minTime = as.getTime();
+    if (af && af.getTime() > maxTime) maxTime = af.getTime();
+    if (as && !af && nowTime > maxTime) maxTime = nowTime;
+  });
   if (minTime === Infinity) minTime = now.getTime();
   if (maxTime === -Infinity) maxTime = minTime + 180 * 86400000;
 
-  // Align start to the 1st of start month
+  // Align start to the 1st of the start month
   const projectStart = new Date(minTime);
   projectStart.setDate(1);
   projectStart.setHours(0, 0, 0, 0);
 
-  // Align finish to end of finish month
+  // Align finish to the end of the finish month
   const projectFinish = new Date(maxTime);
   projectFinish.setMonth(projectFinish.getMonth() + 1);
   projectFinish.setDate(0);
   projectFinish.setHours(23, 59, 59, 999);
 
-  // List all months in project span
+  // Collect all months in the project span
   const allMonths = [];
   const curr = new Date(projectStart);
   while (curr <= projectFinish) {
     const mStart = new Date(curr);
     curr.setMonth(curr.getMonth() + 1);
     const mEnd = new Date(curr.getTime() - 1);
+    const daysInMonth = Math.round((mEnd - mStart) / 86400000) + 1;
+
     allMonths.push({
       start: mStart,
       end: mEnd,
       label: mStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-      days: Math.round((mEnd - mStart) / 86400000) + 1
+      days: daysInMonth
     });
   }
 
-  const scale = options.timelineScale || 'auto';
-  let monthsPerSlice = 6; // default for A3
+  const totalDays = Math.max(1, Math.round((projectFinish - projectStart) / 86400000) + 1);
 
-  if (scale === 'weekly') {
-    // In weekly view, fit ~14-16 weeks per page (approx 3.5 months)
-    monthsPerSlice = availableTimelineWidthMm > 240 ? 4 : 3;
-  } else if (scale === 'monthly') {
-    // Pure monthly view
-    monthsPerSlice = availableTimelineWidthMm > 240 ? 6 : 4;
+  // Determine dayWidthMm:
+  // If availableWidthMm is explicitly given (e.g. scaling to fit a fixed sheet), use that.
+  // Otherwise calculate dynamic readable width based on scale option.
+  let dayWidthMm = 2.8; // default ~85mm per 30-day month
+  const scale = options.timelineScale || 'auto';
+
+  if (availableWidthMm && availableWidthMm > 0) {
+    dayWidthMm = availableWidthMm / totalDays;
   } else {
-    // 'auto': choose based on total project length & available width
-    if (allMonths.length <= 6 && availableTimelineWidthMm >= 220) {
-      monthsPerSlice = allMonths.length;
-    } else if (allMonths.length <= 8 && availableTimelineWidthMm >= 260) {
-      monthsPerSlice = allMonths.length;
+    if (scale === 'weekly') {
+      dayWidthMm = 3.4; // ~102mm per month
+    } else if (scale === 'monthly') {
+      dayWidthMm = 2.4; // ~72mm per month
     } else {
-      monthsPerSlice = availableTimelineWidthMm > 240 ? 6 : 4;
+      // 'auto'
+      if (allMonths.length <= 4) {
+        dayWidthMm = 3.5;
+      } else if (allMonths.length <= 8) {
+        dayWidthMm = 2.8;
+      } else if (allMonths.length <= 15) {
+        dayWidthMm = 2.2;
+      } else {
+        dayWidthMm = 1.8;
+      }
     }
   }
 
-  monthsPerSlice = Math.max(1, monthsPerSlice);
+  const timelineWidth = totalDays * dayWidthMm;
 
-  const horizontalSlices = [];
-  for (let i = 0; i < allMonths.length; i += monthsPerSlice) {
-    const sliceMonths = allMonths.slice(i, i + monthsPerSlice);
-    const sliceStart = sliceMonths[0].start;
-    const sliceEnd = sliceMonths[sliceMonths.length - 1].end;
-    const totalDays = Math.round((sliceEnd - sliceStart) / 86400000) + 1;
-    const dayWidthMm = availableTimelineWidthMm / totalDays;
-
-    horizontalSlices.push({
-      sliceIndex: horizontalSlices.length,
-      startDate: sliceStart,
-      endDate: sliceEnd,
-      months: sliceMonths,
-      totalDays,
-      dayWidthMm,
-      label: `${sliceMonths[0].label} – ${sliceMonths[sliceMonths.length - 1].label}`
-    });
-  }
-
-  if (horizontalSlices.length === 0) {
-    const defaultStart = new Date();
-    const defaultEnd = new Date(defaultStart.getTime() + 180 * 86400000);
-    horizontalSlices.push({
-      sliceIndex: 0,
-      startDate: defaultStart,
-      endDate: defaultEnd,
-      months: allMonths,
-      totalDays: 180,
-      dayWidthMm: availableTimelineWidthMm / 180,
-      label: 'Overall Schedule'
-    });
-  }
-
-  return { projectStart, projectFinish, allMonths, horizontalSlices };
+  return {
+    projectStart,
+    projectFinish,
+    allMonths,
+    totalDays,
+    dayWidthMm,
+    timelineWidth,
+    label: `${allMonths[0]?.label || ''} – ${allMonths[allMonths.length - 1]?.label || ''}`
+  };
 }
 
-// ─── 2-Dimensional Pagination Matrix Builder ──────────────────────────────────
+// ─── Single-Page Full-Composition Matrix Builder ──────────────────────────────
 
 /**
- * Calculates the complete 2D page matrix for the document.
- * Returns { pages, totalPages, verticalCount, horizontalCount, layoutDimensions }
+ * Builds the complete single-page composition metadata for the entire Gantt schedule.
+ * Exactly ONE page is produced.
  */
-export function buildPaginatedScheduleMatrix(tasks = [], options = {}, project = {}) {
-  const paper = (options.paperSize || 'A3').toUpperCase();
+export function buildSinglePageScheduleMatrix(tasks = [], options = {}, project = {}) {
+  const paper = (options.paperSize || 'custom').toLowerCase();
   const orientation = (options.orientation || 'landscape').toLowerCase();
-  const dims = (PAPER_SIZES[paper] && PAPER_SIZES[paper][orientation]) 
-    ? PAPER_SIZES[paper][orientation] 
-    : PAPER_SIZES.A3.landscape;
 
-  const marginX = 12;
-  const marginTop = 10;
-  const marginBottom = 10;
+  // 1. Organize all task rows into full hierarchy
+  const allRows = organizeTaskRows(tasks, options.activityGrouping || 'groups');
 
-  const headerHeight = options.includeProjectDetails !== false ? 26 : 14;
-  const tableHeaderHeight = 11;
-  const footerHeight = options.includeColorLegend !== false ? 14 : 9;
-
-  const printableWidth = dims.width - (marginX * 2);
-  const printableHeight = dims.height - marginTop - marginBottom;
-  const availableContentHeight = printableHeight - headerHeight - tableHeaderHeight - footerHeight;
-
-  // Sidebar column widths (in mm)
+  // 2. Calculate dynamic sidebar column widths based on actual task content
   const includeSidebar = options.includeSidebar !== false;
   let sidebarWidth = 0;
   let sidebarCols = [];
 
   if (includeSidebar) {
-    if (paper === 'A4' && orientation === 'portrait') {
-      sidebarWidth = 85;
-      sidebarCols = [
-        { key: 'name', label: 'Activity Description', width: 45 },
-        { key: 'duration', label: 'Days', width: 14, align: 'center' },
-        { key: 'dates', label: 'Dates', width: 26 }
-      ];
-    } else if (paper === 'A4' && orientation === 'landscape') {
-      sidebarWidth = 110;
-      sidebarCols = [
-        { key: 'name', label: 'Activity Description', width: 52 },
-        { key: 'level', label: 'Floor / Level', width: 22 },
-        { key: 'duration', label: 'Days', width: 12, align: 'center' },
-        { key: 'dates', label: 'Dates', width: 24 }
-      ];
-    } else {
-      // A3 Standard
-      sidebarWidth = 132;
-      sidebarCols = [
-        { key: 'name', label: 'Activity Description', width: 56 },
-        { key: 'level', label: 'Floor / Level', width: 26 },
-        { key: 'duration', label: 'Days', width: 14, align: 'center' },
-        { key: 'start', label: 'Planned Start', width: 18 },
-        { key: 'finish', label: 'Planned Finish', width: 18 }
-      ];
-    }
+    // Determine maximum length of task names to prevent clipping
+    let maxNameLen = 20;
+    tasks.forEach(t => {
+      const len = (t.task_name || '').length;
+      if (len > maxNameLen) maxNameLen = len;
+    });
+
+    // Approximate ~1.3mm per character at 7pt Helvetica + padding
+    const calculatedNameColWidth = Math.min(105, Math.max(72, Math.round(maxNameLen * 1.35)));
+
+    sidebarCols = [
+      { key: 'name', label: 'Activity Description', width: calculatedNameColWidth },
+      { key: 'level', label: 'Floor / Level', width: 28 },
+      { key: 'duration', label: 'Days', width: 14, align: 'center' },
+      { key: 'start', label: 'Planned Start', width: 20 },
+      { key: 'finish', label: 'Planned Finish', width: 20 }
+    ];
+
+    sidebarWidth = sidebarCols.reduce((sum, c) => sum + c.width, 0);
   }
 
+  // 3. Margin & Layout Header / Footer heights
+  const marginX = 14;
+  const marginTop = 12;
+  const marginBottom = 12;
+
+  const headerHeight = options.includeProjectDetails !== false ? 28 : 12;
+  const tableHeaderHeight = 12; // 6mm months + 6mm weeks
+  const footerHeight = options.includeColorLegend !== false ? 14 : 8;
+
+  // 4. Sum of all row heights
+  const totalRowsHeight = allRows.reduce((sum, r) => sum + (r.rowHeight || 6.5), 0);
+  const totalContentHeight = headerHeight + tableHeaderHeight + totalRowsHeight + footerHeight;
+
+  // 5. Timeline Calculation
+  const isFixedStandardPaper = paper === 'a3' || paper === 'a4';
+
+  let dims = { width: 0, height: 0 };
+  let finalTimeline = null;
+  let scaleFactor = 1.0;
+
+  if (isFixedStandardPaper && options.fitToPaper === true) {
+    // Proportional single-page scaling to fit fixed sheet (e.g. user insists on fitting to 420x297)
+    const stdDims = PAPER_SIZES[paper.toUpperCase()][orientation] || PAPER_SIZES.A3.landscape;
+    dims = { ...stdDims };
+
+    const printableW = dims.width - (marginX * 2);
+    const printableH = dims.height - marginTop - marginBottom;
+
+    // Available timeline width on this sheet
+    const availableTLWidth = Math.max(60, printableW - sidebarWidth);
+    finalTimeline = calculateFullTimeline(tasks, options, availableTLWidth);
+
+    // If rows exceed height, calculate proportional scale factor
+    if (totalContentHeight > printableH) {
+      scaleFactor = printableH / totalContentHeight;
+    }
+  } else {
+    // Custom continuous full-scale page (Default & Recommended)
+    // No compression, no distortion, complete unclipped canvas
+    finalTimeline = calculateFullTimeline(tasks, options, null);
+    const calculatedWidth = marginX * 2 + sidebarWidth + finalTimeline.timelineWidth;
+    const calculatedHeight = marginTop + totalContentHeight + marginBottom;
+
+    // Round up to clean integer mm
+    dims = {
+      width: Math.max(320, Math.ceil(calculatedWidth)),
+      height: Math.max(220, Math.ceil(calculatedHeight))
+    };
+  }
+
+  const printableWidth = dims.width - (marginX * 2);
+  const printableHeight = dims.height - marginTop - marginBottom;
   const timelineWidth = printableWidth - sidebarWidth;
 
-  // 1. Organize all task rows based on grouping
-  const allRows = organizeTaskRows(tasks, options.activityGrouping || 'groups');
+  const timelineSlice = {
+    sliceIndex: 0,
+    startDate: finalTimeline.projectStart,
+    endDate: finalTimeline.projectFinish,
+    months: finalTimeline.allMonths,
+    totalDays: finalTimeline.totalDays,
+    dayWidthMm: finalTimeline.dayWidthMm,
+    label: finalTimeline.label
+  };
 
-  // 2. Vertical Pagination (Row Slicing with Orphan Prevention)
-  const verticalSheets = [];
-  let currentRowSlice = [];
-  let currentAccumulatedHeight = 0;
+  const projectInfo = {
+    name: project.name || 'DS16 Construction Project',
+    clientName: project.client_name || project.client_display_name || 'Client',
+    location: project.location || project.city || 'Site Location',
+    startDate: project.start_date || (tasks[0] ? tasks[0].planned_start_date : null),
+    version: project.published_version ? `Schedule v${project.published_version}` : 'Schedule v1.0',
+    exportDate: new Date()
+  };
 
-  for (let i = 0; i < allRows.length; i++) {
-    const row = allRows[i];
-    const isHeader = row.type === 'section_header' || row.type === 'floor_header';
-
-    // Lookahead: If header is placed at very bottom of page without enough tasks, push to next sheet
-    let headerNeedsPageBreak = false;
-    if (isHeader) {
-      const remainingHeight = availableContentHeight - currentAccumulatedHeight;
-      // Header needs at least its own height + at least 2 task rows (~20mm)
-      if (remainingHeight < 22 && currentRowSlice.length > 0) {
-        headerNeedsPageBreak = true;
-      }
-    }
-
-    if (currentAccumulatedHeight + row.rowHeight > availableContentHeight || headerNeedsPageBreak) {
-      if (currentRowSlice.length > 0) {
-        verticalSheets.push(currentRowSlice);
-        currentRowSlice = [];
-        currentAccumulatedHeight = 0;
-      }
-    }
-
-    currentRowSlice.push(row);
-    currentAccumulatedHeight += row.rowHeight;
-  }
-
-  if (currentRowSlice.length > 0) {
-    verticalSheets.push(currentRowSlice);
-  }
-
-  if (verticalSheets.length === 0) {
-    verticalSheets.push([]);
-  }
-
-  // 3. Horizontal Pagination (Timeline Slices)
-  const { projectStart, projectFinish, allMonths, horizontalSlices } = calculateTimelineSlices(
-    tasks,
-    options,
-    timelineWidth
-  );
-
-  // 4. Build 2D Page Matrix
-  const pages = [];
-  const totalVerticalPages = verticalSheets.length;
-  const totalHorizontalSlices = horizontalSlices.length;
-  const totalPages = totalVerticalPages * totalHorizontalSlices;
-
-  let pageNum = 1;
-
-  for (let vIdx = 0; vIdx < totalVerticalPages; vIdx++) {
-    const vRows = verticalSheets[vIdx];
-
-    for (let hIdx = 0; hIdx < totalHorizontalSlices; hIdx++) {
-      const hSlice = horizontalSlices[hIdx];
-
-      pages.push({
-        pageNumber: pageNum,
-        totalPages,
-        rowSheetIndex: vIdx + 1,
-        totalRowSheets: totalVerticalPages,
-        timelineSliceIndex: hIdx + 1,
-        totalTimelineSlices: totalHorizontalSlices,
-        rows: vRows,
-        slice: hSlice,
-        paper,
-        orientation,
-        dims,
-        layout: {
-          marginX,
-          marginTop,
-          marginBottom,
-          headerHeight,
-          tableHeaderHeight,
-          footerHeight,
-          printableWidth,
-          printableHeight,
-          sidebarWidth,
-          sidebarCols,
-          timelineWidth,
-          timelineLeft: marginX + sidebarWidth
-        },
-        project: {
-          name: project.name || 'DS16 Construction Project',
-          clientName: project.client_name || project.client_display_name || 'Client',
-          location: project.location || project.city || 'Site Location',
-          startDate: project.start_date || (tasks[0] ? tasks[0].planned_start_date : null),
-          version: project.published_version ? `Schedule v${project.published_version}` : 'Schedule v1.0',
-          exportDate: new Date()
-        }
-      });
-
-      pageNum++;
-    }
-  }
+  // Build the SINGLE complete page object
+  const singlePage = {
+    pageNumber: 1,
+    totalPages: 1,
+    rowSheetIndex: 1,
+    totalRowSheets: 1,
+    timelineSliceIndex: 1,
+    totalTimelineSlices: 1,
+    rows: allRows,
+    slice: timelineSlice,
+    paper: paper === 'custom' ? 'Custom Plotter' : paper.toUpperCase(),
+    orientation: dims.width >= dims.height ? 'landscape' : 'portrait',
+    dims,
+    scaleFactor,
+    layout: {
+      marginX,
+      marginTop,
+      marginBottom,
+      headerHeight,
+      tableHeaderHeight,
+      footerHeight,
+      printableWidth,
+      printableHeight,
+      sidebarWidth,
+      sidebarCols,
+      timelineWidth,
+      timelineLeft: marginX + sidebarWidth,
+      totalRowsHeight
+    },
+    project: projectInfo
+  };
 
   return {
-    pages,
-    totalPages,
-    totalVerticalPages,
-    totalHorizontalSlices,
-    projectStart,
-    projectFinish,
-    allMonths,
+    pages: [singlePage],
+    totalPages: 1,
+    totalVerticalPages: 1,
+    totalHorizontalSlices: 1,
+    projectStart: finalTimeline.projectStart,
+    projectFinish: finalTimeline.projectFinish,
+    allMonths: finalTimeline.allMonths,
+    totalActivities: tasks.length,
     layoutDimensions: dims
   };
 }
 
-// ─── Direct PDF Generation Engine (via jsPDF Vector Drawing) ──────────────────
+// Backward-compatibility alias
+export const buildPaginatedScheduleMatrix = buildSinglePageScheduleMatrix;
+
+// ─── Direct Vector PDF Generation Engine (via jsPDF) ──────────────────────────
 
 /**
- * Generates an exact, vector-based, print-ready PDF from the calculated matrix.
+ * Generates an exact, vector-based, print-ready PDF containing the complete Gantt chart on exactly ONE page.
  * Returns the jsPDF document object.
  */
 export function generateA3GanttPdf(matrixData, options = {}) {
-  const { pages, totalPages } = matrixData;
+  const { pages } = matrixData;
   if (!pages || pages.length === 0) {
     throw new Error('No pages generated for schedule export.');
   }
 
-  const firstPage = pages[0];
+  const page = pages[0]; // Exactly ONE complete page
+  const orientation = page.dims.width >= page.dims.height ? 'landscape' : 'portrait';
+
   const doc = new jsPDF({
-    orientation: firstPage.orientation,
+    orientation,
     unit: 'mm',
-    format: [firstPage.dims.width, firstPage.dims.height]
+    format: [page.dims.width, page.dims.height],
+    compress: true
   });
 
-  pages.forEach((page, pageIdx) => {
-    if (pageIdx > 0) {
-      doc.addPage([page.dims.width, page.dims.height], page.orientation);
-    }
-
-    renderPdfPage(doc, page, options);
-  });
+  renderPdfSinglePage(doc, page, options);
 
   return doc;
 }
 
 /**
- * Vector draws a single paginated A3/A4 page in jsPDF.
+ * Vector draws the entire continuous Gantt chart onto the single PDF page.
  */
-function renderPdfPage(doc, page, options) {
-  const { layout, project, slice, rows, pageNumber, totalPages, rowSheetIndex, totalRowSheets, timelineSliceIndex, totalTimelineSlices } = page;
+function renderPdfSinglePage(doc, page, options) {
+  const { layout, project, slice, rows } = page;
   const { marginX, marginTop, sidebarWidth, sidebarCols, timelineWidth, timelineLeft, headerHeight, tableHeaderHeight } = layout;
 
   let currentY = marginTop;
 
   // ─── 1. Header Banner ───────────────────────────────────────────────────────
   if (options.includeProjectDetails !== false) {
-    // Top border brand stripe
+    // Brand orange top accent stripe
     doc.setFillColor(224, 90, 30); // #E05A1E
-    doc.rect(marginX, currentY, layout.printableWidth, 1.5, 'F');
+    doc.rect(marginX, currentY, layout.printableWidth, 2.0, 'F');
 
-    currentY += 2;
+    currentY += 2.5;
 
-    // Header background container
-    doc.setFillColor(248, 250, 252); // #F8FAFC
-    doc.setDrawColor(226, 232, 240); // #E2E8F0
-    doc.rect(marginX, currentY, layout.printableWidth, headerHeight - 2, 'FD');
+    // Header container
+    doc.setFillColor(248, 250, 252); // slate-50
+    doc.setDrawColor(203, 213, 225); // slate-300
+    doc.rect(marginX, currentY, layout.printableWidth, headerHeight - 2.5, 'FD');
 
     // Branding Title Left
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(14);
     doc.setTextColor(15, 23, 42); // slate-900
-    doc.text('DESIGN STUDIO 16', marginX + 4, currentY + 6);
+    doc.text('DESIGN STUDIO 16', marginX + 5, currentY + 7);
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
+    doc.setFontSize(9.5);
     doc.setTextColor(224, 90, 30);
-    doc.text('CONSTRUCTION SCHEDULE & GANTT CHART', marginX + 54, currentY + 6);
+    doc.text('COMPLETE CONSTRUCTION SCHEDULE & GANTT CHART', marginX + 68, currentY + 7);
 
     // Project metadata grid
-    const metaY = currentY + 12;
+    const metaY = currentY + 14;
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
+    doc.setFontSize(8);
     doc.setTextColor(100, 116, 139); // slate-500
 
-    doc.text('PROJECT:', marginX + 4, metaY);
-    doc.text('CLIENT:', marginX + 4, metaY + 5.5);
+    doc.text('PROJECT:', marginX + 5, metaY);
+    doc.text('CLIENT:', marginX + 5, metaY + 6);
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
+    doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(truncateText(doc, project.name, 70), marginX + 22, metaY);
+    doc.text(truncateText(doc, project.name, 90), marginX + 26, metaY);
+
     doc.setFont('helvetica', 'normal');
-    doc.text(truncateText(doc, project.clientName, 70), marginX + 22, metaY + 5.5);
+    doc.setFontSize(8.5);
+    doc.text(truncateText(doc, project.clientName, 90), marginX + 26, metaY + 6);
 
     // Center column: Location & Start Date
-    const col2X = marginX + 110;
+    const col2X = marginX + 130;
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
+    doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
     doc.text('LOCATION:', col2X, metaY);
-    doc.text('START DATE:', col2X, metaY + 5.5);
+    doc.text('START DATE:', col2X, metaY + 6);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
+    doc.setFontSize(8.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(truncateText(doc, project.location, 55), col2X + 22, metaY);
-    doc.text(formatDateDisplay(project.startDate), col2X + 22, metaY + 5.5);
+    doc.text(truncateText(doc, project.location, 65), col2X + 26, metaY);
+    doc.text(formatDateDisplay(project.startDate), col2X + 26, metaY + 6);
 
-    // Right column: Revision, Date, Sheet index
-    const col3X = layout.printableWidth + marginX - 4;
+    // Right column: Revision, Timeline Scope, Complete Schedule Badge
+    const col3X = layout.printableWidth + marginX - 5;
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
+    doc.setFontSize(9);
     doc.setTextColor(224, 90, 30);
-    doc.text(project.version, col3X, metaY - 5, { align: 'right' });
+    doc.text(project.version, col3X, metaY - 6, { align: 'right' });
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
+    doc.setFontSize(8);
     doc.setTextColor(71, 85, 105);
-    doc.text(`Timeline Scope: ${slice.label}`, col3X, metaY);
-    doc.text(`Sheet: Section R${rowSheetIndex}/${totalRowSheets} · Period C${timelineSliceIndex}/${totalTimelineSlices}`, col3X, metaY + 5.5, { align: 'right' });
+    doc.text(`Timeline: ${slice.label}`, col3X, metaY, { align: 'right' });
 
-    currentY += (headerHeight - 2) + 2;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(5, 150, 105); // emerald-600
+    doc.text(`1 Complete Continuous Composition · ${rows.filter(r => r.type === 'task').length} Activities`, col3X, metaY + 6, { align: 'right' });
+
+    currentY += (headerHeight - 2.5) + 2.5;
   }
 
   // ─── 2. Table Header (Sidebar Columns + Timeline Months & Weeks) ────────────
@@ -582,13 +597,13 @@ function renderPdfPage(doc, page, options) {
     let colX = marginX;
     sidebarCols.forEach(col => {
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
+      doc.setFontSize(7.5);
       doc.setTextColor(51, 65, 85);
 
-      const textX = col.align === 'center' ? colX + (col.width / 2) : colX + 3;
-      doc.text(col.label, textX, tableHeaderY + 6.5, { align: col.align || 'left' });
+      const textX = col.align === 'center' ? colX + (col.width / 2) : colX + 3.5;
+      doc.text(col.label, textX, tableHeaderY + 7.5, { align: col.align || 'left' });
 
-      // Column separator
+      // Column separator line
       doc.line(colX + col.width, tableHeaderY, colX + col.width, tableHeaderY + tableHeaderHeight);
       colX += col.width;
     });
@@ -600,7 +615,7 @@ function renderPdfPage(doc, page, options) {
   doc.rect(timelineLeft, tableHeaderY, timelineWidth, tableHeaderHeight, 'FD');
 
   // Month intervals (Top half of table header)
-  const monthRowH = 5.5;
+  const monthRowH = 6.0;
   const subRowH = tableHeaderHeight - monthRowH;
 
   slice.months.forEach(m => {
@@ -614,9 +629,9 @@ function renderPdfPage(doc, page, options) {
     doc.rect(mLeft, tableHeaderY, mWidth, monthRowH, 'D');
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
+    doc.setFontSize(8);
     doc.setTextColor(30, 41, 59);
-    doc.text(m.label, mLeft + (mWidth / 2), tableHeaderY + 4, { align: 'center' });
+    doc.text(m.label, mLeft + (mWidth / 2), tableHeaderY + 4.3, { align: 'center' });
 
     // Sub-ticks (Weeks: W1, W2, W3, W4)
     const weeksInMonth = 4;
@@ -627,39 +642,37 @@ function renderPdfPage(doc, page, options) {
       doc.rect(wX, tableHeaderY + monthRowH, weekWidth, subRowH, 'D');
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6);
+      doc.setFontSize(6.5);
       doc.setTextColor(100, 116, 139);
-      doc.text(`W${w + 1}`, wX + (weekWidth / 2), tableHeaderY + monthRowH + 3.8, { align: 'center' });
+      doc.text(`W${w + 1}`, wX + (weekWidth / 2), tableHeaderY + monthRowH + 4.1, { align: 'center' });
     }
   });
 
   currentY += tableHeaderHeight;
 
   // ─── 3. Activity Rows & Gantt Bars ──────────────────────────────────────────
-  const rowStartY = currentY;
-
   rows.forEach((row, rowIdx) => {
     const rowH = row.rowHeight;
     const rowY = currentY;
 
     if (row.type === 'section_header') {
-      // Construction Group Header
+      // Construction Group Header Band
       doc.setFillColor(226, 232, 240); // slate-200
       doc.setDrawColor(203, 213, 225);
       doc.rect(marginX, rowY, layout.printableWidth, rowH, 'FD');
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
+      doc.setFontSize(8.5);
       doc.setTextColor(15, 23, 42);
-      doc.text(row.name.toUpperCase(), marginX + 3, rowY + 5.2);
+      doc.text(row.name.toUpperCase(), marginX + 4, rowY + 5.6);
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
       doc.setTextColor(71, 85, 105);
-      doc.text(`${row.totalTasks} activities`, marginX + sidebarWidth - 4, rowY + 5.2, { align: 'right' });
+      doc.text(`${row.totalTasks} activities`, marginX + sidebarWidth - 4, rowY + 5.6, { align: 'right' });
 
     } else if (row.type === 'subgroup_header' || row.type === 'floor_header') {
-      // Subgroup / Floor Header
+      // Subgroup / Floor Header Band
       doc.setFillColor(248, 250, 252);
       doc.setDrawColor(226, 232, 240);
       doc.rect(marginX, rowY, layout.printableWidth, rowH, 'FD');
@@ -667,12 +680,12 @@ function renderPdfPage(doc, page, options) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(51, 65, 85);
-      doc.text(`▸ ${row.name}`, marginX + 7, rowY + 4.5);
+      doc.text(`▸ ${row.name}`, marginX + 8, rowY + 4.8);
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
+      doc.setFontSize(7);
       doc.setTextColor(148, 163, 184);
-      doc.text(`${row.totalTasks} items`, marginX + sidebarWidth - 4, rowY + 4.5, { align: 'right' });
+      doc.text(`${row.totalTasks} items`, marginX + sidebarWidth - 4, rowY + 4.8, { align: 'right' });
 
     } else {
       // Task Row
@@ -695,20 +708,21 @@ function renderPdfPage(doc, page, options) {
           if (col.key === 'name') {
             const isMilestone = Boolean(t.is_milestone || t.metadata?.is_trigger_milestone);
             let nameText = t.task_name;
-            if (isMilestone) nameText = `★ ${nameText}`;
-            doc.text(truncateText(doc, nameText, col.width - 6), colX + 8, rowY + 4.4);
+            if (isMilestone) {
+              nameText = `★ ${nameText}`;
+              doc.setTextColor(217, 119, 6);
+              doc.setFont('helvetica', 'bold');
+            }
+            doc.text(truncateText(doc, nameText, col.width - 5), colX + 6, rowY + 4.5);
           } else if (col.key === 'level') {
             doc.setTextColor(71, 85, 105);
-            doc.text(truncateText(doc, t.floor_zone || '-', col.width - 4), colX + 3, rowY + 4.4);
+            doc.text(truncateText(doc, t.floor_zone || '-', col.width - 4), colX + 3.5, rowY + 4.5);
           } else if (col.key === 'duration') {
-            doc.text(`${t.duration_days || 1}d`, colX + (col.width / 2), rowY + 4.4, { align: 'center' });
+            doc.text(`${t.duration_days || 1}d`, colX + (col.width / 2), rowY + 4.5, { align: 'center' });
           } else if (col.key === 'start') {
-            doc.text(formatShortDate(t.planned_start_date), colX + 3, rowY + 4.4);
+            doc.text(formatShortDate(t.planned_start_date), colX + 3.5, rowY + 4.5);
           } else if (col.key === 'finish') {
-            doc.text(formatShortDate(t.planned_finish_date), colX + 3, rowY + 4.4);
-          } else if (col.key === 'dates') {
-            const dtRange = `${formatShortDate(t.planned_start_date)} - ${formatShortDate(t.planned_finish_date)}`;
-            doc.text(dtRange, colX + 3, rowY + 4.4);
+            doc.text(formatShortDate(t.planned_finish_date), colX + 3.5, rowY + 4.5);
           }
 
           // Column border
@@ -718,7 +732,7 @@ function renderPdfPage(doc, page, options) {
         });
       }
 
-      // Vertical grid lines across timeline
+      // Vertical grid lines across timeline (month boundaries & weeks)
       slice.months.forEach(m => {
         const mStartDays = Math.max(0, Math.round((m.start - slice.startDate) / 86400000));
         const mLeft = timelineLeft + (mStartDays * slice.dayWidthMm);
@@ -726,63 +740,102 @@ function renderPdfPage(doc, page, options) {
         doc.line(mLeft, rowY, mLeft, rowY + rowH);
       });
 
-      // Render Gantt Task Bar
+      // Render Gantt Task Bars
       const startDate = parseDateSafe(t.planned_start_date);
       const finishDate = parseDateSafe(t.planned_finish_date) || startDate;
 
-      if (startDate && finishDate) {
-        const sliceStartTime = slice.startDate.getTime();
-        const sliceEndTime = slice.endDate.getTime();
-        const taskStartTime = startDate.getTime();
-        const taskEndTime = finishDate.getTime();
-
-        // Check if task overlaps this horizontal timeline slice
-        const isVisibleInSlice = taskEndTime >= sliceStartTime && taskStartTime <= sliceEndTime;
-
-        if (isVisibleInSlice) {
-          const startsBeforeSlice = taskStartTime < sliceStartTime;
-          const endsAfterSlice = taskEndTime > sliceEndTime;
-
-          const effectiveStart = startsBeforeSlice ? slice.startDate : startDate;
-          const effectiveEnd = endsAfterSlice ? slice.endDate : finishDate;
-
-          const startOffsetDays = Math.max(0, Math.round((effectiveStart - slice.startDate) / 86400000));
-          const durationDays = Math.max(1, Math.round((effectiveEnd - effectiveStart) / 86400000) + 1);
-
+      if (row.hasTwoBars) {
+        // ─── TWO BARS: Planned Baseline (Top) + Actual Execution (Bottom) ───
+        if (startDate && finishDate) {
+          const startOffsetDays = Math.max(0, Math.round((startDate - slice.startDate) / 86400000));
+          const durationDays = Math.max(1, Math.round((finishDate - startDate) / 86400000) + 1);
           const barX = timelineLeft + (startOffsetDays * slice.dayWidthMm);
-          const rawBarW = durationDays * slice.dayWidthMm;
-          const barW = Math.max(2, Math.min(rawBarW, (timelineLeft + timelineWidth) - barX));
-          const barH = 4.2;
-          const barY = rowY + (rowH - barH) / 2;
+          const barW = Math.max(2.5, durationDays * slice.dayWidthMm);
+          const barH = 3.2;
+          const barY = rowY + 1.2;
 
-          // Status Color
-          const isOverdue = t.is_overdue || (t.status !== 'Completed' && taskEndTime < Date.now());
+          const isOverdue = t.is_overdue || (t.status !== 'Completed' && finishDate.getTime() < Date.now());
           const statusKey = isOverdue ? 'Overdue' : (t.status || 'Not Started');
           const statusCfg = STATUS_COLORS[statusKey] || STATUS_COLORS['Not Started'];
 
           doc.setFillColor(statusCfg.rgb[0], statusCfg.rgb[1], statusCfg.rgb[2]);
           doc.setDrawColor(Math.max(0, statusCfg.rgb[0] - 25), Math.max(0, statusCfg.rgb[1] - 25), Math.max(0, statusCfg.rgb[2] - 25));
+          doc.roundedRect(barX, barY, barW, barH, 0.6, 0.6, 'FD');
 
-          // Draw rounded or clipped bar
-          doc.roundedRect(barX, barY, barW, barH, 1, 1, 'FD');
-
-          // Continuation indicators
-          if (startsBeforeSlice) {
-            doc.setFillColor(255, 255, 255);
-            doc.text('◀', barX + 0.8, barY + 3.1);
-          }
-          if (endsAfterSlice) {
-            doc.setFillColor(255, 255, 255);
-            doc.text('▶', barX + barW - 2.5, barY + 3.1);
-          }
-
-          // Bar text if bar width allows
           if (barW > 24) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(5.0);
+            doc.setTextColor(255, 255, 255);
+            doc.text(truncateText(doc, `Planned: ${t.task_name}`, barW - 4), barX + 2, barY + 2.3);
+          }
+        }
+
+        // Bottom Bar: Actual Execution
+        const actualStartDate = parseDateSafe(t.actual_start_date);
+        const actualFinishDate = parseDateSafe(t.actual_finish_date) || new Date();
+        const isOngoing = !t.actual_finish_date;
+
+        if (actualStartDate) {
+          const actualStartOffset = Math.max(0, Math.round((actualStartDate - slice.startDate) / 86400000));
+          const actualDuration = Math.max(1, Math.round((actualFinishDate - actualStartDate) / 86400000) + 1);
+          const actBarX = timelineLeft + (actualStartOffset * slice.dayWidthMm);
+          const actBarW = Math.max(2.5, actualDuration * slice.dayWidthMm);
+          const actBarH = 3.2;
+          const actBarY = rowY + 4.8;
+
+          doc.setFillColor(14, 116, 144); // cyan-700
+          doc.setDrawColor(8, 145, 178);  // cyan-600
+
+          if (isOngoing) {
+            doc.setLineDashPattern([1.5, 0.8], 0);
+          }
+          doc.roundedRect(actBarX, actBarY, actBarW, actBarH, 0.6, 0.6, 'FD');
+          if (isOngoing) {
+            doc.setLineDashPattern([], 0);
+          }
+
+          if (actBarW > 24) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(5.0);
+            doc.setTextColor(255, 255, 255);
+            const actLabel = isOngoing ? 'Actual (Ongoing)' : 'Actual Execution';
+            doc.text(truncateText(doc, actLabel, actBarW - 4), actBarX + 2, actBarY + 2.3);
+          }
+        }
+      } else {
+        // ─── SINGLE BAR: Planned Baseline ───
+        if (startDate && finishDate) {
+          const startOffsetDays = Math.max(0, Math.round((startDate - slice.startDate) / 86400000));
+          const durationDays = Math.max(1, Math.round((finishDate - startDate) / 86400000) + 1);
+
+          const barX = timelineLeft + (startOffsetDays * slice.dayWidthMm);
+          const barW = Math.max(2.5, durationDays * slice.dayWidthMm);
+          const barH = 4.2;
+          const barY = rowY + (rowH - barH) / 2;
+
+          const isOverdue = t.is_overdue || (t.status !== 'Completed' && finishDate.getTime() < Date.now());
+          const statusKey = isOverdue ? 'Overdue' : (t.status || 'Not Started');
+          const statusCfg = STATUS_COLORS[statusKey] || STATUS_COLORS['Not Started'];
+
+          doc.setFillColor(statusCfg.rgb[0], statusCfg.rgb[1], statusCfg.rgb[2]);
+          doc.setDrawColor(Math.max(0, statusCfg.rgb[0] - 25), Math.max(0, statusCfg.rgb[1] - 25), Math.max(0, statusCfg.rgb[2] - 25));
+          doc.roundedRect(barX, barY, barW, barH, 0.8, 0.8, 'FD');
+
+          const isMilestone = Boolean(t.is_milestone || t.metadata?.is_trigger_milestone);
+          if (isMilestone) {
+            doc.setTextColor(255, 255, 255);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.5);
+            doc.text('★', barX + 1.2, barY + 3.1);
+          }
+
+          if (barW > 26) {
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(5.5);
             doc.setTextColor(255, 255, 255);
-            const insideText = truncateText(doc, t.task_name, barW - 6);
-            doc.text(insideText, barX + (startsBeforeSlice ? 3.5 : 2), barY + 3.0);
+            const textOffset = isMilestone ? 4.5 : 2.0;
+            const insideText = truncateText(doc, t.task_name, barW - textOffset - 2);
+            doc.text(insideText, barX + textOffset, barY + 3.0);
           }
         }
       }
@@ -800,7 +853,7 @@ function renderPdfPage(doc, page, options) {
   doc.setDrawColor(203, 213, 225);
   doc.rect(marginX, tableHeaderY, layout.printableWidth, totalTableH, 'D');
 
-  // Today Vertical Line (if inside slice)
+  // Today Vertical Line (dashed red line across entire table)
   const today = new Date();
   if (today >= slice.startDate && today <= slice.endDate) {
     const todayOffsetDays = Math.round((today - slice.startDate) / 86400000);
@@ -809,31 +862,31 @@ function renderPdfPage(doc, page, options) {
     doc.setDrawColor(220, 38, 38); // red-600
     doc.setLineDashPattern([2, 1], 0);
     doc.line(todayX, tableHeaderY, todayX, currentY);
-    doc.setLineDashPattern([], 0); // reset
+    doc.setLineDashPattern([], 0); // reset line style
 
     doc.setFillColor(220, 38, 38);
-    doc.circle(todayX, tableHeaderY - 1, 1.2, 'F');
+    doc.circle(todayX, tableHeaderY - 1.2, 1.2, 'F');
   }
 
   // ─── 4. Legend & Footer Strip ───────────────────────────────────────────────
-  const footerY = page.dims.height - layout.marginBottom - 4;
+  const footerY = page.dims.height - layout.marginBottom - 3;
 
   if (options.includeColorLegend !== false) {
-    let legX = marginX + 2;
+    let legX = marginX + 3;
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.5);
+    doc.setFontSize(7);
     doc.setTextColor(71, 85, 105);
     doc.text('STATUS:', legX, footerY);
-    legX += 13;
+    legX += 14;
 
     Object.values(STATUS_COLORS).forEach(sc => {
       doc.setFillColor(sc.rgb[0], sc.rgb[1], sc.rgb[2]);
       doc.rect(legX, footerY - 2.8, 3.2, 3.2, 'F');
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
+      doc.setFontSize(7);
       doc.setTextColor(71, 85, 105);
       doc.text(sc.label, legX + 4.5, footerY);
-      legX += 19;
+      legX += 20;
     });
 
     // Milestone indicator
@@ -843,31 +896,37 @@ function renderPdfPage(doc, page, options) {
     doc.setTextColor(71, 85, 105);
     doc.setFont('helvetica', 'normal');
     doc.text('Milestone / Slab Trigger', legX + 3.5, footerY);
+    legX += 28;
+
+    // Actual Execution
+    doc.setFillColor(14, 116, 144);
+    doc.rect(legX, footerY - 2.8, 3.2, 3.2, 'F');
+    doc.setFont('helvetica', 'normal');
+    doc.text('Actual Execution', legX + 4.5, footerY);
+    legX += 26;
+
+    // Actual Ongoing
+    doc.setFillColor(14, 116, 144);
+    doc.setDrawColor(8, 145, 178);
+    doc.setLineDashPattern([1, 0.5], 0);
+    doc.rect(legX, footerY - 2.8, 3.2, 3.2, 'FD');
+    doc.setLineDashPattern([], 0);
+    doc.text('Actual (Ongoing)', legX + 4.5, footerY);
   }
 
-  // Center Continuation / Navigation Notice
-  if (totalTimelineSlices > 1 || totalRowSheets > 1) {
-    const noticeX = marginX + (layout.printableWidth / 2);
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(6.5);
-    doc.setTextColor(148, 163, 184);
+  // Center Authority Brand Notice
+  const noticeX = marginX + (layout.printableWidth / 2);
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(7);
+  doc.setTextColor(148, 163, 184);
+  doc.text('Design Studio 16 Enterprise Management · Authoritative Single-Page Construction Schedule', noticeX, footerY, { align: 'center' });
 
-    let notice = '';
-    if (timelineSliceIndex < totalTimelineSlices) {
-      notice = `↳ Timeline continues horizontally on Page ${pageNumber + 1}`;
-    } else if (rowSheetIndex < totalRowSheets) {
-      notice = `↓ Activities continue vertically on Page ${pageNumber + 1}`;
-    }
-    if (notice) doc.text(notice, noticeX, footerY, { align: 'center' });
-  }
-
-  // Page numbering right
+  // Page numbering right: Exactly Page 1 of 1
   if (options.includePageNumbers !== false) {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
+    doc.setFontSize(7.5);
     doc.setTextColor(71, 85, 105);
-    const pageStr = `Page ${pageNumber} of ${totalPages}`;
-    doc.text(pageStr, marginX + layout.printableWidth - 2, footerY, { align: 'right' });
+    doc.text('Page 1 of 1 (Complete Schedule)', marginX + layout.printableWidth - 2, footerY, { align: 'right' });
   }
 }
 

@@ -1,6 +1,6 @@
 // client/src/components/projects/timeline/TimelineGanttChart.jsx
 import React, { useState, useMemo, useRef } from 'react';
-import { Calendar, ChevronDown, ChevronRight, Search, AlertCircle, Clock, CheckCircle2, Maximize2, Minimize2, Layers, ChevronsDown, ChevronsUp, Printer } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronRight, Search, AlertCircle, Clock, CheckCircle2, Maximize2, Minimize2, Layers, ChevronsDown, ChevronsUp, Printer, Camera } from 'lucide-react';
 import GanttExportModal from './GanttExportModal';
 
 const STANDARD_SECTIONS = [
@@ -166,6 +166,7 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask, project =
     let minTime = Infinity;
     let maxTime = -Infinity;
 
+    const nowTime = new Date().getTime();
     tasks.forEach(t => {
       if (t.planned_start_date) {
         const s = new Date(t.planned_start_date).getTime();
@@ -174,6 +175,18 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask, project =
       if (t.planned_finish_date) {
         const e = new Date(t.planned_finish_date).getTime();
         if (e > maxTime) maxTime = e;
+      }
+      // Account for actual site execution dates (starts earlier, finishes later, or ongoing)
+      if (t.actual_start_date) {
+        const as = new Date(t.actual_start_date).getTime();
+        if (as < minTime) minTime = as;
+        if (!t.actual_finish_date) {
+          if (nowTime > maxTime) maxTime = nowTime;
+        }
+      }
+      if (t.actual_finish_date) {
+        const af = new Date(t.actual_finish_date).getTime();
+        if (af > maxTime) maxTime = af;
       }
     });
 
@@ -408,11 +421,22 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask, project =
                 }
 
                 const t = row.task;
+                const hasActualStart = Boolean(t.actual_start_date);
+                const hasActualFinish = Boolean(t.actual_finish_date);
+                const isOngoing = hasActualStart && !hasActualFinish;
+
+                const isSameAsPlanned = hasActualStart && hasActualFinish &&
+                  t.actual_start_date === t.planned_start_date &&
+                  t.actual_finish_date === t.planned_finish_date;
+
+                const hasTwoBars = hasActualStart && !isSameAsPlanned;
+                const rowHeightClass = hasTwoBars ? 'h-14 min-h-[56px]' : 'h-11 min-h-[44px]';
+
                 return (
                   <div
                     key={row.key}
                     onClick={() => onSelectTask && onSelectTask(t)}
-                    className="h-11 pl-9 pr-4 flex items-center justify-between hover:bg-orange-50/60 cursor-pointer transition-colors group"
+                    className={`${rowHeightClass} pl-9 pr-4 flex items-center justify-between hover:bg-orange-50/60 cursor-pointer transition-colors group`}
                   >
                     <div className="truncate pr-3">
                       <p className="text-xs font-semibold text-slate-800 truncate group-hover:text-[#E05A1E] flex items-center gap-1.5">
@@ -420,11 +444,19 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask, project =
                           <span className="text-amber-500 font-bold text-sm" title="Third Slab Trigger">★</span>
                         )}
                         <span className="truncate">{t.task_name}</span>
+                        {t.photo_path && (
+                          <Camera size={12} className="text-[#E05A1E] flex-shrink-0" title="Site execution photo attached" />
+                        )}
                       </p>
                       <p className="text-[10px] text-muted flex items-center gap-2 mt-0.5">
                         <span className="font-medium text-slate-600 bg-slate-200/60 px-1.5 py-0.2 rounded text-[9px]">
                           {t.floor_zone}
                         </span>
+                        {hasTwoBars && (
+                          <span className="font-semibold text-cyan-700 bg-cyan-50 border border-cyan-200 px-1.5 py-0.2 rounded text-[8px]">
+                            {isOngoing ? 'Actual Ongoing' : 'Planned vs Actual'}
+                          </span>
+                        )}
                         {Boolean(t.is_milestone || t.metadata?.is_trigger_milestone) && (
                           <span className="text-amber-700 font-bold bg-amber-100/80 px-1.5 py-0.2 rounded text-[8px]">
                             Trigger
@@ -493,6 +525,18 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask, project =
               }
 
               const t = row.task;
+              const hasActualStart = Boolean(t.actual_start_date);
+              const hasActualFinish = Boolean(t.actual_finish_date);
+              const isOngoing = hasActualStart && !hasActualFinish;
+
+              const isSameAsPlanned = hasActualStart && hasActualFinish &&
+                t.actual_start_date === t.planned_start_date &&
+                t.actual_finish_date === t.planned_finish_date;
+
+              const hasTwoBars = hasActualStart && !isSameAsPlanned;
+              const rowHeightClass = hasTwoBars ? 'h-14 min-h-[56px]' : 'h-11 min-h-[44px]';
+
+              // Planned Schedule Coordinates
               const startDate = t.planned_start_date ? new Date(t.planned_start_date) : minDate;
               const finishDate = t.planned_finish_date ? new Date(t.planned_finish_date) : startDate;
               const startDays = Math.max(0, Math.round((startDate - minDate) / 86400000));
@@ -501,17 +545,59 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask, project =
               const barLeft = startDays * dayWidth;
               const barWidth = Math.max(dayWidth, taskSpanDays * dayWidth);
 
+              // Actual Execution Coordinates (if two bars)
+              let actualBarLeft = 0;
+              let actualBarWidth = 0;
+              if (hasTwoBars) {
+                const actualStartDate = new Date(t.actual_start_date);
+                const actualFinishDate = hasActualFinish ? new Date(t.actual_finish_date) : new Date();
+                const actualStartDays = Math.max(0, Math.round((actualStartDate - minDate) / 86400000));
+                const actualSpanDays = Math.max(1, Math.round((actualFinishDate - actualStartDate) / 86400000) + 1);
+                actualBarLeft = actualStartDays * dayWidth;
+                actualBarWidth = Math.max(dayWidth, actualSpanDays * dayWidth);
+              }
+
               return (
-                <div key={row.key} className="h-11 relative flex items-center hover:bg-slate-50/50">
-                  {/* Task Bar */}
-                  <div
-                    onClick={() => onSelectTask && onSelectTask(t)}
-                    className={`absolute h-7 rounded-lg border shadow-soft-sm cursor-pointer transition-all hover:brightness-105 hover:scale-[1.01] flex items-center px-2.5 text-[11px] font-semibold truncate ${getStatusColor(t.status, t.is_overdue)}`}
-                    style={{ left: barLeft, width: barWidth }}
-                    title={`${t.task_name} (${t.planned_start_date} to ${t.planned_finish_date}) - ${t.status}`}
-                  >
-                    <span className="truncate drop-shadow-sm">{t.task_name}</span>
-                  </div>
+                <div key={row.key} className={`${rowHeightClass} relative flex items-center hover:bg-slate-50/50`}>
+                  {hasTwoBars ? (
+                    <>
+                      {/* Top Bar: Planned Schedule Baseline */}
+                      <div
+                        onClick={() => onSelectTask && onSelectTask(t)}
+                        className={`absolute h-5 rounded-md border shadow-2xs cursor-pointer transition-all hover:brightness-105 flex items-center px-2 text-[10px] font-semibold truncate ${getStatusColor(t.status, t.is_overdue)}`}
+                        style={{ left: barLeft, width: barWidth, top: '6px' }}
+                        title={`Planned Baseline: ${t.planned_start_date} to ${t.planned_finish_date} (${t.duration_days}d) - ${t.status}`}
+                      >
+                        <span className="truncate drop-shadow-sm font-medium">Planned: {t.task_name}</span>
+                      </div>
+
+                      {/* Bottom Bar: Actual Site Execution */}
+                      <div
+                        onClick={() => onSelectTask && onSelectTask(t)}
+                        className={`absolute h-5 rounded-md border shadow-2xs cursor-pointer transition-all hover:brightness-105 flex items-center px-2 text-[10px] font-semibold truncate ${
+                          isOngoing
+                            ? 'bg-[repeating-linear-gradient(45deg,#0e7490,#0e7490_8px,#0891b2_8px,#0891b2_16px)] border-cyan-500 text-white'
+                            : 'bg-cyan-700 border-cyan-800 text-white'
+                        }`}
+                        style={{ left: actualBarLeft, width: actualBarWidth, top: '29px' }}
+                        title={`Actual Site Execution: ${t.actual_start_date} to ${isOngoing ? 'Present (Ongoing)' : t.actual_finish_date}`}
+                      >
+                        <span className="truncate drop-shadow-sm">
+                          Actual: {t.actual_start_date} → {isOngoing ? 'Ongoing' : t.actual_finish_date}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    /* Single Bar: Planned Baseline (No actual dates or matches planned) */
+                    <div
+                      onClick={() => onSelectTask && onSelectTask(t)}
+                      className={`absolute h-7 rounded-lg border shadow-soft-sm cursor-pointer transition-all hover:brightness-105 hover:scale-[1.01] flex items-center px-2.5 text-[11px] font-semibold truncate ${getStatusColor(t.status, t.is_overdue)}`}
+                      style={{ left: barLeft, width: barWidth }}
+                      title={`${t.task_name} (${t.planned_start_date} to ${t.planned_finish_date}) - ${t.status}`}
+                    >
+                      <span className="truncate drop-shadow-sm">{t.task_name}</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -542,6 +628,19 @@ export default function TimelineGanttChart({ tasks = [], onSelectTask, project =
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded bg-red-500" />
             <span>Overdue</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 border-l border-slate-300 pl-3">
+            <div className="w-3 h-3 rounded bg-cyan-700 border border-cyan-800" />
+            <span className="font-medium text-slate-700">Actual Execution</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-[repeating-linear-gradient(45deg,#0e7490,#0e7490_3px,#0891b2_3px,#0891b2_6px)] border border-cyan-600" />
+            <span className="font-medium text-slate-700">Actual (Ongoing)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Camera size={13} className="text-[#E05A1E]" />
+            <span className="font-medium text-slate-700">Photo Evidence</span>
           </div>
         </div>
 
