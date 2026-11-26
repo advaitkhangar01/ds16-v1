@@ -34,6 +34,7 @@ const leaveRoutes = require('./routes/leaves');
 const reportsRoutes = require('./routes/reports');
 const staffRoutes = require('./routes/staff');
 const notificationsRoutes = require('./routes/notifications');
+const responsibilitiesRoutes = require('./routes/responsibilities');
 const { cleanupOldNotifications } = require('./utils/notifier');
 
 const app = express();
@@ -109,6 +110,7 @@ app.use('/api/leaves', leaveRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/responsibilities', responsibilitiesRoutes);
 
 // 404 handler for API routes
 app.all(/\/api\/.*/, (req, res) => {

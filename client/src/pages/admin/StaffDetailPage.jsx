@@ -1,12 +1,13 @@
 /* eslint-disable react-hooks/set-state-in-effect, no-unused-vars */
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import AppLayout from '../../components/layout/AppLayout';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
 import { formatDateIST, formatTimeIST } from '../../utils/time';
 import UserModal from '../../components/staff/UserModal';
 import ResetPasswordModal from '../../components/staff/ResetPasswordModal';
+import ResponsibilitiesTab from '../../components/responsibilities/ResponsibilitiesTab';
 import { useAuth } from '../../context/AuthContext';
 import * as XLSX from 'xlsx';
 import { 
@@ -30,13 +31,16 @@ import {
 
 export default function StaffDetailPage() {
   const { id: paramId } = useParams();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'overview');
   const [showEditModal, setShowEditModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [responsibilities, setResponsibilities] = useState([]);
+  const [loadingResponsibilities, setLoadingResponsibilities] = useState(false);
 
   // Date Filter States
   const [startDate, setStartDate] = useState('');
@@ -70,6 +74,25 @@ export default function StaffDetailPage() {
       setLoading(false);
     }
   }, [id, user, navigate]);
+
+  const fetchResponsibilities = useCallback(async () => {
+    if (!id) return;
+    try {
+      setLoadingResponsibilities(true);
+      const { data: res } = await api.get('/responsibilities', {
+        params: { userId: id }
+      });
+      setResponsibilities(res.responsibilities || []);
+    } catch (err) {
+      console.error('Failed to load responsibilities:', err);
+    } finally {
+      setLoadingResponsibilities(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    fetchResponsibilities();
+  }, [fetchResponsibilities]);
 
   const handleApplyCustomFilter = () => {
     if (tempStartDate && tempEndDate && new Date(tempStartDate) > new Date(tempEndDate)) {
@@ -641,6 +664,7 @@ export default function StaffDetailPage() {
             { id: 'attendance', label: 'Attendance & Payroll', icon: Clock, count: attendance.length },
             { id: 'projects', label: 'Projects & Tasks', icon: Briefcase, count: projects.length + tasks.length },
             { id: 'leaves', label: 'Leave Requests', icon: Calendar, count: leaves.length },
+            { id: 'responsibilities', label: 'Responsibilities', icon: CheckSquare, count: responsibilities.length },
           ].map(tab => (
             <button
               key={tab.id}
@@ -1510,6 +1534,16 @@ export default function StaffDetailPage() {
                 )}
               </div>
             </div>
+          )}
+
+          {/* RESPONSIBILITIES TAB */}
+          {activeTab === 'responsibilities' && (
+            <ResponsibilitiesTab
+              responsibilities={responsibilities}
+              employee={employee}
+              currentUser={user}
+              onRefresh={fetchResponsibilities}
+            />
           )}
 
         </div>
