@@ -160,34 +160,34 @@ describe('Full Area Metrics Calculation with Floor-Wise Columns', () => {
     // Permissible: 440 * (1.1 + 0.5 + 0.65) * 1.6 = 440 * 2.25 * 1.6 = 1584.00 sq.m
     expect(result.permissiblePlineTotalSqm).toBeCloseTo(1584.00, 1);
 
-    // Proposed: 440 * (1.1 + 0.5 + 0.975) * 1.6 = 440 * 2.575 * 1.6 = 1812.80 sq.m
-    expect(result.calculatedProposedPlineSqm).toBeCloseTo(1812.80, 1);
-    expect(result.effectiveProposedPlineSqm).toBeCloseTo(1812.80, 1);
+    // Proposed: 440 * (1.1 + 0.5 + 0.65) * 1.6 = 440 * 2.25 * 1.6 = 1584.00 sq.m
+    expect(result.calculatedProposedPlineSqm).toBeCloseTo(1584.00, 1);
+    expect(result.effectiveProposedPlineSqm).toBeCloseTo(1584.00, 1);
 
     // Stilt Parking & Terrace excluded from habitable distribution
     expect(result.applicableHabitableFloorsCount).toBe(4);
 
-    // 1812.80 / 4 = 453.20 per habitable floor
+    // 1584.00 / 4 = 396.00 per habitable floor
     const habitableFloors = result.evaluatedFloors.filter(f => f.floor_type === 'habitable');
     expect(habitableFloors).toHaveLength(4);
     for (const hf of habitableFloors) {
-      expect(hf.pline_area_sqm).toBe(453.20);
-      // Lobby = 15% of 453.20 = 67.98
-      expect(hf.lobby_area_sqm).toBe(67.98);
-      // Built-up for sale = 453.20 - 67.98 = 385.22
-      expect(hf.builtup_for_sale_sqm).toBe(385.22);
+      expect(hf.pline_area_sqm).toBe(396.00);
+      // Lobby = 15% of 396.00 = 59.40
+      expect(hf.lobby_area_sqm).toBe(59.40);
+      // Built-up for sale = 396.00 - 59.40 = 336.60
+      expect(hf.builtup_for_sale_sqm).toBe(336.60);
     }
 
     // Units and Area for 1 unit checks:
-    // Floor 1 (2 units): 385.22 / 2 = 192.61
-    expect(habitableFloors[0].area_for_1_unit).toBe(192.61);
-    // Floor 3 (3 units): 385.22 / 3 = 128.4067
-    expect(habitableFloors[2].area_for_1_unit).toBe(128.4067);
-    // Floor 4 (1 unit): 385.22 / 1 = 385.22
-    expect(habitableFloors[3].area_for_1_unit).toBe(385.22);
+    // Floor 1 (2 units): 336.60 / 2 = 168.30
+    expect(habitableFloors[0].area_for_1_unit).toBe(168.30);
+    // Floor 3 (3 units): 336.60 / 3 = 112.20
+    expect(habitableFloors[2].area_for_1_unit).toBe(112.20);
+    // Floor 4 (1 unit): 336.60 / 1 = 336.60
+    expect(habitableFloors[3].area_for_1_unit).toBe(336.60);
 
     // Total floor P-Line exactly equals effective proposed P-Line
-    expect(result.totalProposedPlineSqm).toBe(1812.80);
+    expect(result.totalProposedPlineSqm).toBe(1584.00);
     // Total units count = 2 + 2 + 3 + 1 = 8
     expect(result.totalUnitsCount).toBe(8);
   });
@@ -280,28 +280,28 @@ describe('Pure Commercial & Mixed-Use Ancillary Area Integration', () => {
     expect(result.permissibleCommercialAncillarySqm).toBeCloseTo(900.00, 1);
     expect(result.permissiblePlineTotalSqm).toBeCloseTo(2025.00, 1);
 
-    // Proposed: 500 * (1.1 + 0.5 + 0.975) = 500 * 2.575 = 1287.50 FSI
-    // Commercial Ancillary = 1287.50 * 0.80 = 1030.00
-    // Total Proposed P-Line = 1287.50 + 1030.00 = 2317.50
-    expect(result.proposedCommercialFsiSqm).toBeCloseTo(1287.50, 1);
-    expect(result.proposedCommercialAncillarySqm).toBeCloseTo(1030.00, 1);
-    expect(result.totalProposedPlineSqm).toBeCloseTo(2317.50, 1);
+    // Proposed: 500 * (1.1 + 0.5 + 0.65) = 500 * 2.25 = 1125.00 FSI
+    // Commercial Ancillary = 1125.00 * 0.80 = 900.00
+    // Total Proposed P-Line = 1125.00 + 900.00 = 2025.00
+    expect(result.proposedCommercialFsiSqm).toBeCloseTo(1125.00, 1);
+    expect(result.proposedCommercialAncillarySqm).toBeCloseTo(900.00, 1);
+    expect(result.totalProposedPlineSqm).toBeCloseTo(2025.00, 1);
 
     // Floor-wise verification of 10 mandatory columns:
     expect(result.evaluatedFloors).toHaveLength(3);
     for (const fl of result.evaluatedFloors) {
       expect(fl.usage_type).toBe('Commercial');
       expect(fl.ancillary_pct).toBe(0.80);
-      // FSI: 1287.50 / 3 = 429.166... with cent reconciliation: 429.17 or 429.16
-      expect([429.17, 429.16]).toContain(fl.fsi_area_sqm);
-      // Ancillary is FSI * 0.80
-      expect(fl.ancillary_area_sqm).toBeCloseTo(fl.fsi_area_sqm * 0.80, 2);
-      // P-Line = FSI + Ancillary
-      expect(fl.pline_area_sqm).toBeCloseTo(fl.fsi_area_sqm + fl.ancillary_area_sqm, 2);
-      // Lobby = 15% of P-Line
-      expect(fl.lobby_area_sqm).toBeCloseTo(fl.pline_area_sqm * 0.15, 2);
-      // Built-up for Sale = P-Line - Lobby
-      expect(fl.builtup_for_sale_sqm).toBeCloseTo(fl.pline_area_sqm - fl.lobby_area_sqm, 2);
+      // FSI: 1125.00 / 3 = 375.00
+      expect(fl.fsi_area_sqm).toBe(375.00);
+      // Ancillary is FSI * 0.80 = 300.00
+      expect(fl.ancillary_area_sqm).toBeCloseTo(300.00, 2);
+      // P-Line = FSI + Ancillary = 675.00
+      expect(fl.pline_area_sqm).toBeCloseTo(675.00, 2);
+      // Lobby = 15% of P-Line = 101.25
+      expect(fl.lobby_area_sqm).toBeCloseTo(101.25, 2);
+      // Built-up for Sale = P-Line - Lobby = 573.75
+      expect(fl.builtup_for_sale_sqm).toBeCloseTo(573.75, 2);
       // Area for 1 Unit = Built-up for Sale / no_of_units
       expect(fl.area_for_1_unit).toBeCloseTo(fl.builtup_for_sale_sqm / fl.no_of_units, 2);
     }
@@ -329,43 +329,43 @@ describe('Pure Commercial & Mixed-Use Ancillary Area Integration', () => {
 
     expect(result.isMixedUse).toBe(true);
 
-    // Total Proposed FSI: 600 * (1.1 + 0.5 + 0.975) = 600 * 2.575 = 1545.00 sq.m
-    // 4 floors -> 1545 / 4 = 386.25 sq.m FSI per floor
-    // Commercial Floor (1 floor): FSI = 386.25 sq.m, Ancillary (80%) = 386.25 * 0.8 = 309.00 sq.m
-    //   -> P-Line = 386.25 + 309.00 = 695.25 sq.m
-    // Residential Floors (3 floors): each FSI = 386.25 sq.m, Ancillary (60%) = 386.25 * 0.6 = 231.75 sq.m
-    //   -> P-Line per floor = 386.25 + 231.75 = 618.00 sq.m
-    // Total Proposed Residential FSI = 386.25 * 3 = 1158.75 sq.m
-    // Total Proposed Commercial FSI = 386.25 sq.m
-    // Total Proposed Residential Ancillary = 231.75 * 3 = 695.25 sq.m
-    // Total Proposed Commercial Ancillary = 309.00 sq.m
-    // Total Proposed Ancillary = 695.25 + 309.00 = 1004.25 sq.m
-    // Total Proposed P-Line = 1545.00 + 1004.25 = 2549.25 sq.m
+    // Total Proposed FSI: 600 * (1.1 + 0.5 + 0.65) = 600 * 2.25 = 1350.00 sq.m
+    // 4 floors -> 1350 / 4 = 337.50 sq.m FSI per floor
+    // Commercial Floor (1 floor): FSI = 337.50 sq.m, Ancillary (80%) = 337.50 * 0.8 = 270.00 sq.m
+    //   -> P-Line = 337.50 + 270.00 = 607.50 sq.m
+    // Residential Floors (3 floors): each FSI = 337.50 sq.m, Ancillary (60%) = 337.50 * 0.6 = 202.50 sq.m
+    //   -> P-Line per floor = 337.50 + 202.50 = 540.00 sq.m
+    // Total Proposed Residential FSI = 337.50 * 3 = 1012.50 sq.m
+    // Total Proposed Commercial FSI = 337.50 sq.m
+    // Total Proposed Residential Ancillary = 202.50 * 3 = 607.50 sq.m
+    // Total Proposed Commercial Ancillary = 270.00 sq.m
+    // Total Proposed Ancillary = 607.50 + 270.00 = 877.50 sq.m
+    // Total Proposed P-Line = 1350.00 + 877.50 = 2227.50 sq.m
 
-    expect(result.proposedCommercialFsiSqm).toBeCloseTo(386.25, 2);
-    expect(result.proposedResidentialFsiSqm).toBeCloseTo(1158.75, 2);
-    expect(result.proposedTotalFsiSqm).toBeCloseTo(1545.00, 2);
+    expect(result.proposedCommercialFsiSqm).toBeCloseTo(337.50, 2);
+    expect(result.proposedResidentialFsiSqm).toBeCloseTo(1012.50, 2);
+    expect(result.proposedTotalFsiSqm).toBeCloseTo(1350.00, 2);
 
-    expect(result.proposedCommercialAncillarySqm).toBeCloseTo(309.00, 2);
-    expect(result.proposedResidentialAncillarySqm).toBeCloseTo(695.25, 2);
-    expect(result.totalProposedAncillarySqm).toBeCloseTo(1004.25, 2);
+    expect(result.proposedCommercialAncillarySqm).toBeCloseTo(270.00, 2);
+    expect(result.proposedResidentialAncillarySqm).toBeCloseTo(607.50, 2);
+    expect(result.totalProposedAncillarySqm).toBeCloseTo(877.50, 2);
 
-    expect(result.totalProposedPlineSqm).toBeCloseTo(2549.25, 2);
+    expect(result.totalProposedPlineSqm).toBeCloseTo(2227.50, 2);
 
     // Floor checks
     const commFloor = result.evaluatedFloors.find(f => f.id === 101);
     expect(commFloor.usage_type).toBe('Commercial');
     expect(commFloor.ancillary_pct).toBe(0.80);
-    expect(commFloor.fsi_area_sqm).toBeCloseTo(386.25, 2);
-    expect(commFloor.ancillary_area_sqm).toBeCloseTo(309.00, 2);
-    expect(commFloor.pline_area_sqm).toBeCloseTo(695.25, 2);
+    expect(commFloor.fsi_area_sqm).toBeCloseTo(337.50, 2);
+    expect(commFloor.ancillary_area_sqm).toBeCloseTo(270.00, 2);
+    expect(commFloor.pline_area_sqm).toBeCloseTo(607.50, 2);
 
     const resFloor1 = result.evaluatedFloors.find(f => f.id === 102);
     expect(resFloor1.usage_type).toBe('Residential');
     expect(resFloor1.ancillary_pct).toBe(0.60);
-    expect(resFloor1.fsi_area_sqm).toBeCloseTo(386.25, 2);
-    expect(resFloor1.ancillary_area_sqm).toBeCloseTo(231.75, 2);
-    expect(resFloor1.pline_area_sqm).toBeCloseTo(618.00, 2);
+    expect(resFloor1.fsi_area_sqm).toBeCloseTo(337.50, 2);
+    expect(resFloor1.ancillary_area_sqm).toBeCloseTo(202.50, 2);
+    expect(resFloor1.pline_area_sqm).toBeCloseTo(540.00, 2);
   });
 
   test('Mixed-Use reverse-derives FSI and ancillary when commercial or residential floor is overridden', () => {
@@ -378,13 +378,13 @@ describe('Pure Commercial & Mixed-Use Ancillary Area Integration', () => {
       building_use: 'Mixed Use'
     };
 
-    // Override Commercial floor P-Line to 720.00 sq.m
-    // For Commercial: multiplier is 1.80 -> floor FSI = 720 / 1.80 = 400.00 sq.m
-    // Floor Ancillary = 720 - 400 = 320.00 sq.m (which is 400 * 0.8)
-    // Total Proposed FSI = 1545.00 sq.m
-    // Remaining FSI = 1545.00 - 400.00 = 1145.00 sq.m across 3 residential floors -> 1145 / 3 = 381.67 sq.m each
+    // Override Commercial floor P-Line to 540.00 sq.m
+    // For Commercial: multiplier is 1.80 -> floor FSI = 540 / 1.80 = 300.00 sq.m
+    // Floor Ancillary = 540 - 300 = 240.00 sq.m (which is 300 * 0.8)
+    // Total Proposed FSI = 1350.00 sq.m
+    // Remaining FSI = 1350.00 - 300.00 = 1050.00 sq.m across 3 residential floors -> 1050 / 3 = 350.00 sq.m each
     const mixedFloorsWithOverride = [
-      { id: 201, floor_key: 'ground_floor', floor_type: 'habitable', usage_type: 'Commercial', is_pline_overridden: true, pline_area_sqm: 720.00, height_meters: 3.60, no_of_units: 4 },
+      { id: 201, floor_key: 'ground_floor', floor_type: 'habitable', usage_type: 'Commercial', is_pline_overridden: true, pline_area_sqm: 540.00, height_meters: 3.60, no_of_units: 4 },
       { id: 202, floor_key: 'floor_1', floor_type: 'habitable', usage_type: 'Residential', is_pline_overridden: false, height_meters: 3.00, no_of_units: 2 },
       { id: 203, floor_key: 'floor_2', floor_type: 'habitable', usage_type: 'Residential', is_pline_overridden: false, height_meters: 3.00, no_of_units: 2 },
       { id: 204, floor_key: 'floor_3', floor_type: 'habitable', usage_type: 'Residential', is_pline_overridden: false, height_meters: 3.00, no_of_units: 2 }
@@ -394,9 +394,9 @@ describe('Pure Commercial & Mixed-Use Ancillary Area Integration', () => {
 
     const commFloor = result.evaluatedFloors.find(f => f.id === 201);
     expect(commFloor.is_pline_overridden).toBe(true);
-    expect(commFloor.pline_area_sqm).toBe(720.00);
-    expect(commFloor.fsi_area_sqm).toBeCloseTo(400.00, 2);
-    expect(commFloor.ancillary_area_sqm).toBeCloseTo(320.00, 2);
+    expect(commFloor.pline_area_sqm).toBe(540.00);
+    expect(commFloor.fsi_area_sqm).toBeCloseTo(300.00, 2);
+    expect(commFloor.ancillary_area_sqm).toBeCloseTo(240.00, 2);
 
     const resFloors = result.evaluatedFloors.filter(f => f.usage_type === 'Residential');
     let resFsiSum = 0;
@@ -405,7 +405,7 @@ describe('Pure Commercial & Mixed-Use Ancillary Area Integration', () => {
       expect(rf.ancillary_area_sqm).toBeCloseTo(rf.fsi_area_sqm * 0.60, 2);
       expect(rf.pline_area_sqm).toBeCloseTo(rf.fsi_area_sqm + rf.ancillary_area_sqm, 2);
     }
-    // Total FSI across all floors reconciles to 1545.00
-    expect(Math.round((commFloor.fsi_area_sqm + resFsiSum) * 100) / 100).toBe(1545.00);
+    // Total FSI across all floors reconciles to 1350.00
+    expect(Math.round((commFloor.fsi_area_sqm + resFsiSum) * 100) / 100).toBe(1350.00);
   });
 });

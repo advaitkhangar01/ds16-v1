@@ -6,16 +6,275 @@
 const SQM_TO_SQFT = 10.764;
 
 /**
+ * Versioned Regulatory Profiles for Maharashtra State (UDCPR 2020)
+ * Decouples statutory ratios, FSI factors, and TDR matrices from components
+ */
+const REGULATORY_PROFILES = {
+  'UDCPR_2020_NMC_STANDARD': {
+    version: '2020.1',
+    authority: 'NMC',
+    jurisdiction: 'Nagpur',
+    basicFsi: 1.10,
+    paidFsiMax: 0.50,
+    tdrTiers: {
+      9: { regular: 0.20, slum: 0.20, gunthewari: 0.20 },
+      12: { regular: 0.325, slum: 0.325, gunthewari: 0.325 },
+      15: { regular: 0.40, slum: 0.40, gunthewari: 0.40 },
+      18: { regular: 0.45, slum: 0.45, gunthewari: 0.45 },
+      24: { regular: 0.55, slum: 0.55, gunthewari: 0.50 }
+    },
+    ancillaryPct: {
+      residential: 0.60,
+      commercial: 0.80
+    },
+    parkingMultiplier: 0.90
+  },
+  'DS16_LEGACY_CONFIG': {
+    version: '2025.1',
+    authority: 'NMC',
+    jurisdiction: 'Nagpur',
+    basicFsi: 1.10,
+    paidFsiMax: 0.50,
+    tdrTiers: {
+      9: { regular: 0.40, slum: 0.20, gunthewari: 0.20 },
+      12: { regular: 0.65, slum: 0.325, gunthewari: 0.325 },
+      15: { regular: 0.80, slum: 0.40, gunthewari: 0.40 },
+      18: { regular: 0.90, slum: 0.45, gunthewari: 0.45 },
+      24: { regular: 1.10, slum: 0.50, gunthewari: 0.50 }
+    },
+    ancillaryPct: {
+      residential: 0.60,
+      commercial: 0.80
+    },
+    parkingMultiplier: 0.90
+  }
+};
+
+/**
+ * Total TDR Factor matrix strictly determined by applicable Road Width.
+ * Under UDCPR Table 6-G / Master Rebuild:
+ * Total TDR is determined by road width and divided into two equal halves (Regular TDR = Total/2, Slum TDR = Total/2).
+ */
+const ROAD_WIDTH_TOTAL_TDR_MAP = {
+  9: 0.40,
+  12: 0.65,
+  15: 0.80,
+  18: 0.90,
+  24: 1.10
+};
+
+/**
  * Road-width based TDR Factor matrix for Gunthewari and Regular plots
  * Strictly enforced - no interpolation
  */
 const ROAD_WIDTH_TDR_MAP = {
-  9: { regular: 0.40, slum: 0.20, gunthewari: 0.20 },
-  12: { regular: 0.65, slum: 0.325, gunthewari: 0.325 },
-  15: { regular: 0.80, slum: 0.40, gunthewari: 0.40 },
-  18: { regular: 0.90, slum: 0.45, gunthewari: 0.45 },
-  24: { regular: 1.10, slum: 0.50, gunthewari: 0.50 }
+  9: { regular: 0.20, slum: 0.20, gunthewari: 0.20 },
+  12: { regular: 0.325, slum: 0.325, gunthewari: 0.325 },
+  15: { regular: 0.40, slum: 0.40, gunthewari: 0.40 },
+  18: { regular: 0.45, slum: 0.45, gunthewari: 0.45 },
+  24: { regular: 0.55, slum: 0.55, gunthewari: 0.50 }
 };
+
+/**
+ * Derives the 50/50 TDR split (Regular and Slum) from Total TDR Factor,
+ * allowing authorized admin override on Regular TDR while deriving Slum TDR as the remainder.
+ * Enforces: Regular TDR + Slum TDR = Total TDR Factor (Total remains unchanged).
+ * @param {number} totalTdrFactor Total road-width TDR factor
+ * @param {number|null} requestedRegularTdr Optional manual override for Regular TDR
+ * @returns {Object} Structured TDR split analysis
+ */
+function deriveTdrSplit(totalTdrFactor, requestedRegularTdr = null) {
+  const total = Math.max(0, Math.round((parseFloat(totalTdrFactor) || 0) * 1000) / 1000);
+  const defaultRegular = Math.round((total / 2) * 1000) / 1000;
+  const defaultSlum = Math.round((total - defaultRegular) * 1000) / 1000;
+
+  if (requestedRegularTdr !== null && requestedRegularTdr !== undefined && requestedRegularTdr !== '') {
+    const rawReq = parseFloat(requestedRegularTdr);
+    if (isNaN(rawReq)) {
+      return {
+        totalTdrFactor: total,
+        regularTdrFactor: defaultRegular,
+        slumTdrFactor: defaultSlum,
+        defaultRegularTdrFactor: defaultRegular,
+        defaultSlumTdrFactor: defaultSlum,
+        isRegularTdrOverridden: false,
+        isSplitValid: false,
+        validationError: 'Regular TDR factor must be a valid number'
+      };
+    }
+    const roundedReq = Math.round(rawReq * 1000) / 1000;
+    if (roundedReq < 0) {
+      return {
+        totalTdrFactor: total,
+        regularTdrFactor: defaultRegular,
+        slumTdrFactor: defaultSlum,
+        defaultRegularTdrFactor: defaultRegular,
+        defaultSlumTdrFactor: defaultSlum,
+        isRegularTdrOverridden: false,
+        isSplitValid: false,
+        validationError: `Regular TDR factor (${roundedReq}) cannot be negative`
+      };
+    }
+    if (roundedReq > total) {
+      return {
+        totalTdrFactor: total,
+        regularTdrFactor: defaultRegular,
+        slumTdrFactor: defaultSlum,
+        defaultRegularTdrFactor: defaultRegular,
+        defaultSlumTdrFactor: defaultSlum,
+        isRegularTdrOverridden: false,
+        isSplitValid: false,
+        validationError: `Regular TDR factor (${roundedReq}) cannot exceed Total TDR factor (${total})`
+      };
+    }
+    const derivedSlum = Math.round((total - roundedReq) * 1000) / 1000;
+    const isOverridden = Math.abs(roundedReq - defaultRegular) > 0.0001;
+    return {
+      totalTdrFactor: total,
+      regularTdrFactor: roundedReq,
+      slumTdrFactor: derivedSlum,
+      defaultRegularTdrFactor: defaultRegular,
+      defaultSlumTdrFactor: defaultSlum,
+      isRegularTdrOverridden: isOverridden,
+      isSplitValid: true,
+      validationError: null
+    };
+  }
+
+  return {
+    totalTdrFactor: total,
+    regularTdrFactor: defaultRegular,
+    slumTdrFactor: defaultSlum,
+    defaultRegularTdrFactor: defaultRegular,
+    defaultSlumTdrFactor: defaultSlum,
+    isRegularTdrOverridden: false,
+    isSplitValid: true,
+    validationError: null
+  };
+}
+
+/**
+ * Calculate occupancy-based parking requirements as per UDCPR Table 8-B / 8-C
+ * Supports Commercial, Residential (tenement bands), Visitor parking (5%), and Authority multiplier (0.90 for Nagpur)
+ * @param {Object|string} parkingConfig Configuration parameters (or extracted from statement)
+ * @param {Object} areaMetrics Evaluated area metrics
+ * @param {Array} evaluatedFloors List of evaluated floors
+ * @returns {Object} Structured parking analysis
+ */
+function calculateParkingRequirements(parkingConfig = {}, areaMetrics = {}, evaluatedFloors = []) {
+  let cfg = parkingConfig;
+  if (typeof cfg === 'string') {
+    try {
+      cfg = JSON.parse(cfg || '{}');
+    } catch (e) {
+      cfg = {};
+    }
+  }
+  cfg = cfg || {};
+
+  // 1. Commercial Carpet Area
+  let commCarpetSqm = parseFloat(cfg.commercial_carpet_sqm);
+  if (isNaN(commCarpetSqm) || commCarpetSqm < 0) {
+    // Derive from commercial floors if not explicitly supplied
+    commCarpetSqm = (evaluatedFloors || []).reduce((acc, f) => {
+      const u = (f.usage_type || '').toLowerCase();
+      if (u.includes('comm')) {
+        return acc + (parseFloat(f.builtup_for_sale_sqm) || parseFloat(f.pline_area_sqm) || 0);
+      }
+      return acc;
+    }, 0);
+  }
+
+  // 2. Residential Tenement Counts
+  let resTenements40_80 = parseInt(cfg.residential_tenements_40_80, 10);
+  let resTenementsUnder40 = parseInt(cfg.residential_tenements_under_40, 10) || 0;
+  let resTenementsOver80 = parseInt(cfg.residential_tenements_over_80, 10) || 0;
+
+  if (isNaN(resTenements40_80) || resTenements40_80 < 0) {
+    // Derive from residential floors if not explicitly supplied
+    const totalUnits = (evaluatedFloors || []).reduce((acc, f) => {
+      const u = (f.usage_type || '').toLowerCase();
+      if (!u.includes('comm') && f.floor_type !== 'parking' && f.floor_type !== 'terrace') {
+        return acc + (parseInt(f.no_of_units, 10) || 0);
+      }
+      return acc;
+    }, 0);
+    resTenements40_80 = totalUnits;
+  }
+
+  // 3. Visitor Parking Percentage & Authority Multiplier
+  const visitorPct = parseFloat(cfg.visitor_parking_pct) !== undefined && !isNaN(parseFloat(cfg.visitor_parking_pct))
+    ? parseFloat(cfg.visitor_parking_pct)
+    : 0.05; // 5%
+  const authorityMultiplier = parseFloat(cfg.authority_multiplier) !== undefined && !isNaN(parseFloat(cfg.authority_multiplier))
+    ? parseFloat(cfg.authority_multiplier)
+    : 0.90; // 0.90 for Nagpur Municipal Corporation
+
+  // 4. Proposed Slots
+  const proposedCars = parseInt(cfg.proposed_cars, 10) || 0;
+  const proposedTwoWheelers = parseInt(cfg.proposed_two_wheelers, 10) || 0;
+
+  // Commercial Calculation (2 cars / 100 sqm, 6 two-wheelers / 100 sqm)
+  const commCars = (commCarpetSqm / 100) * 2;
+  const commTwoWheelers = (commCarpetSqm / 100) * 6;
+
+  // Residential Calculation
+  // <40 sqm: 0 cars, 1 scooter
+  // 40-80 sqm: 1 car / 2 units, 1 scooter / unit
+  // >80 sqm: 1 car / unit, 2 scooters / unit
+  const resCars = (resTenementsUnder40 * 0) + (resTenements40_80 / 2) + (resTenementsOver80 * 1);
+  const resTwoWheelers = (resTenementsUnder40 * 1) + (resTenements40_80 * 1) + (resTenementsOver80 * 2);
+
+  // Base Totals
+  const baseCars = commCars + resCars;
+  const baseTwoWheelers = commTwoWheelers + resTwoWheelers;
+
+  // Visitor Parking (5%)
+  const visitorCars = baseCars * visitorPct;
+  const visitorTwoWheelers = baseTwoWheelers * visitorPct;
+
+  // Total Gross with Visitors
+  const totalGrossCars = baseCars + visitorCars;
+  const totalGrossTwoWheelers = baseTwoWheelers + visitorTwoWheelers;
+
+  // Final Required with Authority Multiplier (Nagpur 0.9)
+  const requiredCars = Math.ceil(totalGrossCars * authorityMultiplier);
+  const requiredTwoWheelers = Math.ceil(totalGrossTwoWheelers * authorityMultiplier);
+
+  // Balances
+  const surplusDeficitCars = proposedCars - requiredCars;
+  const surplusDeficitTwoWheelers = proposedTwoWheelers - requiredTwoWheelers;
+
+  return {
+    commercialCarpetSqm: Math.round(commCarpetSqm * 1000) / 1000,
+    commercialCars: Math.round(commCars * 1000) / 1000,
+    commercialTwoWheelers: Math.round(commTwoWheelers * 1000) / 1000,
+
+    residentialTenements40_80: resTenements40_80,
+    residentialTenementsUnder40: resTenementsUnder40,
+    residentialTenementsOver80: resTenementsOver80,
+    totalResidentialTenements: resTenementsUnder40 + resTenements40_80 + resTenementsOver80,
+    residentialCars: Math.round(resCars * 1000) / 1000,
+    residentialTwoWheelers: Math.round(resTwoWheelers * 1000) / 1000,
+
+    visitorParkingPct: visitorPct * 100,
+    visitorCars: Math.round(visitorCars * 1000) / 1000,
+    visitorTwoWheelers: Math.round(visitorTwoWheelers * 1000) / 1000,
+
+    authorityMultiplier,
+    totalGrossCars: Math.round(totalGrossCars * 1000) / 1000,
+    totalGrossTwoWheelers: Math.round(totalGrossTwoWheelers * 1000) / 1000,
+
+    requiredCars,
+    requiredTwoWheelers,
+    proposedCars,
+    proposedTwoWheelers,
+    surplusDeficitCars,
+    surplusDeficitTwoWheelers,
+    isCarRequirementMet: proposedCars >= requiredCars,
+    isTwoWheelerRequirementMet: proposedTwoWheelers >= requiredTwoWheelers
+  };
+}
 
 /**
  * Helper: Safely parses numeric inputs while preserving explicit 0 and 0.0 values.
@@ -224,27 +483,42 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     ? parseFloat(statement.paid_fsi_factor)
     : 0.5;
 
-  // Dual TDR: Regular TDR & Slum TDR derived concurrently from Road Width
+  // Total TDR & 50/50 Regular/Slum Split with Override Support (Section 4 of Master Rebuild)
   const isGunthewari = Boolean(statement.is_gunthewari);
   const roadWidth = parseFloat(statement.road_width_m);
-  let regularTdrFactor = 0;
-  let slumTdrFactor = 0;
 
-  if (!isNaN(roadWidth) && ROAD_WIDTH_TDR_MAP[roadWidth]) {
-    regularTdrFactor = ROAD_WIDTH_TDR_MAP[roadWidth].regular;
-    slumTdrFactor = ROAD_WIDTH_TDR_MAP[roadWidth].slum;
-  } else if (!isNaN(parseFloat(statement.regular_tdr_factor)) || !isNaN(parseFloat(statement.slum_tdr_factor))) {
-    regularTdrFactor = parseFloat(statement.regular_tdr_factor) || 0;
-    slumTdrFactor = parseFloat(statement.slum_tdr_factor) || 0;
-  } else if (!isNaN(parseFloat(statement.proposed_tdr_factor))) {
-    regularTdrFactor = parseFloat(statement.proposed_tdr_factor) || 0;
+  let baseTotalTdrFactor = 0;
+  if (statement.total_tdr_factor !== undefined && statement.total_tdr_factor !== null && !isNaN(parseFloat(statement.total_tdr_factor))) {
+    baseTotalTdrFactor = parseFloat(statement.total_tdr_factor);
+  } else if (statement.tdr_factor !== undefined && statement.tdr_factor !== null && !isNaN(parseFloat(statement.tdr_factor))) {
+    baseTotalTdrFactor = parseFloat(statement.tdr_factor);
+  } else if (statement.regular_tdr_factor !== undefined && statement.slum_tdr_factor !== undefined &&
+             !isNaN(parseFloat(statement.regular_tdr_factor)) && !isNaN(parseFloat(statement.slum_tdr_factor))) {
+    baseTotalTdrFactor = parseFloat(statement.regular_tdr_factor) + parseFloat(statement.slum_tdr_factor);
+  } else if (!isNaN(roadWidth) && ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth] !== undefined) {
+    baseTotalTdrFactor = ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth];
+  } else if (!isNaN(roadWidth) && ROAD_WIDTH_TDR_MAP[roadWidth]) {
+    baseTotalTdrFactor = ROAD_WIDTH_TDR_MAP[roadWidth].regular;
+  } else {
+    baseTotalTdrFactor = 0.65;
   }
 
-  const suggestedRoadTdrFactor = ROAD_WIDTH_TDR_MAP[roadWidth]
-    ? (isGunthewari ? ROAD_WIDTH_TDR_MAP[roadWidth].slum : ROAD_WIDTH_TDR_MAP[roadWidth].regular)
-    : 0;
+  // Evaluate requested or existing Regular TDR
+  let requestedRegularTdr = null;
+  if (statement.regular_tdr_factor !== undefined && statement.regular_tdr_factor !== null && !isNaN(parseFloat(statement.regular_tdr_factor))) {
+    requestedRegularTdr = parseFloat(statement.regular_tdr_factor);
+  } else if (statement.proposed_tdr_factor !== undefined && !isNaN(parseFloat(statement.proposed_tdr_factor))) {
+    requestedRegularTdr = parseFloat(statement.proposed_tdr_factor);
+  }
 
-  const permissibleTdrFactor = parseNum(statement.tdr_factor, 0.65);
+  const tdrSplit = deriveTdrSplit(baseTotalTdrFactor, requestedRegularTdr);
+  const totalTdrFactor = tdrSplit.totalTdrFactor;
+  const regularTdrFactor = tdrSplit.regularTdrFactor;
+  const slumTdrFactor = tdrSplit.slumTdrFactor;
+  const isRegularTdrOverridden = tdrSplit.isRegularTdrOverridden;
+
+  const suggestedRoadTdrFactor = ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth] || (ROAD_WIDTH_TDR_MAP[roadWidth] ? ROAD_WIDTH_TDR_MAP[roadWidth].regular : 0);
+  const permissibleTdrFactor = totalTdrFactor;
   const totalProposedTdrFactor = regularTdrFactor + slumTdrFactor;
 
   // Building Use Rules: Residential, Commercial, Mixed Use
@@ -514,6 +788,18 @@ function calculateAreaMetrics(statement = {}, floors = []) {
 
   const isConfigured = (plotArea > 0) || (activeFloors.length > 0);
 
+  const requiredTdrSqm = Math.max(0, proposedTotalBuiltupSqm - proposedBasicFsiSqm - proposedPaidFsiSqm);
+
+  // Historical unallocated comparison (Manewada reference calculation)
+  const sourceUnallocatedResidentialAncillarySqm = Math.round(permissibleTotalBuiltupSqm * resAncillaryPct * 1000) / 1000;
+  const sourceUnallocatedCommercialAncillarySqm = Math.round(permissibleTotalBuiltupSqm * commAncillaryPct * 1000) / 1000;
+  const sourceUnallocatedPermissiblePlineSqm = Math.round((permissibleTotalBuiltupSqm + sourceUnallocatedResidentialAncillarySqm + sourceUnallocatedCommercialAncillarySqm) * 1000) / 1000;
+  const floorSumPlineSqm = Math.round(totalProposedPlineSqm * 1000) / 1000;
+  const sourceProposedPlineDifferenceSqm = Math.round((effectiveProposedPlineSqm - totalProposedPlineSqm) * 1000) / 1000;
+
+  // Occupancy-Based Parking Evaluation (UDCPR Chapter 8)
+  const parkingRequirements = calculateParkingRequirements(statement.parking_config, { totalProposedPlineSqm }, evaluatedFloors);
+
   return {
     isConfigured,
     buildingUse,
@@ -526,8 +812,12 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     isGunthewari,
     roadWidth,
     suggestedRoadTdrFactor,
+    totalTdrFactor,
     regularTdrFactor,
     slumTdrFactor,
+    defaultRegularTdrFactor: tdrSplit.defaultRegularTdrFactor,
+    defaultSlumTdrFactor: tdrSplit.defaultSlumTdrFactor,
+    isRegularTdrOverridden,
     totalProposedTdrFactor,
 
     plotableAreaSqm,
@@ -556,9 +846,12 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     // Section D — Proposed Breakdown
     proposedBasicFsiSqm,
     proposedPaidFsiSqm,
+    regularTdrSqm,
+    slumTdrSqm,
     proposedRegularTdrSqm: regularTdrSqm,
     proposedSlumTdrSqm: slumTdrSqm,
     proposedTdrSqm,
+    requiredTdrSqm,
     proposedTotalBuiltupSqm,
     proposedTotalFsi,
     proposedResidentialFsiSqm,
@@ -567,6 +860,16 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     proposedResidentialAncillarySqm,
     proposedCommercialAncillarySqm,
     totalProposedAncillarySqm,
+
+    // Manewada reference comparison and floor-reconciliation
+    sourceUnallocatedResidentialAncillarySqm,
+    sourceUnallocatedCommercialAncillarySqm,
+    sourceUnallocatedPermissiblePlineSqm,
+    floorSumPlineSqm,
+    sourceProposedPlineDifferenceSqm,
+
+    // Occupancy-Based Parking Analysis
+    parkingRequirements,
 
     // Automatic Proposed P-Line & Project Override Metadata
     calculatedProposedPlineSqm,
@@ -626,7 +929,7 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
     ? areaMetrics.totalProposedAncillarySqm 
     : (areaMetrics.proposedAncillaryResSqm || 0);
   const effectivePaidFsiSqm = areaMetrics.proposedPaidFsiSqm || 0;
-  const effectiveTdrSqm = areaMetrics.proposedTdrSqm || 0;
+  const effectiveTdrSqm = areaMetrics.proposedTdrSqm || areaMetrics.totalProposedTdrSqm || 0;
   const plotAreaSqm = areaMetrics.plotableAreaSqm || 0;
 
   // Benchmark estimated costs
@@ -634,7 +937,10 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
   const estimatedCostB = effectivePlineSqm * estimatedCostBRate;
 
   // Overrides map
-  const overrides = financial.overrides || {};
+  let overrides = financial.overrides || {};
+  if (typeof overrides === 'string') {
+    try { overrides = JSON.parse(overrides); } catch (e) { overrides = {}; }
+  }
 
   // 1. STATUTORY CHARGES (SECTION A: NMC / Local Authority Demand)
   const defaultRrPercentages = {
@@ -671,7 +977,7 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
       case 'TREE_PLANTATION':
         return effectivePlineSqm > 0 ? Math.min((effectivePlineSqm / 74.32) * 500.00, 25000.00) : 0;
       case 'HERITAGE_FUND': {
-        const devChargeItem = (statutoryItems || []).find(it => it.charge_code === 'DEVELOPMENT_CHARGES');
+        const devChargeItem = Array.isArray(statutoryItems) ? statutoryItems.find(it => it.charge_code === 'DEVELOPMENT_CHARGES') : null;
         if (devChargeItem && devChargeItem.is_enabled === false) {
           return 0;
         }
@@ -685,7 +991,7 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
         } else {
           devChargeAmount = (rrRate > 0) ? (effectivePlineSqm * 0.02 * rrRate) : 0;
         }
-        return 0.02 * devChargeAmount;
+        return Math.round(0.02 * devChargeAmount * 100) / 100;
       }
       case 'LABOUR_WELFARE_CESS':
         return estimatedCostB > 0 ? 0.01 * estimatedCostB : 0;
@@ -694,7 +1000,9 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
       case 'AMALGAMATION':
         return 0; // Excluded as required
       case 'LABOUR_WELFARE_PARKING':
-        return estimatedCostBRate > 0 ? (225 * estimatedCostBRate * 0.01) : 0;
+        return item && item.amount !== null && item.amount !== undefined && !isNaN(parseFloat(item.amount))
+          ? parseFloat(item.amount)
+          : 0;
       default:
         return parseFloat(item.amount) || 0;
     }
@@ -706,13 +1014,46 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
         .filter(item => !item.is_deleted)
         .map((item, idx) => {
           const isEnabled = item.is_enabled !== false;
+
+          if (item.charge_code === 'LABOUR_WELFARE_PARKING') {
+            const overrideKey = `statutory_${item.charge_code}`;
+            const itemOverride = overrides[overrideKey];
+            const hasOverride = Boolean(itemOverride && itemOverride.override_val !== undefined && itemOverride.override_val !== null);
+            const overrideVal = hasOverride ? parseFloat(itemOverride.override_val) : null;
+
+            const manualAmt = hasOverride
+              ? overrideVal
+              : ((item.amount !== null && item.amount !== undefined && !isNaN(parseFloat(item.amount)))
+                  ? Math.round(parseFloat(item.amount) * 100) / 100
+                  : 0);
+            const effectiveAmount = isEnabled ? manualAmt : 0;
+            if (isEnabled) {
+              totalStatutoryDemandA += effectiveAmount;
+            }
+            return {
+              ...item,
+              is_enabled: isEnabled,
+              is_manual: true,
+              calculated_amount: null,
+              effective_amount: effectiveAmount,
+              amount: manualAmt,
+              has_override: hasOverride,
+              override_val: overrideVal,
+              has_basis_drift: false,
+              calculated_basis_val: null
+            };
+          }
+
           const calculatedAmount = getStatutoryAmount(item.charge_code, item);
           
           const overrideKey = `statutory_${item.charge_code}`;
           const itemOverride = overrides[overrideKey];
-          const hasOverride = itemOverride && itemOverride.override_val !== undefined && itemOverride.override_val !== null;
+          const hasOverride = Boolean(itemOverride && itemOverride.override_val !== undefined && itemOverride.override_val !== null);
           const overrideVal = hasOverride ? parseFloat(itemOverride.override_val) : null;
-          const basisVal = hasOverride ? parseFloat(itemOverride.calculated_basis_val) : null;
+          const rawBasis = itemOverride ? (itemOverride.calculated_basis_val ?? itemOverride.basis_val) : null;
+          const basisVal = hasOverride && rawBasis !== null && rawBasis !== undefined && !isNaN(parseFloat(rawBasis))
+            ? parseFloat(rawBasis)
+            : null;
           const hasBasisDrift = hasOverride && basisVal !== null && Math.abs(calculatedAmount - basisVal) > 1.0;
 
           const effectiveAmount = isEnabled 
@@ -726,6 +1067,7 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
           return {
             ...item,
             is_enabled: isEnabled,
+            is_manual: false,
             calculated_amount: Math.round(calculatedAmount * 100) / 100,
             effective_amount: effectiveAmount,
             has_override: hasOverride,
@@ -748,13 +1090,45 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
         { charge_code: 'TDR_LOADING_CHARGES', charge_name: 'TDR LOADING CHARGES', rr_percentage: 3.0, is_enabled: true },
         { charge_code: 'LABOUR_WELFARE_PARKING', charge_name: 'LABOUR WELFARE ON PARKING AREA', is_enabled: true },
       ].map((it, idx) => {
-        const amt = getStatutoryAmount(it.charge_code, it);
-        totalStatutoryDemandA += amt;
+        const overrideKey = `statutory_${it.charge_code}`;
+        const itemOverride = overrides[overrideKey];
+        const hasOverride = Boolean(itemOverride && itemOverride.override_val !== undefined && itemOverride.override_val !== null);
+        const overrideVal = hasOverride ? parseFloat(itemOverride.override_val) : null;
+        const rawBasis = itemOverride ? (itemOverride.calculated_basis_val ?? itemOverride.basis_val) : null;
+        const basisVal = hasOverride && rawBasis !== null && rawBasis !== undefined && !isNaN(parseFloat(rawBasis)) ? parseFloat(rawBasis) : null;
+
+        if (it.charge_code === 'LABOUR_WELFARE_PARKING') {
+          const manualAmt = hasOverride ? overrideVal : (parseFloat(it.amount) || 0);
+          totalStatutoryDemandA += manualAmt;
+          return {
+            id: `default-${idx}`,
+            ...it,
+            is_manual: true,
+            calculated_amount: null,
+            effective_amount: manualAmt,
+            amount: manualAmt,
+            has_override: hasOverride,
+            override_val: overrideVal,
+            has_basis_drift: false,
+            calculated_basis_val: null
+          };
+        }
+
+        const calculatedAmount = getStatutoryAmount(it.charge_code, it);
+        const hasBasisDrift = hasOverride && basisVal !== null && Math.abs(calculatedAmount - basisVal) > 1.0;
+        const effectiveAmount = hasOverride ? overrideVal : Math.round(calculatedAmount * 100) / 100;
+        totalStatutoryDemandA += effectiveAmount;
+
         return {
           id: `default-${idx}`,
           ...it,
-          calculated_amount: Math.round(amt * 100) / 100,
-          effective_amount: Math.round(amt * 100) / 100
+          is_manual: false,
+          calculated_amount: Math.round(calculatedAmount * 100) / 100,
+          effective_amount: effectiveAmount,
+          has_override: hasOverride,
+          override_val: overrideVal,
+          has_basis_drift: hasBasisDrift,
+          calculated_basis_val: basisVal
         };
       });
 
@@ -791,9 +1165,16 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
   const totalExpensesC = minorExpenses + bpmsCharges + airportNoc + fireNoc + entertainment + extraStampDuty + advocateFees;
 
   // 4. DEVELOPMENT COSTS (SECTIONS D to H)
-  const plotCostRate = parseFloat(financial.cost_of_plot_rate_per_sqm) || 0.00;
-  const calcCostOfPlot = parseFloat(financial.cost_of_plot) > 0 ? parseFloat(financial.cost_of_plot) : (plotAreaSqm * plotCostRate);
+  // Plot Acquisition Rate is removed; only explicit lump-sum cost_of_plot is applied if set
+  const isCostOfPlotIncluded = financial.is_cost_of_plot_included !== false;
+  const rawCostOfPlot = parseFloat(financial.cost_of_plot) > 0 ? parseFloat(financial.cost_of_plot) : 0.00;
+  const calcCostOfPlot = isCostOfPlotIncluded ? rawCostOfPlot : 0.00;
   const costOfPlotH = resolveCostItem('cost_of_plot', calcCostOfPlot);
+  costOfPlotH.is_included = isCostOfPlotIncluded;
+  costOfPlotH.raw_amount = costOfPlotH.has_override ? costOfPlotH.override_val : rawCostOfPlot;
+  if (!isCostOfPlotIncluded) {
+    costOfPlotH.effective = 0.00;
+  }
 
   const constRate = parseFloat(financial.cost_of_construction_rate) || parseFloat(financial.estimated_cost_b_rate) || 0.00;
   const calcConstCost = effectivePlineSqm * constRate;
@@ -808,7 +1189,7 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
   // Rent During Construction
   const rentTenements = parseInt(financial.rent_tenements, 10) || 0;
   const rentPerMonth = parseFloat(financial.rent_per_tenement_per_month) || 0.00;
-  const rentMonths = parseInt(financial.rent_months, 10) || 0;
+  const rentMonths = parseInt(financial.rent_months || financial.period_months, 10) || 0;
   const calcRentCost = parseFloat(financial.rent_amount) > 0 ? parseFloat(financial.rent_amount) : (rentTenements * rentPerMonth * rentMonths);
   const rentCostF = resolveCostItem('rent_amount', calcRentCost);
 
@@ -826,6 +1207,10 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
 
   // 5. RECEIPTS & SALABLE UNITS
   let totalReceipts = 0;
+  let totalGrossReceipts = 0;
+  let totalLandownerReceipts = 0;
+  let totalDeveloperUnits = 0;
+  let totalLandownerUnits = 0;
   let totalSalableCarpetSqft = 0;
   let totalSalableSuperSqft = 0;
 
@@ -844,34 +1229,51 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
   });
 
   const evaluatedSalableUnits = (salableUnits || []).map((unit) => {
-    const carpetSqm = parseFloat(unit.carpet_area_sqm) || 0;
-    const carpetSqft = carpetSqm * SQM_TO_SQFT;
-    const loadingSqft = parseNum(unit.super_buildup_loading_sqft, 300.00);
-    const superSqft = carpetSqft + loadingSqft;
-    const units = parseInt(unit.unit_count, 10) || 1;
+    const carpetSqft = parseFloat(unit.carpet_area_sqft) || (parseFloat(unit.carpet_area_sqm) ? parseFloat(unit.carpet_area_sqm) * SQM_TO_SQFT : 0);
+    const carpetSqm = parseFloat(unit.carpet_area_sqm) || (carpetSqft / SQM_TO_SQFT);
+    const rawLoading = unit.super_buildup_loading_sqft !== undefined ? unit.super_buildup_loading_sqft : unit.loading_sqft;
+    const loadingSqft = parseNum(rawLoading, 300.00);
+    const superSqft = parseFloat(unit.super_buildup_area_sqft) || (carpetSqft + loadingSqft);
+    const totalUnitsCount = parseInt(unit.unit_count, 10) || 1;
+    const rawLandowner = unit.landowner_unit_count !== undefined ? unit.landowner_unit_count : unit.landowner_units;
+    const landownerUnits = Math.min(totalUnitsCount, Math.max(0, parseInt(rawLandowner, 10) || 0));
+    const developerUnits = Math.max(0, totalUnitsCount - landownerUnits);
+
     const rateSqft = parseNum(unit.rate_per_sqft, 6000.00);
     const unitPrice = superSqft * rateSqft;
-    const totalAmount = unitPrice * units;
+    const developerAmount = unitPrice * developerUnits;
+    const grossAmount = unitPrice * totalUnitsCount;
+    const landownerAmount = unitPrice * landownerUnits;
 
-    totalSalableCarpetSqft += (carpetSqft * units);
-    totalSalableSuperSqft += (superSqft * units);
+    totalDeveloperUnits += developerUnits;
+    totalLandownerUnits += landownerUnits;
+    totalGrossReceipts += grossAmount;
+    totalLandownerReceipts += landownerAmount;
+    totalSalableCarpetSqft += (carpetSqft * totalUnitsCount);
+    totalSalableSuperSqft += (superSqft * totalUnitsCount);
 
     return {
       ...unit,
       carpet_area_sqm: carpetSqm,
       carpet_area_sqft: Math.round(carpetSqft * 100) / 100,
       super_buildup_area_sqft: Math.round(superSqft * 100) / 100,
+      unit_count: totalUnitsCount,
+      landowner_unit_count: landownerUnits,
+      developer_unit_count: developerUnits,
       unit_price: Math.round(unitPrice * 100) / 100,
-      total_amount: Math.round(totalAmount * 100) / 100
+      total_amount: Math.round(grossAmount * 100) / 100,
+      developer_amount: Math.round(developerAmount * 100) / 100,
+      landowner_amount: Math.round(landownerAmount * 100) / 100
     };
   });
 
-  if (floorWiseReceipts > 0) {
-    totalReceipts = floorWiseReceipts;
-  } else {
+  if (evaluatedSalableUnits.length > 0) {
     evaluatedSalableUnits.forEach(u => {
-      totalReceipts += u.total_amount;
+      totalReceipts += (u.developer_amount !== undefined ? u.developer_amount : u.total_amount);
     });
+  } else if (floorWiseReceipts > 0) {
+    totalReceipts = floorWiseReceipts;
+    totalGrossReceipts = floorWiseReceipts;
   }
 
   // 6. FINANCIAL SUMMARY
@@ -892,16 +1294,25 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
     totalExpensesC: Math.round(totalExpensesC * 100) / 100,
     costOfPlotH: costOfPlotH.effective,
     costOfPlotH_details: costOfPlotH,
+    isCostOfPlotIncluded: costOfPlotH.is_included !== false,
     costOfConstructionD: costOfConstructionD.effective,
     costOfConstructionD_details: costOfConstructionD,
     costOfBasementE: costOfBasementE.effective,
     costOfBasementE_details: costOfBasementE,
     rentCostF: rentCostF.effective,
+    rentF: rentCostF.effective,
     rentCostF_details: rentCostF,
+    rentF_details: rentCostF,
     stackedParkingCostG: stackedParkingCostG.effective,
+    stackedParkingG: stackedParkingCostG.effective,
     stackedParkingCostG_details: stackedParkingCostG,
+    stackedParkingG_details: stackedParkingCostG,
     totalProjectCost: Math.round(totalProjectCost * 100) / 100,
     totalReceipts: Math.round(totalReceipts * 100) / 100,
+    totalGrossReceipts: Math.round(totalGrossReceipts * 100) / 100,
+    totalLandownerReceipts: Math.round(totalLandownerReceipts * 100) / 100,
+    totalDeveloperUnits,
+    totalLandownerUnits,
     netProfit: Math.round(netProfit * 100) / 100,
     roiPct: Math.round(roiPct * 100) / 100,
     profitMarginPct: Math.round(profitMarginPct * 100) / 100,
@@ -924,8 +1335,12 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
 module.exports = {
   SQM_TO_SQFT,
   ROAD_WIDTH_TDR_MAP,
+  ROAD_WIDTH_TOTAL_TDR_MAP,
+  REGULATORY_PROFILES,
+  deriveTdrSplit,
   distributePlineEqually,
   distributeFsiAndAncillary,
+  calculateParkingRequirements,
   calculateAreaMetrics,
   calculateFinancialMetrics
 };

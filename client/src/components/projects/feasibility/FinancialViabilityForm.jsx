@@ -10,7 +10,11 @@ import {
   Sliders,
   RefreshCw,
   AlertCircle,
-  ShieldCheck
+  ShieldCheck,
+  Landmark,
+  Plus,
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
 
 const formatINR = (val) => {
@@ -29,6 +33,9 @@ export default function FinancialViabilityForm({
   onUpdateFinancial,
   onUpdateFloor,
   onUpdateStatutoryCharge,
+  onAddSalableUnit,
+  onUpdateSalableUnit,
+  onDeleteSalableUnit,
   onSaveOverride,
   onResetOverride,
   unitDisplay = 'sq_m',
@@ -38,9 +45,45 @@ export default function FinancialViabilityForm({
   const unitFactor = isSqft ? 10.764 : 1;
   const unitLabel = isSqft ? 'sq ft' : 'sq m';
 
+  const [newUnit, setNewUnit] = useState({
+    unit_name: '',
+    use_type: 'Residential',
+    carpet_area_sqft: '',
+    loading_sqft: '',
+    unit_count: 1,
+    landowner_units: 0,
+    rate_per_sqft: ''
+  });
+
+  const handleAddNewUnit = (e) => {
+    e.preventDefault();
+    if (!newUnit.unit_name.trim()) return;
+    if (onAddSalableUnit) {
+      onAddSalableUnit({
+        unit_name: newUnit.unit_name.trim(),
+        use_type: newUnit.use_type,
+        carpet_area_sqft: parseFloat(newUnit.carpet_area_sqft) || 0,
+        loading_sqft: parseFloat(newUnit.loading_sqft) || 0,
+        unit_count: parseInt(newUnit.unit_count, 10) || 1,
+        landowner_units: parseInt(newUnit.landowner_units, 10) || 0,
+        rate_per_sqft: parseFloat(newUnit.rate_per_sqft) || 0
+      });
+      setNewUnit({
+        unit_name: '',
+        use_type: 'Residential',
+        carpet_area_sqft: '',
+        loading_sqft: '',
+        unit_count: 1,
+        landowner_units: 0,
+        rate_per_sqft: ''
+      });
+    }
+  };
+
   const [openSections, setOpenSections] = useState({
     autoSourced: true,
     marketRr: true,
+    costOfPlot: true,
     costNorms: true,
     construction: true,
     realization: true,
@@ -205,6 +248,162 @@ export default function FinancialViabilityForm({
                 disabled={!isPrivileged}
               />
             </div>
+
+            <div className="sm:col-span-3 p-3 bg-slate-50/80 rounded-lg border border-slate-200 mt-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Cost of TDR (Section B)
+                  </span>
+                  {financialMetrics.costOfTdrB_details?.has_override && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-200 text-amber-900 rounded flex items-center gap-1">
+                      <Sliders size={10} /> Override Active
+                    </span>
+                  )}
+                </div>
+                {isPrivileged && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenOverride('cost_of_tdr', financialMetrics.costOfTdrB_details?.calculated || parseFloat(financialMetrics.costOfTdrB) || 0)}
+                      className="text-[11px] text-[#E05A1E] hover:underline font-semibold"
+                    >
+                      {financialMetrics.costOfTdrB_details?.has_override ? 'Edit Override' : 'Admin Override'}
+                    </button>
+                    {financialMetrics.costOfTdrB_details?.has_override && onResetOverride && (
+                      <button
+                        type="button"
+                        onClick={() => onResetOverride('cost_of_tdr')}
+                        className="text-[11px] text-red-600 hover:underline flex items-center gap-0.5 font-semibold"
+                        title="Reset to Calculated"
+                      >
+                        <RefreshCw size={10} /> Reset
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-200/80">
+                <span className="text-[11px] text-slate-600">
+                  Formula: Proposed TDR ({((areaMetrics.totalProposedTdrSqm || 0) * unitFactor).toFixed(2)} {unitLabel}) × RR Rate ({formatINR(financial.rr_rate_per_sqm || 0)}/sq m) × {((parseFloat(financial.tdr_purchase_factor) || 0.55) * 100).toFixed(0)}%
+                </span>
+                <span className="text-sm font-mono font-black text-slate-900">
+                  {formatINR(financialMetrics.costOfTdrB || 0)}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 2B. Cost of Plot (Land Acquisition) */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+        <button
+          type="button"
+          onClick={() => toggleSection('costOfPlot')}
+          className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100/70 flex flex-wrap items-center justify-between gap-2 text-left transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Landmark size={14} className="text-[#E05A1E] shrink-0" />
+              Cost of Plot (Land Acquisition)
+            </span>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200/70 text-slate-700 font-bold">
+              Section H
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {financial.is_cost_of_plot_included === false ? (
+              <span className="text-[11px] font-mono font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                Excluded from Total Cost (Saved: {formatINR(financialMetrics.costOfPlotH_details?.raw_amount || financial.cost_of_plot || 0)})
+              </span>
+            ) : parseFloat(financialMetrics.costOfPlotH) > 0 ? (
+              <span className="text-[11px] font-mono font-bold text-[#E05A1E] bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
+                Included: {formatINR(financialMetrics.costOfPlotH)}
+              </span>
+            ) : (
+              <span className="text-[11px] text-muted font-mono">
+                ₹0.00 (Not Entered)
+              </span>
+            )}
+            {openSections.costOfPlot ? (
+              <ChevronDown size={14} className="text-slate-500 shrink-0" />
+            ) : (
+              <ChevronRight size={14} className="text-slate-500 shrink-0" />
+            )}
+          </div>
+        </button>
+        {openSections.costOfPlot && (
+          <div className="p-4 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-semibold text-slate-700 block">
+                    Total Cost of Plot (₹ Lump-sum)
+                  </label>
+                  {isPrivileged && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenOverride('cost_of_plot', financialMetrics.costOfPlotH_details?.calculated || parseFloat(financial.cost_of_plot) || 0)}
+                        className="text-[10px] text-[#E05A1E] hover:underline font-semibold"
+                      >
+                        {financialMetrics.costOfPlotH_details?.has_override ? 'Edit Override' : 'Admin Override'}
+                      </button>
+                      {financialMetrics.costOfPlotH_details?.has_override && onResetOverride && (
+                        <button
+                          type="button"
+                          onClick={() => onResetOverride('cost_of_plot')}
+                          className="text-[10px] text-red-600 hover:underline flex items-center gap-0.5 font-semibold"
+                          title="Reset to Calculated"
+                        >
+                          <RefreshCw size={10} /> Reset
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  step="1"
+                  placeholder="e.g. 165937393"
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-bold font-mono text-slate-900 focus:outline-none focus:border-[#E05A1E]"
+                  value={financial.cost_of_plot ?? ''}
+                  onChange={(e) => onUpdateFinancial({ cost_of_plot: e.target.value })}
+                  disabled={!isPrivileged}
+                />
+                <span className="text-[10px] text-slate-500 block">
+                  Direct lump-sum land acquisition amount. No compulsory per-sqft rate or derivation from RR rate required.
+                </span>
+              </div>
+
+              <div className="p-3 bg-slate-50/70 rounded-lg border border-slate-200 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800">Include in Total Project Cost</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={financial.is_cost_of_plot_included !== false}
+                      onChange={(e) => onUpdateFinancial({ is_cost_of_plot_included: e.target.checked })}
+                      disabled={!isPrivileged}
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#E05A1E]"></div>
+                  </label>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-2">
+                  {financial.is_cost_of_plot_included !== false
+                    ? 'Active: Cost of Plot is included in Total Project Development Cost.'
+                    : 'Excluded: Cost of Plot amount is safely retained in database but excluded from Total Project Cost.'}
+                </p>
+                <div className="mt-2 pt-2 border-t border-slate-200/80 flex justify-between items-center text-xs">
+                  <span className="text-muted font-medium">Effective Contribution:</span>
+                  <span className="font-mono font-black text-slate-900">
+                    {formatINR(financialMetrics.costOfPlotH || 0)}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -287,9 +486,32 @@ export default function FinancialViabilityForm({
           {openSections.construction && (
             <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-700 block">
-                  Civil Construction Rate (₹/sq m)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-semibold text-slate-700 block">
+                    Civil Construction Rate (₹/sq m)
+                  </label>
+                  {isPrivileged && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenOverride('cost_of_construction', financialMetrics.costOfConstructionD_details?.calculated || parseFloat(financialMetrics.costOfConstructionD) || 0)}
+                        className="text-[10px] text-[#E05A1E] hover:underline font-semibold"
+                      >
+                        {financialMetrics.costOfConstructionD_details?.has_override ? 'Edit Override' : 'Admin Override'}
+                      </button>
+                      {financialMetrics.costOfConstructionD_details?.has_override && onResetOverride && (
+                        <button
+                          type="button"
+                          onClick={() => onResetOverride('cost_of_construction')}
+                          className="text-[10px] text-red-600 hover:underline flex items-center gap-0.5 font-semibold"
+                          title="Reset to Calculated"
+                        >
+                          <RefreshCw size={10} /> Reset
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <input
                   type="number"
                   step="1"
@@ -300,9 +522,9 @@ export default function FinancialViabilityForm({
                   disabled={!isPrivileged}
                 />
                 <div className="text-[11px] flex items-center justify-between gap-2 pt-0.5">
-                  <span className="text-muted">Total: <strong className="font-mono text-slate-800">{formatINR(financialMetrics.costOfConstructionD || 0)}</strong></span>
+                  <span className="text-muted">Total (Section D): <strong className="font-mono text-slate-800">{formatINR(financialMetrics.costOfConstructionD || 0)}</strong></span>
                   {financialMetrics.costOfConstructionD_details?.has_override && (
-                    <span className="text-amber-700 font-bold">Override Active</span>
+                    <span className="text-amber-700 font-bold text-[10px] bg-amber-100 px-1.5 py-0.5 rounded">Override Active</span>
                   )}
                 </div>
               </div>
@@ -524,6 +746,50 @@ export default function FinancialViabilityForm({
                 disabled={!isPrivileged}
               />
             </div>
+
+            <div className="sm:col-span-3 p-3 bg-slate-50/80 rounded-lg border border-slate-200 mt-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Total Rent / Relocation Compensation (Section F)
+                  </span>
+                  {financialMetrics.rentF_details?.has_override && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-200 text-amber-900 rounded flex items-center gap-1">
+                      <Sliders size={10} /> Override Active
+                    </span>
+                  )}
+                </div>
+                {isPrivileged && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenOverride('rent_amount', financialMetrics.rentF_details?.calculated || parseFloat(financialMetrics.rentF) || 0)}
+                      className="text-[11px] text-[#E05A1E] hover:underline font-semibold"
+                    >
+                      {financialMetrics.rentF_details?.has_override ? 'Edit Override' : 'Admin Override'}
+                    </button>
+                    {financialMetrics.rentF_details?.has_override && onResetOverride && (
+                      <button
+                        type="button"
+                        onClick={() => onResetOverride('rent_amount')}
+                        className="text-[11px] text-red-600 hover:underline flex items-center gap-0.5 font-semibold"
+                        title="Reset to Calculated"
+                      >
+                        <RefreshCw size={10} /> Reset
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-200/80">
+                <span className="text-[11px] text-slate-600">
+                  Formula: {financial.rent_tenements || 0} Tenements × {formatINR(financial.rent_per_tenement_per_month || 0)}/mo × {financial.period_months || 0} Months
+                </span>
+                <span className="text-sm font-mono font-black text-slate-900">
+                  {formatINR(financialMetrics.rentF || 0)}
+                </span>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -598,10 +864,33 @@ export default function FinancialViabilityForm({
                           {formatINR(calculatedAmt)}
                         </td>
                         <td className="px-3 py-2 text-right font-mono font-bold text-slate-900 tabular-nums">
-                          {isEnabled ? formatINR(effectiveAmt) : '₹0.00'}
+                          {sc.charge_code === 'LABOUR_WELFARE_PARKING' || sc.is_manual ? (
+                            <div className="flex items-center justify-end gap-1">
+                              <span className="text-xs text-slate-400">₹</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="100"
+                                disabled={!isPrivileged}
+                                className="w-32 text-right font-mono font-bold text-xs bg-amber-50/60 border border-amber-300 rounded px-2 py-1 text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#E05A1E]"
+                                value={sc.amount ?? ''}
+                                onChange={(e) => onUpdateStatutoryCharge(sc.id, {
+                                  amount: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0
+                                })}
+                                placeholder="0"
+                              />
+                            </div>
+                          ) : (
+                            isEnabled ? formatINR(effectiveAmt) : '₹0.00'
+                          )}
                         </td>
                         <td className="px-3 py-2 text-center">
-                          {isPrivileged && (
+                          {sc.charge_code === 'LABOUR_WELFARE_PARKING' || sc.is_manual ? (
+                            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
+                              Manual Input
+                            </span>
+                          ) : (
+                            isPrivileged && (
                             <div className="flex items-center justify-center gap-1.5">
                               {hasOverride ? (
                                 <button
@@ -634,7 +923,7 @@ export default function FinancialViabilityForm({
                                 </button>
                               )}
                             </div>
-                          )}
+                          ))}
                         </td>
                       </tr>
                     );
@@ -671,16 +960,37 @@ export default function FinancialViabilityForm({
                         )}
                         <span className="font-bold text-slate-900 leading-snug">{sc.charge_name}</span>
                       </div>
-                      <span className="font-mono font-bold text-slate-900 shrink-0">
-                        {isEnabled ? formatINR(effectiveAmt) : '₹0.00'}
-                      </span>
+                      {sc.charge_code === 'LABOUR_WELFARE_PARKING' || sc.is_manual ? (
+                        isPrivileged ? (
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            placeholder="0"
+                            disabled={!isEnabled}
+                            className="w-28 text-xs text-right bg-white border border-slate-300 rounded px-2 py-1 font-mono font-bold text-slate-900 focus:outline-none focus:border-[#E05A1E]"
+                            value={sc.amount ?? ''}
+                            onChange={(e) => onUpdateStatutoryCharge(sc.id, { amount: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                          />
+                        ) : (
+                          <span className="font-mono font-bold text-slate-900 shrink-0">
+                            {isEnabled ? formatINR(sc.amount || 0) : '₹0.00'}
+                          </span>
+                        )
+                      ) : (
+                        <span className="font-mono font-bold text-slate-900 shrink-0">
+                          {isEnabled ? formatINR(effectiveAmt) : '₹0.00'}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
                       <span className="font-mono">
-                        RR: {sc.rr_percentage !== null && sc.rr_percentage !== undefined ? `${sc.rr_percentage}%` : '—'} • Calc: {formatINR(calculatedAmt)}
+                        {sc.charge_code === 'LABOUR_WELFARE_PARKING' || sc.is_manual
+                          ? 'Manual Admin Input'
+                          : `RR: ${sc.rr_percentage !== null && sc.rr_percentage !== undefined ? `${sc.rr_percentage}%` : '—'} • Calc: ${formatINR(calculatedAmt)}`}
                       </span>
-                      {isPrivileged && (
+                      {sc.charge_code !== 'LABOUR_WELFARE_PARKING' && !sc.is_manual && isPrivileged && (
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             type="button"
@@ -733,51 +1043,329 @@ export default function FinancialViabilityForm({
         </button>
 
         {(hasBasement || hasStackedParking || openSections.conditional) && (
-          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-700 block">Basement Area (sq m)</label>
-              <input
-                type="number"
-                placeholder="0"
-                className="w-full text-xs bg-white border border-amber-300 rounded-lg px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-                value={financial.basement_area_sqm ?? ''}
-                onChange={(e) => onUpdateFinancial({ basement_area_sqm: e.target.value })}
-                disabled={!isPrivileged}
-              />
+          <div className="p-4 space-y-4 text-xs">
+            {/* Basement */}
+            <div className="p-3 bg-white rounded-lg border border-amber-200 space-y-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Basement Construction Cost (Section E)
+                </span>
+                {isPrivileged && (
+                  <div className="flex items-center gap-2">
+                    {financialMetrics.costOfBasementE_details?.has_override && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-200 text-amber-900 rounded flex items-center gap-1">
+                        <Sliders size={10} /> Override Active
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenOverride('cost_of_basement', financialMetrics.costOfBasementE_details?.calculated || parseFloat(financialMetrics.costOfBasementE) || 0)}
+                      className="text-[10px] text-[#E05A1E] hover:underline font-semibold"
+                    >
+                      {financialMetrics.costOfBasementE_details?.has_override ? 'Edit Override' : 'Admin Override'}
+                    </button>
+                    {financialMetrics.costOfBasementE_details?.has_override && onResetOverride && (
+                      <button
+                        type="button"
+                        onClick={() => onResetOverride('cost_of_basement')}
+                        className="text-[10px] text-red-600 hover:underline flex items-center gap-0.5 font-semibold"
+                        title="Reset to Calculated"
+                      >
+                        <RefreshCw size={10} /> Reset
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-700 block">Basement Area (sq m)</label>
+                  <input
+                    type="number"
+                    placeholder="0"
+                    className="w-full text-xs bg-white border border-amber-300 rounded-lg px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
+                    value={financial.basement_area_sqm ?? ''}
+                    onChange={(e) => onUpdateFinancial({ basement_area_sqm: e.target.value })}
+                    disabled={!isPrivileged}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-700 block">Basement Rate (₹/sq m)</label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 5500"
+                    className="w-full text-xs bg-white border border-amber-300 rounded-lg px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
+                    value={financial.basement_rate_per_sqm ?? ''}
+                    onChange={(e) => onUpdateFinancial({ basement_rate_per_sqm: e.target.value })}
+                    disabled={!isPrivileged}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-xs pt-1 border-t border-amber-100">
+                <span className="text-muted">Effective Section E Cost:</span>
+                <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.costOfBasementE || 0)}</span>
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-700 block">Basement Rate (₹/sq m)</label>
-              <input
-                type="number"
-                placeholder="e.g. 5500"
-                className="w-full text-xs bg-white border border-amber-300 rounded-lg px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-                value={financial.basement_rate_per_sqm ?? ''}
-                onChange={(e) => onUpdateFinancial({ basement_rate_per_sqm: e.target.value })}
-                disabled={!isPrivileged}
-              />
+
+            {/* Stacked Parking */}
+            <div className="p-3 bg-white rounded-lg border border-amber-200 space-y-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Stacked Car Parking Cost (Section G)
+                </span>
+                {isPrivileged && (
+                  <div className="flex items-center gap-2">
+                    {financialMetrics.stackedParkingG_details?.has_override && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-200 text-amber-900 rounded flex items-center gap-1">
+                        <Sliders size={10} /> Override Active
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenOverride('stacked_parking_cost', financialMetrics.stackedParkingG_details?.calculated || parseFloat(financialMetrics.stackedParkingG) || 0)}
+                      className="text-[10px] text-[#E05A1E] hover:underline font-semibold"
+                    >
+                      {financialMetrics.stackedParkingG_details?.has_override ? 'Edit Override' : 'Admin Override'}
+                    </button>
+                    {financialMetrics.stackedParkingG_details?.has_override && onResetOverride && (
+                      <button
+                        type="button"
+                        onClick={() => onResetOverride('stacked_parking_cost')}
+                        className="text-[10px] text-red-600 hover:underline flex items-center gap-0.5 font-semibold"
+                        title="Reset to Calculated"
+                      >
+                        <RefreshCw size={10} /> Reset
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-700 block">Stacked Parking Slots</label>
+                  <input
+                    type="number"
+                    placeholder="0"
+                    className="w-full text-xs bg-white border border-amber-300 rounded-lg px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
+                    value={financial.stacked_parking_slots ?? ''}
+                    onChange={(e) => onUpdateFinancial({ stacked_parking_slots: e.target.value })}
+                    disabled={!isPrivileged}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-700 block">Stacked Parking Cost / Slot (₹)</label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 250000"
+                    className="w-full text-xs bg-white border border-amber-300 rounded-lg px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
+                    value={financial.stacked_parking_cost_per_slot ?? ''}
+                    onChange={(e) => onUpdateFinancial({ stacked_parking_cost_per_slot: e.target.value })}
+                    disabled={!isPrivileged}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-xs pt-1 border-t border-amber-100">
+                <span className="text-muted">Effective Section G Cost:</span>
+                <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.stackedParkingG || 0)}</span>
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-700 block">Stacked Parking Slots</label>
-              <input
-                type="number"
-                placeholder="0"
-                className="w-full text-xs bg-white border border-amber-300 rounded-lg px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-                value={financial.stacked_parking_slots ?? ''}
-                onChange={(e) => onUpdateFinancial({ stacked_parking_slots: e.target.value })}
-                disabled={!isPrivileged}
-              />
+          </div>
+        )}
+      </div>
+
+      {/* Section I: Salable Inventory & Landowner Equity Allocation */}
+      <div className="card space-y-4 border border-slate-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#E05A1E]"></span>
+              Section I — Salable Inventory & Landowner Equity Allocation
+            </h4>
+            <p className="text-xs text-muted">
+              Define residential and commercial units, carpet area, loading, developer vs landowner share, and expected sales realization.
+            </p>
+          </div>
+          <span className="text-xs font-mono font-bold bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full self-start sm:self-auto">
+            {salableUnits.length} Unit Types Configured
+          </span>
+        </div>
+
+        {/* Add New Unit Form */}
+        {isPrivileged && (
+          <form onSubmit={handleAddNewUnit} className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
+            <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Add Salable Unit Type</h5>
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2.5">
+              <div className="col-span-2 sm:col-span-2 md:col-span-1">
+                <label className="text-[10px] font-semibold text-slate-600">Unit Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 2BHK Typ A"
+                  className="w-full text-xs bg-white border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#E05A1E]"
+                  value={newUnit.unit_name}
+                  onChange={(e) => setNewUnit({ ...newUnit, unit_name: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-slate-600">Use</label>
+                <select
+                  className="w-full text-xs bg-white border border-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#E05A1E]"
+                  value={newUnit.use_type}
+                  onChange={(e) => setNewUnit({ ...newUnit, use_type: e.target.value })}
+                >
+                  <option value="Residential">Residential</option>
+                  <option value="Commercial">Commercial</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-slate-600">Carpet (sq ft)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="e.g. 750"
+                  className="w-full text-xs bg-white border border-slate-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:border-[#E05A1E]"
+                  value={newUnit.carpet_area_sqft}
+                  onChange={(e) => setNewUnit({ ...newUnit, carpet_area_sqft: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-slate-600">Loading (sq ft)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="e.g. 150"
+                  className="w-full text-xs bg-white border border-slate-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:border-[#E05A1E]"
+                  value={newUnit.loading_sqft}
+                  onChange={(e) => setNewUnit({ ...newUnit, loading_sqft: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-slate-600">Total Count</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="Count"
+                  className="w-full text-xs bg-white border border-slate-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:border-[#E05A1E]"
+                  value={newUnit.unit_count}
+                  onChange={(e) => setNewUnit({ ...newUnit, unit_count: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-slate-600">Owner Units</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="0"
+                  className="w-full text-xs bg-white border border-slate-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:border-[#E05A1E]"
+                  value={newUnit.landowner_units}
+                  onChange={(e) => setNewUnit({ ...newUnit, landowner_units: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-slate-600">Rate (₹/sq ft)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="100"
+                  placeholder="5000"
+                  className="w-full text-xs bg-white border border-slate-300 rounded px-2 py-1.5 font-mono focus:outline-none focus:border-[#E05A1E]"
+                  value={newUnit.rate_per_sqft}
+                  onChange={(e) => setNewUnit({ ...newUnit, rate_per_sqft: e.target.value })}
+                  required
+                />
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-700 block">Stacked Parking Cost / Slot (₹)</label>
-              <input
-                type="number"
-                placeholder="e.g. 250000"
-                className="w-full text-xs bg-white border border-amber-300 rounded-lg px-3 py-2 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-                value={financial.stacked_parking_cost_per_slot ?? ''}
-                onChange={(e) => onUpdateFinancial({ stacked_parking_cost_per_slot: e.target.value })}
-                disabled={!isPrivileged}
-              />
+            <div className="flex justify-end pt-1">
+              <button
+                type="submit"
+                className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1.5"
+              >
+                <Plus size={14} /> Add Unit
+              </button>
             </div>
+          </form>
+        )}
+
+        {/* Units Table */}
+        {salableUnits.length > 0 ? (
+          <div className="overflow-x-auto border border-slate-200 rounded-lg">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
+                <tr>
+                  <th className="px-3 py-2 text-left">Unit Name</th>
+                  <th className="px-2 py-2 text-center">Use</th>
+                  <th className="px-3 py-2 text-right">Carpet</th>
+                  <th className="px-3 py-2 text-right">BUA / Unit</th>
+                  <th className="px-2 py-2 text-right">Total Units</th>
+                  <th className="px-2 py-2 text-right">Owner Units</th>
+                  <th className="px-2 py-2 text-right">Dev Units</th>
+                  <th className="px-3 py-2 text-right">Rate (₹/sqft)</th>
+                  <th className="px-3 py-2 text-right">Dev Realization</th>
+                  <th className="px-3 py-2 text-right">Owner Equity</th>
+                  {isPrivileged && <th className="px-2 py-2 text-center">Action</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-mono">
+                {salableUnits.map((u) => {
+                  const carpet = parseFloat(u.carpet_area_sqft) || (parseFloat(u.carpet_area_sqm) ? parseFloat(u.carpet_area_sqm) * 10.764 : 0);
+                  const loading = parseFloat(u.super_buildup_loading_sqft ?? u.loading_sqft) || 0;
+                  const bua = parseFloat(u.super_buildup_area_sqft) || (carpet + loading);
+                  const totalCount = parseInt(u.unit_count, 10) || 0;
+                  const ownerCount = parseInt(u.landowner_unit_count ?? u.landowner_units, 10) || 0;
+                  const devCount = Math.max(0, totalCount - ownerCount);
+                  const rate = parseFloat(u.rate_per_sqft) || 0;
+                  const devRealization = devCount * bua * rate;
+                  const ownerEquity = ownerCount * bua * rate;
+                  const useType = u.building_use || u.use_type || 'Residential';
+
+                  return (
+                    <tr key={u.id || u.unit_name} className="hover:bg-slate-50">
+                      <td className="px-3 py-2 font-sans font-medium text-slate-800">{u.unit_name}</td>
+                      <td className="px-2 py-2 text-center font-sans">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${useType === 'Commercial' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {useType}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right">{carpet.toFixed(0)}</td>
+                      <td className="px-3 py-2 text-right">{bua.toFixed(0)}</td>
+                      <td className="px-2 py-2 text-right font-bold text-slate-800">{totalCount}</td>
+                      <td className="px-2 py-2 text-right text-amber-700">{ownerCount}</td>
+                      <td className="px-2 py-2 text-right text-emerald-700 font-bold">{devCount}</td>
+                      <td className="px-3 py-2 text-right">{formatINR(rate)}</td>
+                      <td className="px-3 py-2 text-right font-bold text-slate-900">{formatINR(devRealization)}</td>
+                      <td className="px-3 py-2 text-right text-amber-800">{formatINR(ownerEquity)}</td>
+                      {isPrivileged && (
+                        <td className="px-2 py-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (ownerCount > 0 && !window.confirm(`Unit '${u.unit_name}' has ${ownerCount} landowner units allocated. Are you sure you want to delete?`)) {
+                                return;
+                              }
+                              if (onDeleteSalableUnit) onDeleteSalableUnit(u.id);
+                            }}
+                            className="text-slate-400 hover:text-red-600 p-1"
+                            title="Delete Unit"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-muted">
+            No salable units configured yet. Use the form above to add residential and commercial inventory.
           </div>
         )}
       </div>

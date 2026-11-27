@@ -378,6 +378,28 @@ export default function FeasibilityDocumentPreview({
                   {formatNumber((areaMetrics.effectiveProposedPlineSqm || areaMetrics.proposedPlineTotalSqm || 0) * unitFactor)}
                 </td>
               </tr>
+              {areaMetrics.sourceProposedPlineDifferenceSqm !== undefined && Math.abs(areaMetrics.sourceProposedPlineDifferenceSqm) > 0.001 && (
+                <tr className="bg-amber-50/70 text-amber-900 font-semibold">
+                  <td className="border border-slate-300 px-2 py-1.5 text-center font-mono">DIFF</td>
+                  <td className="border border-slate-300 px-2.5 sm:px-3 py-1.5">
+                    Benchmark Difference (Target P-Line vs Floor Sum Residual)
+                  </td>
+                  <td className="border border-slate-300 px-2.5 sm:px-3 py-1.5 text-right font-mono font-bold tabular-nums">
+                    {areaMetrics.sourceProposedPlineDifferenceSqm > 0 ? '+' : ''}{formatNumber(areaMetrics.sourceProposedPlineDifferenceSqm * unitFactor, 3)}
+                  </td>
+                </tr>
+              )}
+              {statement.building_use === 'Mixed Use' && areaMetrics.sourceUnallocatedPermissiblePlineSqm && (
+                <tr className="bg-slate-50 text-slate-700 text-[11px]">
+                  <td className="border border-slate-300 px-2 py-1 text-center font-mono">REF</td>
+                  <td className="border border-slate-300 px-2.5 sm:px-3 py-1">
+                    Historical Source Unallocated Potential (Dual Ancillary Baseline)
+                  </td>
+                  <td className="border border-slate-300 px-2.5 sm:px-3 py-1 text-right font-mono tabular-nums">
+                    {formatNumber(areaMetrics.sourceUnallocatedPermissiblePlineSqm * unitFactor)}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
           </div>
@@ -587,6 +609,93 @@ export default function FeasibilityDocumentPreview({
           </div>
         </div>
 
+        {/* TABLE 5 — OCCUPANCY-BASED PARKING STATEMENT (UDCPR CHAPTER 8) */}
+        <div className="space-y-2">
+          <div className="bg-slate-800 text-white px-3.5 py-2 font-bold rounded-t text-xs uppercase tracking-wider flex flex-wrap items-center justify-between gap-2">
+            <span>Table 5 — Occupancy-Based Parking Statement (UDCPR Chapter 8)</span>
+            <span className="text-[10px] font-normal text-slate-300">
+              Nagpur Multiplier (0.90) | Visitor (5%)
+            </span>
+          </div>
+
+          <div className="w-full overflow-x-auto">
+            <table className="w-full border-collapse border border-slate-300 text-left text-xs">
+              <thead>
+                <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
+                  <th className="border border-slate-300 px-2.5 py-2">Occupancy Head / Rule Basis</th>
+                  <th className="border border-slate-300 px-2.5 py-2 text-right">Carpet / Units</th>
+                  <th className="border border-slate-300 px-2.5 py-2 text-right">Cars Required</th>
+                  <th className="border border-slate-300 px-2.5 py-2 text-right">Scooters Required</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                <tr>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-slate-800">
+                    Commercial Occupancy (2 Cars &amp; 6 Scooters / 100 sqm)
+                  </td>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono tabular-nums">
+                    {formatNumber((areaMetrics.parkingRequirements?.commercialCarpetSqm || 0) * unitFactor)} {unitLabel}
+                  </td>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono tabular-nums">
+                    {formatNumber(areaMetrics.parkingRequirements?.commercialCars || 0)}
+                  </td>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono tabular-nums">
+                    {formatNumber(areaMetrics.parkingRequirements?.commercialTwoWheelers || 0)}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-slate-800">
+                    Residential Tenements (UDCPR Rule 8.2)
+                  </td>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono tabular-nums">
+                    {areaMetrics.parkingRequirements?.totalResidentialTenements || 0} Units
+                  </td>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono tabular-nums">
+                    {formatNumber(areaMetrics.parkingRequirements?.residentialCars || 0)}
+                  </td>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono tabular-nums">
+                    {formatNumber(areaMetrics.parkingRequirements?.residentialTwoWheelers || 0)}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-slate-800">
+                    Visitor Parking Allowance (5%)
+                  </td>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono tabular-nums">5%</td>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono tabular-nums">
+                    {formatNumber(areaMetrics.parkingRequirements?.visitorCars || 0)}
+                  </td>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono tabular-nums">
+                    {formatNumber(areaMetrics.parkingRequirements?.visitorTwoWheelers || 0)}
+                  </td>
+                </tr>
+                <tr className="bg-slate-100 font-bold">
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-slate-900" colSpan="2">
+                    Net Authority Demand (Nagpur Multiplier 0.90 applied, rounded up)
+                  </td>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 tabular-nums">
+                    {areaMetrics.parkingRequirements?.requiredCars || 0} Cars
+                  </td>
+                  <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono font-bold text-slate-900 tabular-nums">
+                    {areaMetrics.parkingRequirements?.requiredTwoWheelers || 0} Scooters
+                  </td>
+                </tr>
+                <tr className="bg-emerald-50/70 font-bold border-t-2 border-slate-400">
+                  <td className="border border-slate-300 px-2.5 py-2 text-emerald-950 font-extrabold" colSpan="2">
+                    Proposed Provision vs Surplus / (Deficit)
+                  </td>
+                  <td className="border border-slate-300 px-2.5 py-2 text-right font-mono text-emerald-950 font-extrabold tabular-nums">
+                    {areaMetrics.parkingRequirements?.proposedCars || 0} Prop ({((areaMetrics.parkingRequirements?.surplusDeficitCars || 0) >= 0 ? '+' : '') + (areaMetrics.parkingRequirements?.surplusDeficitCars || 0)})
+                  </td>
+                  <td className="border border-slate-300 px-2.5 py-2 text-right font-mono text-emerald-950 font-extrabold tabular-nums">
+                    {areaMetrics.parkingRequirements?.proposedTwoWheelers || 0} Prop ({((areaMetrics.parkingRequirements?.surplusDeficitTwoWheelers || 0) >= 0 ? '+' : '') + (areaMetrics.parkingRequirements?.surplusDeficitTwoWheelers || 0)})
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         {/* Sign-off Footer (Area Statement) */}
         <div className="pt-8 border-t border-slate-200 grid grid-cols-2 sm:grid-cols-3 gap-6 text-center text-xs">
           <div className="space-y-6">
@@ -775,19 +884,28 @@ export default function FeasibilityDocumentPreview({
                   {formatINR(financialMetrics.stackedParkingCostG)}
                 </td>
               </tr>
-              <tr>
-                <td className="border border-slate-300 px-2 py-1.5 font-mono text-center font-bold">H</td>
-                <td className="border border-slate-300 px-2.5 sm:px-3 py-1.5 text-slate-800">
-                  Cost of Land / Plot Acquisition
-                </td>
-                <td className="border border-slate-300 px-2.5 sm:px-3 py-1.5 text-right font-mono font-semibold tabular-nums">
-                  {formatINR(financialMetrics.costOfPlotH)}
-                </td>
-              </tr>
+              {(financialMetrics.costOfPlotH_details?.raw_amount > 0 || parseFloat(financialMetrics.costOfPlotH) > 0) && (
+                <tr className={financialMetrics.isCostOfPlotIncluded === false ? 'bg-slate-50/70 text-slate-500' : ''}>
+                  <td className="border border-slate-300 px-2 py-1.5 font-mono text-center font-bold">H</td>
+                  <td className="border border-slate-300 px-2.5 sm:px-3 py-1.5 text-slate-800">
+                    <div className="flex items-center justify-between">
+                      <span>Cost of Plot (H)</span>
+                      {financialMetrics.isCostOfPlotIncluded === false && (
+                        <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded ml-2">
+                          (Excluded from Total)
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="border border-slate-300 px-2.5 sm:px-3 py-1.5 text-right font-mono font-semibold tabular-nums">
+                    {formatINR(financialMetrics.costOfPlotH_details?.raw_amount || financialMetrics.costOfPlotH)}
+                  </td>
+                </tr>
+              )}
               <tr className="bg-orange-50 font-bold border-t-2 border-slate-400">
                 <td className="border border-slate-300 px-2 py-2 text-center font-mono text-orange-950">TOTAL</td>
                 <td className="border border-slate-300 px-2.5 sm:px-3 py-2 text-orange-950 font-extrabold">
-                  TOTAL PROJECT DEVELOPMENT EXPENDITURE (A to H)
+                  TOTAL PROJECT DEVELOPMENT EXPENDITURE ({financialMetrics.isCostOfPlotIncluded !== false && (financialMetrics.costOfPlotH_details?.raw_amount > 0 || parseFloat(financialMetrics.costOfPlotH) > 0) ? 'A to H' : 'A to G'})
                 </td>
                 <td className="border border-slate-300 px-2.5 sm:px-3 py-2 text-right font-mono text-[#E05A1E] font-extrabold text-sm tabular-nums">
                   {formatINR(financialMetrics.totalProjectCost)}
@@ -799,11 +917,98 @@ export default function FeasibilityDocumentPreview({
         </div>
 
         {/* SECTION I — SALABLE INVENTORY & REVENUE REALIZATION */}
-        <div className="space-y-2">
-          <div className="bg-slate-800 text-white px-3.5 py-2 font-bold rounded-t text-xs uppercase tracking-wider flex flex-wrap items-center justify-between gap-2">
-            <span>Section I — Floor-wise Salable Inventory &amp; Revenue Realization</span>
-            <span className="text-[10px] text-slate-300 font-normal">Sourced from Table 3 Area Schedule</span>
-          </div>
+        <div className="space-y-4">
+          {(financialMetrics.evaluatedSalableUnits || salableUnits || []).length > 0 && (
+            <div className="space-y-2">
+              <div className="bg-slate-900 text-white px-3.5 py-2 font-bold rounded-t text-xs uppercase tracking-wider flex flex-wrap items-center justify-between gap-2">
+                <span>Section I.1 — Unit Inventory &amp; Landowner Equity Allocation</span>
+                <span className="text-[10px] text-slate-300 font-normal">Developer vs Landowner Partition</span>
+              </div>
+
+              <div className="w-full overflow-x-auto">
+                <table className="w-full border-collapse border border-slate-300 text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300 text-[11px]">
+                      <th className="border border-slate-300 px-2.5 py-2">Unit Type</th>
+                      <th className="border border-slate-300 px-2 py-2 text-center">Use</th>
+                      <th className="border border-slate-300 px-2 py-2 text-right">Carpet ({unitLabel})</th>
+                      <th className="border border-slate-300 px-2 py-2 text-right">Super (sq ft)</th>
+                      <th className="border border-slate-300 px-2 py-2 text-center">Total</th>
+                      <th className="border border-slate-300 px-2 py-2 text-center">Owner</th>
+                      <th className="border border-slate-300 px-2 py-2 text-center">Dev</th>
+                      <th className="border border-slate-300 px-2 py-2 text-right">Rate (₹/sq ft)</th>
+                      <th className="border border-slate-300 px-2.5 py-2 text-right">Dev Receipts (₹)</th>
+                      <th className="border border-slate-300 px-2.5 py-2 text-right">Owner Value (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {(financialMetrics.evaluatedSalableUnits || salableUnits).map((un, idx) => {
+                      const totalUnits = parseInt(un.unit_count, 10) || 1;
+                      const ownerUnits = parseInt(un.landowner_unit_count, 10) || 0;
+                      const devUnits = un.developer_unit_count !== undefined ? un.developer_unit_count : Math.max(0, totalUnits - ownerUnits);
+                      const carpetDisplay = isSqft ? (un.carpet_area_sqft || (un.carpet_area_sqm * 10.764)) : (un.carpet_area_sqm || 0);
+
+                      return (
+                        <tr key={un.id || idx}>
+                          <td className="border border-slate-300 px-2.5 py-1.5 font-bold text-slate-800">
+                            {un.unit_name || un.unit_type || `Unit ${idx + 1}`}
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1.5 text-center">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${un.building_use === 'Commercial' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
+                              {un.building_use || 'Residential'}
+                            </span>
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1.5 text-right font-mono tabular-nums">
+                            {formatNumber(carpetDisplay)}
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1.5 text-right font-mono tabular-nums text-slate-600">
+                            {formatNumber(un.super_buildup_area_sqft || 0)}
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-bold">{totalUnits}</td>
+                          <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-bold text-indigo-700">{ownerUnits}</td>
+                          <td className="border border-slate-300 px-2 py-1.5 text-center font-mono font-bold text-emerald-700">{devUnits}</td>
+                          <td className="border border-slate-300 px-2 py-1.5 text-right font-mono tabular-nums">{formatINR(un.rate_per_sqft || 0)}</td>
+                          <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono font-bold text-emerald-800 tabular-nums">
+                            {formatINR(un.developer_amount || un.total_amount || 0)}
+                          </td>
+                          <td className="border border-slate-300 px-2.5 py-1.5 text-right font-mono font-semibold text-indigo-800 tabular-nums">
+                            {formatINR(un.landowner_amount || 0)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr className="bg-slate-100 font-bold border-t-2 border-slate-400">
+                      <td className="border border-slate-300 px-2.5 py-2 font-extrabold text-slate-900" colSpan="4">
+                        TOTAL INVENTORY
+                      </td>
+                      <td className="border border-slate-300 px-2 py-2 text-center font-mono">
+                        {(financialMetrics.totalDeveloperUnits || 0) + (financialMetrics.totalLandownerUnits || 0)}
+                      </td>
+                      <td className="border border-slate-300 px-2 py-2 text-center font-mono text-indigo-700">
+                        {financialMetrics.totalLandownerUnits || 0}
+                      </td>
+                      <td className="border border-slate-300 px-2 py-2 text-center font-mono text-emerald-700">
+                        {financialMetrics.totalDeveloperUnits || 0}
+                      </td>
+                      <td className="border border-slate-300 px-2 py-2 text-right text-slate-400">—</td>
+                      <td className="border border-slate-300 px-2.5 py-2 text-right font-mono text-emerald-800 font-black">
+                        {formatINR(financialMetrics.totalReceipts)}
+                      </td>
+                      <td className="border border-slate-300 px-2.5 py-2 text-right font-mono text-indigo-800 font-bold">
+                        {formatINR(financialMetrics.totalLandownerReceipts || 0)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <div className="bg-slate-800 text-white px-3.5 py-2 font-bold rounded-t text-xs uppercase tracking-wider flex flex-wrap items-center justify-between gap-2">
+              <span>Section I.2 — Floor-wise Salable Inventory &amp; Revenue Realization</span>
+              <span className="text-[10px] text-slate-300 font-normal">Sourced from Table 3 Area Schedule</span>
+            </div>
 
           {/* Desktop / Tablet Table (md and up) */}
           <div className="hidden md:block">
@@ -903,6 +1108,7 @@ export default function FeasibilityDocumentPreview({
             </div>
           </div>
         </div>
+      </div>
 
         {/* SECTION J — EXECUTIVE FEASIBILITY & PROFITABILITY SUMMARY */}
         <div className="bg-slate-900 text-white p-5 rounded-xl space-y-4">

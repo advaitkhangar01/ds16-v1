@@ -5,7 +5,7 @@ const router = require('express').Router({ mergeParams: true });
 const pool = require('../db');
 const { authenticate, canViewFinancials } = require('../middleware/auth');
 const { checkProjectAccess } = require('../middleware/accessControl');
-const { calculateAreaMetrics, calculateFinancialMetrics, ROAD_WIDTH_TDR_MAP } = require('../services/feasibilityEngine');
+const { calculateAreaMetrics, calculateFinancialMetrics, ROAD_WIDTH_TDR_MAP, ROAD_WIDTH_TOTAL_TDR_MAP, deriveTdrSplit } = require('../services/feasibilityEngine');
 const { reconcileBuildingFloors } = require('../services/buildingHierarchyService');
 
 // Check financial privileges
@@ -237,12 +237,81 @@ router.put('/area', authenticate, checkProjectAccess(), requireFeasibilityEdit, 
     const parsedWidth = road_width_m !== undefined ? (road_width_m === null || road_width_m === '' ? null : parseFloat(road_width_m)) : (existing?.road_width_m ?? null);
     const gunthFlag = is_gunthewari !== undefined ? Boolean(is_gunthewari) : Boolean(existing?.is_gunthewari);
 
-    let resolvedRegularTdr = regular_tdr_factor !== undefined ? (regular_tdr_factor === null || regular_tdr_factor === '' ? null : parseFloat(regular_tdr_factor)) : null;
-    let resolvedSlumTdr = slum_tdr_factor !== undefined ? (slum_tdr_factor === null || slum_tdr_factor === '' ? null : parseFloat(slum_tdr_factor)) : null;
+    let resolvedRegularTdr = null;
+    let resolvedSlumTdr = null;
 
-    if (parsedWidth && ROAD_WIDTH_TDR_MAP[parsedWidth]) {
+    if (parsedWidth && ROAD_WIDTH_TOTAL_TDR_MAP[parsedWidth] !== undefined) {
+      const roadTotalTdr = ROAD_WIDTH_TOTAL_TDR_MAP[parsedWidth];
+      const isRoadWidthChanged = existing && existing.road_width_m !== null && parsedWidth !== existing.road_width_m;
+
+      // 1. Explicit reset requested
+      if (req.body.reset_regular_tdr === true || req.body.regular_tdr_factor === null) {
+        const split = deriveTdrSplit(roadTotalTdr, null);
+        resolvedRegularTdr = split.regularTdrFactor;
+        resolvedSlumTdr = split.slumTdrFactor;
+      }
+      // 2. Explicit regular_tdr_factor provided
+      else if (req.body.regular_tdr_factor !== undefined) {
+        if (req.body.regular_tdr_factor === '') {
+          return res.status(400).json({ error: 'Regular TDR factor must be a valid number or null to reset' });
+        }
+        const split = deriveTdrSplit(roadTotalTdr, req.body.regular_tdr_factor);
+        if (!split.isSplitValid) {
+          return res.status(400).json({ error: split.validationError });
+        }
+        resolvedRegularTdr = split.regularTdrFactor;
+        resolvedSlumTdr = split.slumTdrFactor;
+      }
+      // 3. regular_tdr_factor omitted: preserve existing override
+      else {
+        const existingRegular = existing?.regular_tdr_factor !== null && existing?.regular_tdr_factor !== undefined
+          ? parseFloat(existing.regular_tdr_factor)
+          : null;
+
+        if (existingRegular !== null) {
+          if (isRoadWidthChanged && existingRegular > roadTotalTdr) {
+            return res.status(400).json({
+              error: `Existing Regular TDR override (${existingRegular}) exceeds new Total Road TDR (${roadTotalTdr}) for ${parsedWidth}m road width. Please specify a valid regular_tdr_factor or explicitly reset it.`
+            });
+          }
+          const split = deriveTdrSplit(roadTotalTdr, existingRegular);
+          resolvedRegularTdr = split.regularTdrFactor;
+          resolvedSlumTdr = split.slumTdrFactor;
+        } else {
+          const split = deriveTdrSplit(roadTotalTdr, null);
+          resolvedRegularTdr = split.regularTdrFactor;
+          resolvedSlumTdr = split.slumTdrFactor;
+        }
+      }
+    } else if (parsedWidth && ROAD_WIDTH_TDR_MAP[parsedWidth]) {
       resolvedRegularTdr = ROAD_WIDTH_TDR_MAP[parsedWidth].regular;
       resolvedSlumTdr = ROAD_WIDTH_TDR_MAP[parsedWidth].slum;
+    }
+
+    const parseNumParam = (val, name) => {
+      if (val === undefined || val === null || val === '') return null;
+      const parsed = parseFloat(val);
+      if (isNaN(parsed)) throw new Error(`Invalid numeric input for ${name}`);
+      return parsed;
+    };
+
+    let pPlotArea, pCitySurvey, pSiteArea, pDp, pExistingBuiltup, pMargin, pDivFactor, pBasicFsi, pPaidFsi, pTdrFactor, pProposedTdrFactor, pAncComm, pAncRes;
+    try {
+      pPlotArea = parseNumParam(plot_area_sqm, 'plot_area_sqm');
+      pCitySurvey = parseNumParam(city_survey_area_sqm, 'city_survey_area_sqm');
+      pSiteArea = parseNumParam(site_area_sqm, 'site_area_sqm');
+      pDp = parseNumParam(dp_deductions_sqm, 'dp_deductions_sqm');
+      pExistingBuiltup = parseNumParam(existing_builtup_area_sqm, 'existing_builtup_area_sqm');
+      pMargin = parseNumParam(margin_meters, 'margin_meters');
+      pDivFactor = parseNumParam(dividing_factor, 'dividing_factor');
+      pBasicFsi = parseNumParam(basic_fsi_factor, 'basic_fsi_factor');
+      pPaidFsi = parseNumParam(paid_fsi_factor, 'paid_fsi_factor');
+      pTdrFactor = parseNumParam(tdr_factor, 'tdr_factor');
+      pProposedTdrFactor = parseNumParam(proposed_tdr_factor, 'proposed_tdr_factor');
+      pAncComm = parseNumParam(ancillary_commercial_pct, 'ancillary_commercial_pct');
+      pAncRes = parseNumParam(ancillary_residential_pct, 'ancillary_residential_pct');
+    } catch (validationErr) {
+      return res.status(400).json({ error: validationErr.message });
     }
 
     const { rows: [updated] } = await pool.query(
@@ -271,34 +340,38 @@ router.put('/area', authenticate, checkProjectAccess(), requireFeasibilityEdit, 
         proposed_pline_override_reason = CASE WHEN $21 = TRUE THEN $22 ELSE (CASE WHEN $21 = FALSE THEN NULL ELSE proposed_pline_override_reason END) END,
         proposed_pline_overridden_by = CASE WHEN $21 = TRUE THEN $23 ELSE (CASE WHEN $21 = FALSE THEN NULL ELSE proposed_pline_overridden_by END) END,
         proposed_pline_overridden_at = CASE WHEN $21 = TRUE THEN NOW() ELSE (CASE WHEN $21 = FALSE THEN NULL ELSE proposed_pline_overridden_at END) END,
+        parking_config = COALESCE($25, parking_config),
+        regulatory_profile = COALESCE($26, regulatory_profile),
         updated_at = NOW()
        WHERE project_id = $24
        RETURNING *`,
       [
-        plot_area_sqm !== undefined ? parseFloat(plot_area_sqm) : null,
-        city_survey_area_sqm !== undefined ? parseFloat(city_survey_area_sqm) : null,
-        site_area_sqm !== undefined ? parseFloat(site_area_sqm) : null,
-        dp_deductions_sqm !== undefined ? parseFloat(dp_deductions_sqm) : null,
-        existing_builtup_area_sqm !== undefined ? parseFloat(existing_builtup_area_sqm) : null,
-        margin_meters !== undefined ? parseFloat(margin_meters) : null,
-        dividing_factor !== undefined ? parseFloat(dividing_factor) : null,
-        basic_fsi_factor !== undefined ? parseFloat(basic_fsi_factor) : null,
-        paid_fsi_factor !== undefined ? parseFloat(paid_fsi_factor) : null,
-        tdr_factor !== undefined ? parseFloat(tdr_factor) : null,
-        proposed_tdr_factor !== undefined ? parseFloat(proposed_tdr_factor) : null,
+        pPlotArea,
+        pCitySurvey,
+        pSiteArea,
+        pDp,
+        pExistingBuiltup,
+        pMargin,
+        pDivFactor,
+        pBasicFsi,
+        pPaidFsi,
+        pTdrFactor,
+        pProposedTdrFactor,
         resolvedRegularTdr,
         resolvedSlumTdr,
         is_gunthewari !== undefined ? Boolean(is_gunthewari) : null,
         parsedWidth,
         building_use ? building_use.trim() : null,
-        ancillary_commercial_pct !== undefined ? parseFloat(ancillary_commercial_pct) : null,
-        ancillary_residential_pct !== undefined ? parseFloat(ancillary_residential_pct) : null,
+        pAncComm,
+        pAncRes,
         unit_display || null,
         total_proposed_pline_override_sqm !== undefined ? (total_proposed_pline_override_sqm !== null && total_proposed_pline_override_sqm !== '' ? parseFloat(total_proposed_pline_override_sqm) : null) : null,
         is_proposed_pline_overridden !== undefined ? Boolean(is_proposed_pline_overridden) : null,
         proposed_pline_override_reason !== undefined ? proposed_pline_override_reason : null,
         req.user.id,
-        projectId
+        projectId,
+        req.body.parking_config !== undefined ? (typeof req.body.parking_config === 'string' ? req.body.parking_config : JSON.stringify(req.body.parking_config)) : null,
+        req.body.regulatory_profile !== undefined ? req.body.regulatory_profile.trim() : null
       ]
     );
 
@@ -590,24 +663,37 @@ router.put('/financial/overrides', authenticate, checkProjectAccess(), requireFe
   const projectId = parseInt(req.params.projectId, 10);
   const { key, override_val, calculated_basis_val, reason } = req.body;
 
-  if (!key) {
+  if (!key || typeof key !== 'string') {
     return res.status(400).json({ error: 'Override key is required' });
+  }
+
+  const parsedVal = parseFloat(override_val);
+  if (override_val === undefined || override_val === null || isNaN(parsedVal) || parsedVal < 0) {
+    return res.status(400).json({ error: 'Override amount must be a valid non-negative number' });
   }
 
   try {
     const { rows: [fin] } = await pool.query('SELECT * FROM project_financial_viabilities WHERE project_id = $1', [projectId]);
     if (!fin) return res.status(404).json({ error: 'Financial viability not found' });
 
-    const overrides = fin.overrides || {};
-    const history = fin.override_history || [];
+    let overrides = fin.overrides || {};
+    if (typeof overrides === 'string') {
+      try { overrides = JSON.parse(overrides); } catch (e) { overrides = {}; }
+    }
+    let history = fin.override_history || [];
+    if (typeof history === 'string') {
+      try { history = JSON.parse(history); } catch (e) { history = []; }
+    }
 
     const oldOverride = overrides[key] || null;
     overrides[key] = {
-      override_val: override_val !== undefined && override_val !== null ? parseFloat(override_val) : null,
-      calculated_basis_val: calculated_basis_val !== undefined && calculated_basis_val !== null ? parseFloat(calculated_basis_val) : null,
+      override_val: Math.round(parsedVal * 100) / 100,
+      calculated_basis_val: (calculated_basis_val !== undefined && calculated_basis_val !== null && !isNaN(parseFloat(calculated_basis_val)))
+        ? Math.round(parseFloat(calculated_basis_val) * 100) / 100
+        : null,
       overridden_by: req.user.id,
       overridden_at: new Date().toISOString(),
-      reason: reason || ''
+      reason: reason ? String(reason).trim() : ''
     };
 
     history.push({
@@ -624,7 +710,15 @@ router.put('/financial/overrides', authenticate, checkProjectAccess(), requireFe
       [JSON.stringify(overrides), JSON.stringify(history), projectId]
     );
 
-    res.json({ financial: updated, message: `Override for ${key} updated successfully` });
+    const recalc = await getRecalculatedFeasibility(pool, projectId);
+
+    res.json({
+      financial: updated,
+      areaMetrics: recalc?.areaMetrics,
+      financialMetrics: recalc?.financialMetrics,
+      statutoryCharges: recalc?.statutoryCharges,
+      message: `Override for ${key} updated successfully`
+    });
   } catch (err) {
     console.error('Error updating financial override:', err);
     res.status(500).json({ error: 'Failed to update financial override' });
@@ -637,7 +731,7 @@ router.post('/financial/overrides/reset', authenticate, checkProjectAccess(), re
   const projectId = parseInt(req.params.projectId, 10);
   const { key } = req.body;
 
-  if (!key) {
+  if (!key || typeof key !== 'string') {
     return res.status(400).json({ error: 'Override key is required' });
   }
 
@@ -645,8 +739,14 @@ router.post('/financial/overrides/reset', authenticate, checkProjectAccess(), re
     const { rows: [fin] } = await pool.query('SELECT * FROM project_financial_viabilities WHERE project_id = $1', [projectId]);
     if (!fin) return res.status(404).json({ error: 'Financial viability not found' });
 
-    const overrides = fin.overrides || {};
-    const history = fin.override_history || [];
+    let overrides = fin.overrides || {};
+    if (typeof overrides === 'string') {
+      try { overrides = JSON.parse(overrides); } catch (e) { overrides = {}; }
+    }
+    let history = fin.override_history || [];
+    if (typeof history === 'string') {
+      try { history = JSON.parse(history); } catch (e) { history = []; }
+    }
 
     const oldOverride = overrides[key] || null;
     delete overrides[key];
@@ -665,7 +765,15 @@ router.post('/financial/overrides/reset', authenticate, checkProjectAccess(), re
       [JSON.stringify(overrides), JSON.stringify(history), projectId]
     );
 
-    res.json({ financial: updated, message: `Override for ${key} reset to calculated successfully` });
+    const recalc = await getRecalculatedFeasibility(pool, projectId);
+
+    res.json({
+      financial: updated,
+      areaMetrics: recalc?.areaMetrics,
+      financialMetrics: recalc?.financialMetrics,
+      statutoryCharges: recalc?.statutoryCharges,
+      message: `Override for ${key} reset to calculated successfully`
+    });
   } catch (err) {
     console.error('Error resetting financial override:', err);
     res.status(500).json({ error: 'Failed to reset financial override' });
@@ -682,6 +790,7 @@ router.put('/financial', authenticate, checkProjectAccess(), requireFeasibilityE
     estimated_cost_b_rate,
     cost_of_plot,
     cost_of_plot_rate_per_sqm,
+    is_cost_of_plot_included,
     cost_of_construction_rate,
     cost_of_infrastructure,
     cost_of_basement,
@@ -706,10 +815,65 @@ router.put('/financial', authenticate, checkProjectAccess(), requireFeasibilityE
     notes
   } = req.body;
 
-  try {
-    const { rows: [existing] } = await pool.query('SELECT * FROM project_financial_viabilities WHERE project_id = $1', [projectId]);
+  const parseFinParam = (val, name, isInteger = false, allowNegative = false) => {
+    if (val === undefined) return null;
+    if (val === null || (typeof val === 'string' && val.trim() === '')) return null;
+    const str = typeof val === 'string' ? val.trim() : String(val);
+    const parsed = isInteger ? parseInt(str, 10) : parseFloat(str);
+    if (isNaN(parsed) || !isFinite(parsed)) {
+      throw new Error(`Invalid numeric input for ${name}: "${val}"`);
+    }
+    if (!allowNegative && parsed < 0) {
+      throw new Error(`${name} cannot be negative`);
+    }
+    return parsed;
+  };
 
-    const { rows: [updated] } = await pool.query(
+  let pRrRate, pCostARate, pCostBRate, pCostPlot, pCostPlotRate, pCostConstRate, pCostInfra;
+  let pCostBasement, pBasementArea, pBasementRate, pInterest, pRentAmt, pRentTenements, pRentPerMonth, pRentMonths;
+  let pStackedCost, pStackedSlots, pStackedCostPerSlot, pMinorExp, pBpms, pAirport, pFire, pEntertainment, pExtraStamp, pAdvocate, pPeriodMonths;
+
+  try {
+    pRrRate = parseFinParam(rr_rate_per_sqm, 'rr_rate_per_sqm');
+    pCostARate = parseFinParam(estimated_cost_a_rate, 'estimated_cost_a_rate');
+    pCostBRate = parseFinParam(estimated_cost_b_rate, 'estimated_cost_b_rate');
+    pCostPlot = parseFinParam(cost_of_plot, 'cost_of_plot');
+    pCostPlotRate = parseFinParam(cost_of_plot_rate_per_sqm, 'cost_of_plot_rate_per_sqm');
+    pCostConstRate = parseFinParam(cost_of_construction_rate, 'cost_of_construction_rate');
+    pCostInfra = parseFinParam(cost_of_infrastructure, 'cost_of_infrastructure');
+    pCostBasement = parseFinParam(cost_of_basement, 'cost_of_basement');
+    pBasementArea = parseFinParam(basement_area_sqm, 'basement_area_sqm');
+    pBasementRate = parseFinParam(basement_rate_per_sqm, 'basement_rate_per_sqm');
+    pInterest = parseFinParam(interest_amount, 'interest_amount');
+    pRentAmt = parseFinParam(rent_amount, 'rent_amount');
+    pRentTenements = parseFinParam(rent_tenements, 'rent_tenements', true);
+    pRentPerMonth = parseFinParam(rent_per_tenement_per_month, 'rent_per_tenement_per_month');
+    pRentMonths = parseFinParam(rent_months, 'rent_months', true);
+    pStackedCost = parseFinParam(stacked_parking_cost, 'stacked_parking_cost');
+    pStackedSlots = parseFinParam(stacked_parking_slots, 'stacked_parking_slots', true);
+    pStackedCostPerSlot = parseFinParam(stacked_parking_cost_per_slot, 'stacked_parking_cost_per_slot');
+    pMinorExp = parseFinParam(minor_expenses, 'minor_expenses');
+    pBpms = parseFinParam(bpms_staff_charges, 'bpms_staff_charges');
+    pAirport = parseFinParam(airport_noc, 'airport_noc');
+    pFire = parseFinParam(fire_noc, 'fire_noc');
+    pEntertainment = parseFinParam(entertainment_charges, 'entertainment_charges');
+    pExtraStamp = parseFinParam(extra_stamp_duty, 'extra_stamp_duty');
+    pAdvocate = parseFinParam(advocate_fees, 'advocate_fees');
+    pPeriodMonths = parseFinParam(period_months, 'period_months', true);
+  } catch (validationErr) {
+    return res.status(400).json({ error: validationErr.message });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: [existing] } = await client.query('SELECT * FROM project_financial_viabilities WHERE project_id = $1 FOR UPDATE', [projectId]);
+    if (!existing) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Financial viability not found' });
+    }
+
+    const { rows: [updated] } = await client.query(
       `UPDATE project_financial_viabilities SET
         rr_rate_per_sqm = COALESCE($1, rr_rate_per_sqm),
         estimated_cost_a_rate = COALESCE($2, estimated_cost_a_rate),
@@ -738,47 +902,51 @@ router.put('/financial', authenticate, checkProjectAccess(), requireFeasibilityE
         advocate_fees = COALESCE($25, advocate_fees),
         period_months = COALESCE($26, period_months),
         notes = COALESCE($27, notes),
+        is_cost_of_plot_included = COALESCE($28, is_cost_of_plot_included),
         updated_at = NOW()
-       WHERE project_id = $28
+       WHERE project_id = $29
        RETURNING *`,
       [
-        rr_rate_per_sqm !== undefined ? parseFloat(rr_rate_per_sqm) : null,
-        estimated_cost_a_rate !== undefined ? parseFloat(estimated_cost_a_rate) : null,
-        estimated_cost_b_rate !== undefined ? parseFloat(estimated_cost_b_rate) : null,
-        cost_of_plot !== undefined ? parseFloat(cost_of_plot) : null,
-        cost_of_plot_rate_per_sqm !== undefined ? parseFloat(cost_of_plot_rate_per_sqm) : null,
-        cost_of_construction_rate !== undefined ? parseFloat(cost_of_construction_rate) : null,
-        cost_of_infrastructure !== undefined ? parseFloat(cost_of_infrastructure) : null,
-        cost_of_basement !== undefined ? parseFloat(cost_of_basement) : null,
-        basement_area_sqm !== undefined ? parseFloat(basement_area_sqm) : null,
-        basement_rate_per_sqm !== undefined ? parseFloat(basement_rate_per_sqm) : null,
-        interest_amount !== undefined ? parseFloat(interest_amount) : null,
-        rent_amount !== undefined ? parseFloat(rent_amount) : null,
-        rent_tenements !== undefined ? parseInt(rent_tenements, 10) : null,
-        rent_per_tenement_per_month !== undefined ? parseFloat(rent_per_tenement_per_month) : null,
-        rent_months !== undefined ? parseInt(rent_months, 10) : null,
-        stacked_parking_cost !== undefined ? parseFloat(stacked_parking_cost) : null,
-        stacked_parking_slots !== undefined ? parseInt(stacked_parking_slots, 10) : null,
-        stacked_parking_cost_per_slot !== undefined ? parseFloat(stacked_parking_cost_per_slot) : null,
-        minor_expenses !== undefined ? parseFloat(minor_expenses) : null,
-        bpms_staff_charges !== undefined ? parseFloat(bpms_staff_charges) : null,
-        airport_noc !== undefined ? parseFloat(airport_noc) : null,
-        fire_noc !== undefined ? parseFloat(fire_noc) : null,
-        entertainment_charges !== undefined ? parseFloat(entertainment_charges) : null,
-        extra_stamp_duty !== undefined ? parseFloat(extra_stamp_duty) : null,
-        advocate_fees !== undefined ? parseFloat(advocate_fees) : null,
-        period_months || null,
+        pRrRate,
+        pCostARate,
+        pCostBRate,
+        pCostPlot,
+        pCostPlotRate,
+        pCostConstRate,
+        pCostInfra,
+        pCostBasement,
+        pBasementArea,
+        pBasementRate,
+        pInterest,
+        pRentAmt,
+        pRentTenements,
+        pRentPerMonth,
+        pRentMonths,
+        pStackedCost,
+        pStackedSlots,
+        pStackedCostPerSlot,
+        pMinorExp,
+        pBpms,
+        pAirport,
+        pFire,
+        pEntertainment,
+        pExtraStamp,
+        pAdvocate,
+        pPeriodMonths,
         notes !== undefined ? notes : null,
+        is_cost_of_plot_included !== undefined ? Boolean(is_cost_of_plot_included) : null,
         projectId
       ]
     );
 
     // Audit log
-    await pool.query(
+    await client.query(
       `INSERT INTO feasibility_audit_logs (project_id, user_id, action, module, entity_type, old_value, new_value)
        VALUES ($1, $2, 'UPDATE_FINANCIAL_VIABILITY', 'financial', 'project_financial_viabilities', $3, $4)`,
       [projectId, req.user.id, JSON.stringify(existing || {}), JSON.stringify(updated)]
     );
+
+    await client.query('COMMIT');
 
     const recalc = await getRecalculatedFeasibility(pool, projectId);
     res.json({
@@ -788,8 +956,11 @@ router.put('/financial', authenticate, checkProjectAccess(), requireFeasibilityE
       message: 'Financial viability parameters updated successfully'
     });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Error updating financial viability:', err);
     res.status(500).json({ error: 'Failed to update financial viability parameters' });
+  } finally {
+    client.release();
   }
 });
 
@@ -797,17 +968,22 @@ router.put('/financial', authenticate, checkProjectAccess(), requireFeasibilityE
 // Add salable unit row
 router.post('/financial/salable-units', authenticate, checkProjectAccess(), requireFeasibilityEdit, async (req, res) => {
   const projectId = parseInt(req.params.projectId, 10);
-  const { unit_name, carpet_area_sqm, super_buildup_loading_sqft, unit_count, rate_per_sqft } = req.body;
+  const { unit_name, carpet_area_sqm, super_buildup_loading_sqft, unit_count, landowner_unit_count, building_use, rate_per_sqft } = req.body;
 
   try {
     const { rows: [fin] } = await pool.query('SELECT id FROM project_financial_viabilities WHERE project_id = $1', [projectId]);
     if (!fin) return res.status(404).json({ error: 'Financial viability record not found' });
 
-    const carpetSqm = parseFloat(carpet_area_sqm) || 0;
-    const carpetSqft = carpetSqm * 10.764;
-    const loadingSqft = parseFloat(super_buildup_loading_sqft) || 300.00;
+    const carpetSqft = parseFloat(req.body.carpet_area_sqft) || (parseFloat(carpet_area_sqm) ? parseFloat(carpet_area_sqm) * 10.764 : 0);
+    const carpetSqm = parseFloat(carpet_area_sqm) || (carpetSqft / 10.764);
+    const loadingSqft = req.body.super_buildup_loading_sqft !== undefined 
+      ? (parseFloat(req.body.super_buildup_loading_sqft) || 0) 
+      : (req.body.loading_sqft !== undefined ? (parseFloat(req.body.loading_sqft) || 0) : 300.00);
     const superSqft = carpetSqft + loadingSqft;
     const units = parseInt(unit_count, 10) || 1;
+    const rawLandowner = landowner_unit_count !== undefined ? landowner_unit_count : req.body.landowner_units;
+    const landownerUnits = Math.min(units, Math.max(0, parseInt(rawLandowner, 10) || 0));
+    const finalBuildingUse = (building_use || req.body.use_type || 'Residential').trim();
     const rateSqft = parseFloat(rate_per_sqft) || 6000.00;
     const unitPrice = superSqft * rateSqft;
     const totalAmount = unitPrice * units;
@@ -819,8 +995,8 @@ router.post('/financial/salable-units', authenticate, checkProjectAccess(), requ
 
     const { rows: [newUnit] } = await pool.query(
       `INSERT INTO project_salable_units
-        (financial_viability_id, unit_name, carpet_area_sqm, carpet_area_sqft, super_buildup_area_sqft, super_buildup_loading_sqft, unit_count, rate_per_sqft, unit_price, total_amount, order_index)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        (financial_viability_id, unit_name, carpet_area_sqm, carpet_area_sqft, super_buildup_area_sqft, super_buildup_loading_sqft, unit_count, landowner_unit_count, building_use, rate_per_sqft, unit_price, total_amount, order_index)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
       [
         fin.id,
@@ -830,6 +1006,8 @@ router.post('/financial/salable-units', authenticate, checkProjectAccess(), requ
         superSqft,
         loadingSqft,
         units,
+        landownerUnits,
+        finalBuildingUse,
         rateSqft,
         unitPrice,
         totalAmount,
@@ -849,14 +1027,19 @@ router.post('/financial/salable-units', authenticate, checkProjectAccess(), requ
 router.put('/financial/salable-units/:unitId', authenticate, checkProjectAccess(), requireFeasibilityEdit, async (req, res) => {
   const projectId = parseInt(req.params.projectId, 10);
   const unitId = parseInt(req.params.unitId, 10);
-  const { unit_name, carpet_area_sqm, super_buildup_loading_sqft, unit_count, rate_per_sqft } = req.body;
+  const { unit_name, carpet_area_sqm, super_buildup_loading_sqft, unit_count, landowner_unit_count, building_use, rate_per_sqft } = req.body;
 
   try {
-    const carpetSqm = parseFloat(carpet_area_sqm) || 0;
-    const carpetSqft = carpetSqm * 10.764;
-    const loadingSqft = parseFloat(super_buildup_loading_sqft) || 300.00;
+    const carpetSqft = parseFloat(req.body.carpet_area_sqft) || (parseFloat(carpet_area_sqm) ? parseFloat(carpet_area_sqm) * 10.764 : 0);
+    const carpetSqm = parseFloat(carpet_area_sqm) || (carpetSqft / 10.764);
+    const loadingSqft = req.body.super_buildup_loading_sqft !== undefined 
+      ? (parseFloat(req.body.super_buildup_loading_sqft) || 0) 
+      : (req.body.loading_sqft !== undefined ? (parseFloat(req.body.loading_sqft) || 0) : 300.00);
     const superSqft = carpetSqft + loadingSqft;
     const units = parseInt(unit_count, 10) || 1;
+    const rawLandowner = landowner_unit_count !== undefined ? landowner_unit_count : req.body.landowner_units;
+    const landownerUnits = rawLandowner !== undefined ? Math.min(units, Math.max(0, parseInt(rawLandowner, 10) || 0)) : null;
+    const finalBuildingUse = (building_use || req.body.use_type || 'Residential').trim();
     const rateSqft = parseFloat(rate_per_sqft) || 6000.00;
     const unitPrice = superSqft * rateSqft;
     const totalAmount = unitPrice * units;
@@ -869,10 +1052,12 @@ router.put('/financial/salable-units/:unitId', authenticate, checkProjectAccess(
         super_buildup_area_sqft = $4,
         super_buildup_loading_sqft = $5,
         unit_count = $6,
-        rate_per_sqft = $7,
-        unit_price = $8,
-        total_amount = $9
-       WHERE id = $10 AND financial_viability_id = (SELECT id FROM project_financial_viabilities WHERE project_id = $11)
+        landowner_unit_count = COALESCE($7, landowner_unit_count),
+        building_use = COALESCE($8, building_use),
+        rate_per_sqft = $9,
+        unit_price = $10,
+        total_amount = $11
+       WHERE id = $12 AND financial_viability_id = (SELECT id FROM project_financial_viabilities WHERE project_id = $13)
        RETURNING *`,
       [
         unit_name ? unit_name.trim() : null,
@@ -881,6 +1066,8 @@ router.put('/financial/salable-units/:unitId', authenticate, checkProjectAccess(
         superSqft,
         loadingSqft,
         units,
+        landownerUnits,
+        finalBuildingUse,
         rateSqft,
         unitPrice,
         totalAmount,
@@ -934,6 +1121,38 @@ router.patch('/statutory/:chargeId', authenticate, checkProjectAccess(), require
 
     if (!existing) return res.status(404).json({ error: 'Statutory charge not found' });
 
+    let parsedAmount = null;
+    if (amount !== undefined) {
+      if (amount === null || (typeof amount === 'string' && amount.trim() === '')) {
+        parsedAmount = 0;
+      } else {
+        const p = parseFloat(amount);
+        if (isNaN(p) || !isFinite(p)) {
+          return res.status(400).json({ error: 'Statutory charge amount must be a valid number' });
+        }
+        if (p < 0) {
+          return res.status(400).json({ error: 'Statutory charge amount cannot be negative' });
+        }
+        parsedAmount = p;
+      }
+    }
+
+    let parsedRrPct = null;
+    if (rr_percentage !== undefined) {
+      if (rr_percentage === null || (typeof rr_percentage === 'string' && rr_percentage.trim() === '')) {
+        parsedRrPct = null;
+      } else {
+        const p = parseFloat(rr_percentage);
+        if (isNaN(p) || !isFinite(p)) {
+          return res.status(400).json({ error: 'RR percentage must be a valid number' });
+        }
+        if (p < 0) {
+          return res.status(400).json({ error: 'RR percentage cannot be negative' });
+        }
+        parsedRrPct = p;
+      }
+    }
+
     const { rows: [updated] } = await pool.query(
       `UPDATE project_statutory_charges SET
         is_enabled = COALESCE($1, is_enabled),
@@ -945,8 +1164,8 @@ router.patch('/statutory/:chargeId', authenticate, checkProjectAccess(), require
        RETURNING *`,
       [
         is_enabled !== undefined ? Boolean(is_enabled) : null,
-        rr_percentage !== undefined ? (rr_percentage === null || rr_percentage === '' ? null : parseFloat(rr_percentage)) : null,
-        amount !== undefined ? parseFloat(amount) : null,
+        parsedRrPct,
+        parsedAmount,
         is_custom !== undefined ? Boolean(is_custom) : null,
         charge_name ? charge_name.trim() : null,
         chargeId

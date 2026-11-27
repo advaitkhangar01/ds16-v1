@@ -26,6 +26,7 @@ import html2canvas from 'html2canvas';
 import AreaStatementForm from './AreaStatementForm';
 import FinancialViabilityForm from './FinancialViabilityForm';
 import FeasibilityDocumentPreview from './FeasibilityDocumentPreview';
+import { calculateAreaMetrics, calculateFinancialMetrics } from '../../../utils/feasibilityCalculations';
 
 const formatINR = (val) => {
   if (val === undefined || val === null || isNaN(val)) return '₹0.00';
@@ -129,7 +130,7 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
     fetchData();
   }, [fetchData]);
 
-  // Recalculate metrics client-side whenever inputs change for instant preview responsiveness
+  // Recalculate metrics client-side whenever inputs change using authoritative engine mirror
   const recalculateLive = (newStmt, newFloors, newFin, newUnits, newStatutory) => {
     const s = newStmt || statement;
     const f = newFloors || floors;
@@ -137,210 +138,14 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
     const u = newUnits || salableUnits;
     const scList = newStatutory || statutoryCharges;
 
-    const plot = parseFloat(s.plot_area_sqm) || 0;
-    const dp = parseFloat(s.dp_deductions_sqm) || 0;
-    const plotable = Math.max(0, plot - dp);
+    const computedArea = calculateAreaMetrics(s, f);
+    const computedFinancial = calculateFinancialMetrics(fin, scList, u, computedArea);
 
-    const basicFsi = plotable * (parseFloat(s.basic_fsi_factor) || 1.1);
-    const paidFsi = plotable * (parseFloat(s.paid_fsi_factor) || 0.5);
-
-    const permissibleTdrFactor = parseFloat(s.tdr_factor) !== undefined && !isNaN(parseFloat(s.tdr_factor))
-      ? parseFloat(s.tdr_factor)
-      : 0.65;
-    const permissibleTdr = plotable * permissibleTdrFactor;
-    const permissibleTotalBuiltup = basicFsi + paidFsi + permissibleTdr;
-
-    const regTdrFactor = parseFloat(s.regular_tdr_factor) || 0;
-    const slumTdrFactor = parseFloat(s.slum_tdr_factor) || 0;
-    const regTdr = plotable * regTdrFactor;
-    const slumTdr = plotable * slumTdrFactor;
-    const totalTdr = regTdr + slumTdr;
-
-    const totalBuiltup = basicFsi + paidFsi + totalTdr;
-    const rawUse = (s.building_use || 'Residential').toLowerCase();
-    const isMixedUse = rawUse.includes('mixed');
-    const isCommercial = !isMixedUse && rawUse.includes('comm');
-    const resAncillaryPct = parseFloat(s.ancillary_residential_pct) || 0.6;
-    const commAncillaryPct = parseFloat(s.ancillary_commercial_pct) || 0.8;
-
-    let commCount = 0;
-    let resCount = 0;
-    f.forEach(fl => {
-      const u = (fl.usage_type || fl.floor_name || '').toLowerCase();
-      if (u.includes('comm') || u.includes('shop') || u.includes('office')) commCount++;
-      else if (!u.includes('parking') && !u.includes('terrace')) resCount++;
-    });
-    const totalHab = commCount + resCount;
-    const commRatio = totalHab > 0 ? (commCount / totalHab) : (isCommercial ? 1 : 0);
-    const resRatio = totalHab > 0 ? (resCount / totalHab) : (isCommercial ? 0 : 1);
-    const effectiveAncillaryPct = isMixedUse
-      ? (commRatio * commAncillaryPct + resRatio * resAncillaryPct)
-      : (isCommercial ? commAncillaryPct : resAncillaryPct);
-
-    const ancillary = totalBuiltup * effectiveAncillaryPct;
-    const proposedPline = totalBuiltup + ancillary;
-    const isProjectOverridden = Boolean(s.is_proposed_pline_overridden && parseFloat(s.total_proposed_pline_override_sqm) > 0);
-    const effectiveProposedPline = isProjectOverridden
-      ? parseFloat(s.total_proposed_pline_override_sqm)
-      : proposedPline;
-
-    let floorPlineSum = 0;
-    let floorFsiSum = 0;
-    let floorAncillarySum = 0;
-    let floorLobbySum = 0;
-    let floorOwnersSum = 0;
-    let floorSaleSum = 0;
-    let floorHeightSum = 0;
-    let totalUnitsCount = 0;
-
-    f.forEach((fl, idx) => {
-      const p = parseFloat(fl.pline_area_sqm) || 0;
-      const fsi = parseFloat(fl.fsi_area_sqm) || 0;
-      const anc = parseFloat(fl.ancillary_area_sqm) || 0;
-      const l = parseFloat(fl.lobby_area_sqm) || 0;
-      const h = parseFloat(fl.height_meters) || 0;
-      const o = parseFloat(fl.builtup_for_owners_sqm) !== undefined && !isNaN(parseFloat(fl.builtup_for_owners_sqm))
-        ? parseFloat(fl.builtup_for_owners_sqm)
-        : (idx === 0 ? 0 : Math.max(0, p - l));
-      const sa = parseFloat(fl.builtup_for_sale_sqm) || 0;
-      const unitCnt = parseInt(fl.no_of_units, 10) || 0;
-
-      floorPlineSum += p;
-      floorFsiSum += fsi;
-      floorAncillarySum += anc;
-      floorLobbySum += l;
-      floorOwnersSum += o;
-      floorSaleSum += sa;
-      floorHeightSum += h;
-      totalUnitsCount += unitCnt;
-    });
-
-    const divFactor = parseFloat(s.dividing_factor) || 1.6;
-    const baseDiv = divFactor > 0 ? floorPlineSum / divFactor : 0;
-    const derivedAnc = Math.max(0, floorPlineSum - baseDiv);
-    const paidReq = Math.max(0, baseDiv - basicFsi - plotable * 0.3);
-
-    const updatedArea = {
-      ...areaMetrics,
-      plotAreaSqm: plot,
-      dpDeductionsSqm: dp,
-      plotableAreaSqm: plotable,
-      permissibleFsiSqm: basicFsi,
-      proposedBasicFsiSqm: basicFsi,
-      permissiblePaidFsiSqm: paidFsi,
-      proposedPaidFsiSqm: paidFsi,
-      permissibleRegularTdrSqm: regTdr,
-      proposedRegularTdrSqm: regTdr,
-      permissibleSlumTdrSqm: slumTdr,
-      proposedSlumTdrSqm: slumTdr,
-      permissibleTdrSqm: permissibleTdr,
-      proposedTdrSqm: totalTdr,
-      permissibleTotalBuiltupSqm: permissibleTotalBuiltup,
-      proposedTotalBuiltupSqm: totalBuiltup,
-      permissibleTotalFsi: plotable > 0 ? permissibleTotalBuiltup / plotable : 0,
-      proposedTotalFsi: plotable > 0 ? (floorFsiSum > 0 ? floorFsiSum : totalBuiltup) / plotable : 0,
-      proposedTotalFsiSqm: floorFsiSum > 0 ? floorFsiSum : totalBuiltup,
-      permissibleAncillaryResSqm: ancillary,
-      proposedAncillaryResSqm: ancillary,
-      totalProposedAncillarySqm: floorAncillarySum > 0 ? floorAncillarySum : ancillary,
-      permissiblePlineTotalSqm: proposedPline,
-      proposedPlineTotalSqm: effectiveProposedPline,
-      calculatedProposedPlineSqm: proposedPline,
-      effectiveProposedPlineSqm: effectiveProposedPline,
-      isProposedPlineOverridden: isProjectOverridden,
-      totalProposedPlineSqm: floorPlineSum > 0 ? floorPlineSum : effectiveProposedPline,
-      totalLobbyAreaSqm: floorLobbySum,
-      totalBuiltupForOwnersSqm: floorOwnersSum,
-      totalBuiltupForSaleSqm: floorSaleSum,
-      totalHeightMeters: floorHeightSum,
-      totalUnitsCount,
-      baseDividingFactorSqm: baseDiv,
-      derivedAncillaryAreaSqm: derivedAnc,
-      paidFsiRequiredSqm: paidReq,
-      areaBalanceSqm: effectiveProposedPline - floorPlineSum
-    };
-    setAreaMetrics(updatedArea);
-
-    // Live financial recalculation
-    const rr = parseFloat(fin.rr_rate_per_sqm) || 0;
-    const effectivePline = floorPlineSum > 0 ? floorPlineSum : effectiveProposedPline;
-    const constRate = parseFloat(fin.cost_of_construction_rate) || parseFloat(fin.estimated_cost_b_rate) || 0;
-    const costConst = effectivePline * constRate;
-    const estCostA = effectivePline * (parseFloat(fin.estimated_cost_a_rate) || 0);
-    const estCostB = effectivePline * (parseFloat(fin.estimated_cost_b_rate) || 0);
-    const costTdr = totalTdr * (parseFloat(fin.tdr_purchase_factor) || 0.55) * rr;
-    const plotCost = parseFloat(fin.cost_of_plot) || plotable * (parseFloat(fin.cost_of_plot_rate_per_sqm) || 0);
-    const basementCost = (parseFloat(fin.basement_area_sqm) || 0) * (parseFloat(fin.basement_rate_per_sqm) || 0);
-    const rentCost =
-      (parseInt(fin.rent_tenements, 10) || 0) *
-      (parseFloat(fin.rent_per_tenement_per_month) || 0) *
-      (parseInt(fin.rent_months, 10) || 0);
-    const parkingCost =
-      (parseInt(fin.stacked_parking_slots, 10) || 0) *
-      (parseFloat(fin.stacked_parking_cost_per_slot) || 0);
-    const minorNoc =
-      (parseFloat(fin.minor_expenses) || 0) +
-      (parseFloat(fin.bpms_staff_charges) || 0) +
-      (parseFloat(fin.airport_noc) || 0) +
-      (parseFloat(fin.fire_noc) || 0) +
-      (parseFloat(fin.entertainment_charges) || 0);
-
-    let statSum = 0;
-    scList.forEach((sc) => {
-      if (sc.is_enabled !== false && !sc.is_deleted && sc.charge_name !== 'AMALGAMATION' && sc.charge_code !== 'AMALGAMATION') {
-        statSum += parseFloat(sc.effective_amount ?? sc.calculated_amount ?? sc.amount) || 0;
-      }
-    });
-
-    const infraCost = parseFloat(fin.cost_of_infrastructure) || 0;
-    const interestCost = parseFloat(fin.interest_amount) || 0;
-    const totalCost = statSum + costTdr + minorNoc + costConst + basementCost + rentCost + parkingCost + plotCost + infraCost + interestCost;
-
-    let floorReceiptsSum = 0;
-    f.forEach((fl) => {
-      const sale = parseFloat(fl.builtup_for_sale_sqm) || 0;
-      const rate = parseFloat(fl.rate_per_sqm) || 0;
-      const units = parseInt(fl.no_of_units, 10) || 0;
-      const cost1Unit = parseFloat(fl.cost_for_1_unit) || (units > 0 ? (sale * rate) / units : 0);
-      if (rate > 0 && sale > 0) {
-        floorReceiptsSum += sale * rate;
-      } else if (cost1Unit > 0 && units > 0) {
-        floorReceiptsSum += cost1Unit * units;
-      }
-    });
-
-    let receiptsSum = 0;
-    if (floorReceiptsSum > 0) {
-      receiptsSum = floorReceiptsSum;
-    } else {
-      u.forEach((un) => {
-        const c = parseFloat(un.carpet_area_sqm) || 0;
-        const sup = c * 10.764 + (parseFloat(un.super_buildup_loading_sqft) || 0);
-        const pr = sup * (parseFloat(un.rate_per_sqft) || 0);
-        receiptsSum += pr * (parseInt(un.unit_count, 10) || 1);
-      });
+    setAreaMetrics(computedArea);
+    if (computedFinancial.evaluatedStatutoryCharges) {
+      setStatutoryCharges(computedFinancial.evaluatedStatutoryCharges);
     }
-
-    const netProf = receiptsSum - totalCost;
-
-    setFinancialMetrics((prev) => ({
-      ...prev,
-      estimatedCostA: estCostA,
-      estimatedCostB: estCostB,
-      totalStatutoryDemandA: statSum,
-      costOfTdrB: costTdr,
-      totalExpensesC: minorNoc,
-      costOfPlotH: plotCost,
-      costOfConstructionD: costConst,
-      costOfBasementE: basementCost,
-      rentCostF: rentCost,
-      stackedParkingCostG: parkingCost,
-      totalProjectCost: totalCost,
-      totalReceipts: receiptsSum,
-      netProfit: netProf,
-      roiPct: totalCost > 0 ? (netProf / totalCost) * 100 : 0,
-      profitMarginPct: receiptsSum > 0 ? (netProf / receiptsSum) * 100 : 0
-    }));
+    setFinancialMetrics(computedFinancial);
   };
 
   const handleUpdateStatement = (updates) => {
@@ -423,21 +228,69 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
   const handleUpdateStatutoryCharge = (id, updates) => {
     const newCharges = statutoryCharges.map((sc) => {
       if (sc.id === id) {
-        const updated = { ...sc, ...updates };
-        if (updates.rr_percentage !== undefined) {
-          const rr = parseFloat(financial.rr_rate_per_sqm) || 0;
-          const pline = areaMetrics.totalProposedPlineSqm || areaMetrics.proposedPlineTotalSqm || 0;
-          const pct = parseFloat(updates.rr_percentage) || 0;
-          updated.calculated_amount = pline * rr * (pct / 100);
-          updated.amount = updated.calculated_amount;
-          updated.effective_amount = updated.calculated_amount;
-        }
-        return updated;
+        return { ...sc, ...updates };
       }
       return sc;
     });
     setStatutoryCharges(newCharges);
     recalculateLive(statement, floors, financial, salableUnits, newCharges);
+  };
+
+  const handleUpdateSalableUnit = (unitId, updates) => {
+    const updatedUnits = salableUnits.map((u) => {
+      if (u.id === unitId) {
+        return { ...u, ...updates };
+      }
+      return u;
+    });
+    setSalableUnits(updatedUnits);
+    recalculateLive(statement, floors, financial, updatedUnits, statutoryCharges);
+  };
+
+  const handleAddSalableUnit = async (newUnitData) => {
+    try {
+      const carpetSqft = parseFloat(newUnitData.carpet_area_sqft) || 0;
+      const carpetSqm = carpetSqft / 10.764;
+      const loadingSqft = parseFloat(newUnitData.loading_sqft ?? newUnitData.super_buildup_loading_sqft) || 0;
+      const units = parseInt(newUnitData.unit_count, 10) || 1;
+      const ownerUnits = parseInt(newUnitData.landowner_units ?? newUnitData.landowner_unit_count, 10) || 0;
+      const rate = parseFloat(newUnitData.rate_per_sqft) || 0;
+      const bldgUse = newUnitData.use_type || newUnitData.building_use || 'Residential';
+
+      const payload = {
+        unit_name: newUnitData.unit_name,
+        building_use: bldgUse,
+        use_type: bldgUse,
+        carpet_area_sqft: carpetSqft,
+        carpet_area_sqm: carpetSqm,
+        loading_sqft: loadingSqft,
+        super_buildup_loading_sqft: loadingSqft,
+        unit_count: units,
+        landowner_units: ownerUnits,
+        landowner_unit_count: ownerUnits,
+        rate_per_sqft: rate
+      };
+      const res = await api.post(`/projects/${projectId}/feasibility/financial/salable-units`, payload);
+      const createdUnit = res.data?.unit || { ...payload, id: Date.now() };
+      const updatedUnits = [...salableUnits, createdUnit];
+      setSalableUnits(updatedUnits);
+      recalculateLive(statement, floors, financial, updatedUnits, statutoryCharges);
+      toast.success('Salable unit added');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to add salable unit');
+    }
+  };
+
+  const handleDeleteSalableUnit = async (unitId) => {
+    try {
+      await api.delete(`/projects/${projectId}/feasibility/financial/salable-units/${unitId}`);
+      const updatedUnits = salableUnits.filter((u) => u.id !== unitId);
+      setSalableUnits(updatedUnits);
+      recalculateLive(statement, floors, financial, updatedUnits, statutoryCharges);
+      toast.success('Salable unit removed');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to delete salable unit');
+    }
   };
 
   const handleSaveAll = async () => {
@@ -458,7 +311,7 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
           await api.patch(`/projects/${projectId}/feasibility/statutory/${sc.id}`, {
             is_enabled: sc.is_enabled,
             rr_percentage: sc.rr_percentage,
-            amount: sc.calculated_amount ?? sc.amount
+            amount: sc.effective_amount ?? sc.calculated_amount ?? sc.amount
           });
         }
       }
@@ -555,7 +408,7 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
       { Category: 'Basement Cost (E)', 'Amount (Rs)': financialMetrics.costOfBasementE },
       { Category: 'Rent during Construction (F)', 'Amount (Rs)': financialMetrics.rentCostF },
       { Category: 'Stacked Parking (G)', 'Amount (Rs)': financialMetrics.stackedParkingCostG },
-      { Category: 'Plot Land Cost (H)', 'Amount (Rs)': financialMetrics.costOfPlotH },
+      { Category: (financialMetrics.isCostOfPlotIncluded === false ? 'Cost of Plot (H) (Excluded from Total)' : 'Cost of Plot (H)'), 'Amount (Rs)': (financialMetrics.costOfPlotH_details?.raw_amount || financialMetrics.costOfPlotH || 0) },
       { Category: 'TOTAL PROJECT COST', 'Amount (Rs)': financialMetrics.totalProjectCost },
       { Category: 'TOTAL ESTIMATED RECEIPTS', 'Amount (Rs)': financialMetrics.totalReceipts },
       { Category: 'NET PROJECT PROFIT', 'Amount (Rs)': financialMetrics.netProfit }
@@ -801,6 +654,9 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
             onUpdateFinancial={handleUpdateFinancial}
             onUpdateFloor={handleUpdateFloor}
             onUpdateStatutoryCharge={handleUpdateStatutoryCharge}
+            onAddSalableUnit={handleAddSalableUnit}
+            onUpdateSalableUnit={handleUpdateSalableUnit}
+            onDeleteSalableUnit={handleDeleteSalableUnit}
             onSaveOverride={handleSaveFinancialOverride}
             onResetOverride={handleResetFinancialOverride}
             unitDisplay={unitDisplay}
@@ -1006,8 +862,15 @@ export default function AreaFeasibilityTab({ projectId, isPrivileged }) {
                   <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.stackedParkingCostG)}</span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-slate-100">
-                  <span className="text-slate-600">Plot Land Cost (H)</span>
-                  <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.costOfPlotH)}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-600">Cost of Plot (H)</span>
+                    {financialMetrics.isCostOfPlotIncluded === false && (
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                        (Excluded)
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-mono font-bold text-slate-900">{formatINR(financialMetrics.costOfPlotH_details?.raw_amount || financialMetrics.costOfPlotH || 0)}</span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-slate-100 bg-slate-50 px-2 rounded font-bold">
                   <span className="text-slate-900">Total Project Cost</span>

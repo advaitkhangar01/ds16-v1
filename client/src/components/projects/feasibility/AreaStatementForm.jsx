@@ -10,17 +10,20 @@ import {
   CheckCircle2,
   Sliders,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Car,
+  Info
 } from 'lucide-react';
+import { deriveTdrSplit, ROAD_WIDTH_TOTAL_TDR_MAP } from '../../../utils/feasibilityCalculations';
 
 const ROAD_WIDTHS = [9, 12, 15, 18, 24];
 
 const ROAD_WIDTH_TDR_MAP = {
-  9: { regular: 0.40, slum: 0.20 },
-  12: { regular: 0.65, slum: 0.325 },
-  15: { regular: 0.80, slum: 0.40 },
-  18: { regular: 0.90, slum: 0.45 },
-  24: { regular: 1.10, slum: 0.50 }
+  9: { regular: 0.20, slum: 0.20 },
+  12: { regular: 0.325, slum: 0.325 },
+  15: { regular: 0.40, slum: 0.40 },
+  18: { regular: 0.45, slum: 0.45 },
+  24: { regular: 0.575, slum: 0.575 }
 };
 
 export default function AreaStatementForm({
@@ -48,26 +51,62 @@ export default function AreaStatementForm({
     setExpandedFloorKeys((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  // Road-width & Dual TDR helper
+  // Road-width & Dual TDR helper (50/50 split with override support)
   const roadWidth = parseFloat(statement.road_width_m);
+  const totalTdrFromRoad = !isNaN(roadWidth) && ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth] !== undefined
+    ? ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth]
+    : 0.65;
+
+  const currentTotalTdr = statement.total_tdr_factor !== undefined && !isNaN(parseFloat(statement.total_tdr_factor))
+    ? parseFloat(statement.total_tdr_factor)
+    : totalTdrFromRoad;
+
+  const rawReqRegular = statement.regular_tdr_factor !== undefined && statement.regular_tdr_factor !== null
+    ? statement.regular_tdr_factor
+    : null;
+
+  const tdrSplit = deriveTdrSplit(currentTotalTdr, rawReqRegular);
+  const isRegularOverridden = tdrSplit.isRegularTdrOverridden;
+  const effectiveRegularTdr = tdrSplit.regularTdrFactor;
+  const effectiveSlumTdr = tdrSplit.slumTdrFactor;
+  const isRegularExceedingTotal = (parseFloat(statement.regular_tdr_factor) || 0) > currentTotalTdr;
+
   let resolvedTdrBadge = null;
-  if (!isNaN(roadWidth) && ROAD_WIDTH_TDR_MAP[roadWidth]) {
-    const rates = ROAD_WIDTH_TDR_MAP[roadWidth];
-    resolvedTdrBadge = `Regular TDR: ${rates.regular} | Slum TDR: ${rates.slum} (@ ${roadWidth}m road)`;
+  if (!isNaN(roadWidth) && ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth] !== undefined) {
+    resolvedTdrBadge = `Road ${roadWidth}m: Total TDR ${totalTdrFromRoad.toFixed(3)} (50% Regular: ${(totalTdrFromRoad / 2).toFixed(3)} | 50% Slum: ${(totalTdrFromRoad / 2).toFixed(3)})`;
   }
 
   const handleRoadWidthChange = (val) => {
     const parsed = val ? parseFloat(val) : null;
-    let newRegularTdr = 0;
-    let newSlumTdr = 0;
-    if (parsed && ROAD_WIDTH_TDR_MAP[parsed]) {
-      newRegularTdr = ROAD_WIDTH_TDR_MAP[parsed].regular;
-      newSlumTdr = ROAD_WIDTH_TDR_MAP[parsed].slum;
-    }
+    const newTotalTdr = parsed && ROAD_WIDTH_TOTAL_TDR_MAP[parsed] !== undefined
+      ? ROAD_WIDTH_TOTAL_TDR_MAP[parsed]
+      : 0.65;
+    const split = deriveTdrSplit(newTotalTdr, null);
     onUpdateStatement({
       road_width_m: parsed,
-      regular_tdr_factor: newRegularTdr,
-      slum_tdr_factor: newSlumTdr
+      total_tdr_factor: newTotalTdr,
+      regular_tdr_factor: split.regularTdrFactor,
+      slum_tdr_factor: split.slumTdrFactor,
+      is_regular_tdr_overridden: false
+    });
+  };
+
+  const handleRegularTdrChange = (val) => {
+    const parsed = val === '' ? '' : parseFloat(val);
+    const split = deriveTdrSplit(currentTotalTdr, parsed === '' ? null : parsed);
+    onUpdateStatement({
+      regular_tdr_factor: val,
+      slum_tdr_factor: split.slumTdrFactor,
+      is_regular_tdr_overridden: split.isRegularTdrOverridden
+    });
+  };
+
+  const handleResetRegularTdr = () => {
+    const split = deriveTdrSplit(currentTotalTdr, null);
+    onUpdateStatement({
+      regular_tdr_factor: split.regularTdrFactor,
+      slum_tdr_factor: split.slumTdrFactor,
+      is_regular_tdr_overridden: false
     });
   };
 
@@ -101,7 +140,7 @@ export default function AreaStatementForm({
 
   const handleSaveProjectPlineOverride = () => {
     const parsed = parseFloat(projectOverrideVal);
-    if (!isNaN(parsed) && parsed > 0) {
+    if (!isNaN(parsed) && parsed >= 0) {
       onUpdateStatement({
         total_proposed_pline_override_sqm: parsed,
         is_proposed_pline_overridden: true,
@@ -130,6 +169,18 @@ export default function AreaStatementForm({
   const calculatedProposedPline = areaMetrics.calculatedProposedPlineSqm || areaMetrics.proposedPlineTotalSqm || 0;
   const effectiveProposedPline = areaMetrics.effectiveProposedPlineSqm || calculatedProposedPline;
   const isProjectOverridden = Boolean(areaMetrics.isProposedPlineOverridden || statement.is_proposed_pline_overridden);
+
+  // Parking configuration helper
+  const parkingConfig = typeof statement.parking_config === 'string'
+    ? (() => { try { return JSON.parse(statement.parking_config || '{}'); } catch { return {}; } })()
+    : (statement.parking_config || {});
+
+  const updateParkingConfig = (patch) => {
+    const updatedCfg = { ...parkingConfig, ...patch };
+    onUpdateStatement({ parking_config: updatedCfg });
+  };
+
+  const parkingReq = areaMetrics.parkingRequirements || {};
 
   return (
     <div className="space-y-6">
@@ -229,9 +280,40 @@ export default function AreaStatementForm({
             Regulatory FSI &amp; Dual TDR Assumptions
           </h4>
           <span className="text-[11px] font-bold text-[#E05A1E] bg-orange-50 px-2.5 py-0.5 rounded-full border border-orange-200">
-            Combined TDR Factor: {combinedTdr}
+            Total TDR Factor: {currentTotalTdr.toFixed(3)}
           </span>
         </div>
+
+        {/* Visual formula breakdown banner */}
+        <div className={`p-2.5 rounded-lg border text-xs flex flex-wrap items-center justify-between gap-2 ${isRegularOverridden ? 'bg-amber-50/80 border-amber-300 text-amber-950' : 'bg-blue-50/80 border-blue-200 text-blue-950'}`}>
+          <div className="flex items-center gap-2">
+            <Info size={14} className={isRegularOverridden ? 'text-amber-600 shrink-0' : 'text-blue-600 shrink-0'} />
+            <span>
+              <strong>TDR Formula:</strong> Regular TDR ({effectiveRegularTdr.toFixed(3)}) + Slum TDR ({effectiveSlumTdr.toFixed(3)}) = Total TDR ({currentTotalTdr.toFixed(3)})
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {isRegularOverridden ? (
+              <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-200 text-amber-900 rounded flex items-center gap-1">
+                <Sliders size={10} /> Admin Overridden
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded">
+                Default 50 / 50 Split
+              </span>
+            )}
+          </div>
+        </div>
+
+        {isRegularExceedingTotal && (
+          <div className="p-2.5 bg-red-50 border border-red-300 rounded-lg flex items-center gap-2 text-xs text-red-800">
+            <AlertTriangle size={14} className="text-red-600 shrink-0" />
+            <span>
+              <strong>Constraint Violation:</strong> Regular TDR ({parseFloat(statement.regular_tdr_factor)}) cannot exceed Total TDR ({currentTotalTdr}). Slum TDR is clamped to 0. Please correct the value.
+            </span>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
           <div className="space-y-1">
             <label className="text-[11px] font-semibold text-slate-600 block">Basic FSI Factor</label>
@@ -239,7 +321,7 @@ export default function AreaStatementForm({
               type="number"
               step="0.01"
               className="w-full text-xs bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 font-mono font-semibold focus:outline-none focus:border-[#E05A1E]"
-              value={statement.basic_fsi_factor || 1.1}
+              value={statement.basic_fsi_factor !== undefined ? statement.basic_fsi_factor : 1.1}
               onChange={(e) => onUpdateStatement({ basic_fsi_factor: e.target.value })}
               disabled={!isPrivileged}
             />
@@ -251,7 +333,7 @@ export default function AreaStatementForm({
               type="number"
               step="0.01"
               className="w-full text-xs bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 font-mono font-semibold focus:outline-none focus:border-[#E05A1E]"
-              value={statement.paid_fsi_factor || 0.5}
+              value={statement.paid_fsi_factor !== undefined ? statement.paid_fsi_factor : 0.5}
               onChange={(e) => onUpdateStatement({ paid_fsi_factor: e.target.value })}
               disabled={!isPrivileged}
             />
@@ -260,21 +342,50 @@ export default function AreaStatementForm({
           <div className="space-y-1">
             <div className="flex items-center justify-between gap-1">
               <label className="text-[11px] font-semibold text-slate-600">Regular TDR Factor</label>
-              <span className="text-[10px] text-[#E05A1E] font-medium">Derived</span>
+              {isRegularOverridden && isPrivileged && (
+                <button
+                  type="button"
+                  onClick={handleResetRegularTdr}
+                  className="text-[10px] text-red-600 hover:underline flex items-center gap-0.5 font-semibold"
+                  title="Reset to 50/50 default split"
+                >
+                  <RefreshCw size={9} /> Reset (50%)
+                </button>
+              )}
             </div>
-            <div className="w-full text-xs bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 font-bold font-mono">
-              {regTdr.toFixed(3)}
+            <div className="relative">
+              <input
+                type="number"
+                step="0.001"
+                className={`w-full text-xs border rounded-lg px-3 py-2 font-mono font-bold focus:outline-none focus:border-[#E05A1E] ${
+                  isRegularOverridden ? 'bg-amber-50 border-amber-300 text-amber-950' : 'bg-white border-slate-200 text-slate-800'
+                }`}
+                value={statement.regular_tdr_factor !== undefined && statement.regular_tdr_factor !== null ? statement.regular_tdr_factor : effectiveRegularTdr}
+                onChange={(e) => handleRegularTdrChange(e.target.value)}
+                disabled={!isPrivileged}
+              />
+              {isRegularOverridden && (
+                <span className="absolute right-2 top-2 text-[9px] font-bold px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded">
+                  Override
+                </span>
+              )}
             </div>
+            <span className="text-[10px] text-slate-500">
+              Default 50%: {tdrSplit.defaultRegularTdrFactor.toFixed(3)}
+            </span>
           </div>
 
           <div className="space-y-1">
             <div className="flex items-center justify-between gap-1">
               <label className="text-[11px] font-semibold text-slate-600">Slum TDR Factor</label>
-              <span className="text-[10px] text-[#E05A1E] font-medium">Derived</span>
+              <span className="text-[10px] text-slate-500 font-medium">Remainder</span>
             </div>
             <div className="w-full text-xs bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 font-bold font-mono">
-              {slumTdr.toFixed(3)}
+              {effectiveSlumTdr.toFixed(3)}
             </div>
+            <span className="text-[10px] text-slate-500">
+              Auto: Total ({currentTotalTdr.toFixed(3)}) − Regular ({effectiveRegularTdr.toFixed(3)})
+            </span>
           </div>
         </div>
       </div>
@@ -306,6 +417,12 @@ export default function AreaStatementForm({
                 <span>Res Ancillary (60%): <strong className="font-mono">{((areaMetrics.permissibleResidentialAncillarySqm || 0) * unitFactor).toFixed(2)}</strong></span>
                 <span>|</span>
                 <span>Comm Ancillary (80%): <strong className="font-mono">{((areaMetrics.permissibleCommercialAncillarySqm || 0) * unitFactor).toFixed(2)}</strong></span>
+              </div>
+            )}
+            {statement.building_use === 'Mixed Use' && areaMetrics.sourceUnallocatedPermissiblePlineSqm && (
+              <div className="text-[10px] bg-emerald-100/40 p-1.5 rounded text-emerald-900 flex flex-wrap items-center justify-between gap-1 border border-emerald-200">
+                <span>Historical Source Potential: <strong className="font-mono">{((areaMetrics.sourceUnallocatedPermissiblePlineSqm || 0) * unitFactor).toFixed(2)}</strong> {unitLabel}</span>
+                <span className="text-[9px] text-emerald-700">(Dual Ancillary Baseline)</span>
               </div>
             )}
             <div className="text-[11px] text-emerald-700">
@@ -364,6 +481,16 @@ export default function AreaStatementForm({
                 >
                   <RefreshCw size={10} /> Reset to Calculated
                 </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-orange-200/60 text-[11px]">
+              <span className="text-slate-700">
+                Floor Sum: <strong className="font-mono">{((areaMetrics.floorSumPlineSqm || 0) * unitFactor).toFixed(2)}</strong> {unitLabel}
+              </span>
+              {areaMetrics.sourceProposedPlineDifferenceSqm !== undefined && Math.abs(areaMetrics.sourceProposedPlineDifferenceSqm) > 0.001 && (
+                <span className="text-amber-800 bg-amber-100/90 border border-amber-300 px-2 py-0.5 rounded text-[10px] font-semibold" title="Benchmark residual difference between target P-Line and floor sum">
+                  Benchmark Diff: {areaMetrics.sourceProposedPlineDifferenceSqm > 0 ? `+${areaMetrics.sourceProposedPlineDifferenceSqm.toFixed(3)}` : areaMetrics.sourceProposedPlineDifferenceSqm.toFixed(3)} sq m
+                </span>
               )}
             </div>
             {statement.building_use === 'Mixed Use' && (
@@ -923,6 +1050,184 @@ export default function AreaStatementForm({
             <span className={`font-mono text-sm font-bold ${(areaMetrics.areaBalanceSqm || 0) >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
               {((areaMetrics.areaBalanceSqm || 0) * unitFactor).toFixed(2)} <span className="text-[11px] font-normal text-slate-500">{unitLabel}</span>
             </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 8. Occupancy-Based Parking Statement (UDCPR Chapter 8) */}
+      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Car size={16} className="text-[#E05A1E] shrink-0" />
+            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              8. Occupancy-Based Parking Statement (UDCPR Chapter 8)
+            </h4>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-100 text-[#E05A1E] rounded">
+              NMC Multiplier: {parkingReq.authorityMultiplier || 0.90}
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-200 text-slate-700 rounded">
+              Visitor: {parkingReq.visitorParkingPct || 5}%
+            </span>
+          </div>
+        </div>
+
+        {/* Input Configuration Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-slate-700 block">Commercial Carpet ({unitLabel})</label>
+            <input
+              type="number"
+              step="0.01"
+              placeholder={((parkingReq.commercialCarpetSqm || 0) * unitFactor).toFixed(2)}
+              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
+              value={parkingConfig.commercial_carpet_sqm ?? ''}
+              onChange={(e) => updateParkingConfig({ commercial_carpet_sqm: e.target.value })}
+              disabled={!isPrivileged}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-slate-700 block">Tenements 40-80 sqm</label>
+            <input
+              type="number"
+              min="0"
+              placeholder={String(parkingReq.residentialTenements40_80 || 0)}
+              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
+              value={parkingConfig.residential_tenements_40_80 ?? ''}
+              onChange={(e) => updateParkingConfig({ residential_tenements_40_80: e.target.value })}
+              disabled={!isPrivileged}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-slate-700 block">Tenements &lt; 40 sqm</label>
+            <input
+              type="number"
+              min="0"
+              placeholder="0"
+              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
+              value={parkingConfig.residential_tenements_under_40 ?? ''}
+              onChange={(e) => updateParkingConfig({ residential_tenements_under_40: e.target.value })}
+              disabled={!isPrivileged}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-slate-700 block">Tenements &gt; 80 sqm</label>
+            <input
+              type="number"
+              min="0"
+              placeholder="0"
+              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
+              value={parkingConfig.residential_tenements_over_80 ?? ''}
+              onChange={(e) => updateParkingConfig({ residential_tenements_over_80: e.target.value })}
+              disabled={!isPrivileged}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-slate-700 block">Proposed Cars</label>
+            <input
+              type="number"
+              min="0"
+              placeholder="0"
+              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono font-bold text-slate-900 focus:outline-none focus:border-[#E05A1E]"
+              value={parkingConfig.proposed_cars ?? ''}
+              onChange={(e) => updateParkingConfig({ proposed_cars: e.target.value })}
+              disabled={!isPrivileged}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-slate-700 block">Proposed 2-Wheelers</label>
+            <input
+              type="number"
+              min="0"
+              placeholder="0"
+              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono font-bold text-slate-900 focus:outline-none focus:border-[#E05A1E]"
+              value={parkingConfig.proposed_two_wheelers ?? ''}
+              onChange={(e) => updateParkingConfig({ proposed_two_wheelers: e.target.value })}
+              disabled={!isPrivileged}
+            />
+          </div>
+        </div>
+
+        {/* Requirements & Surplus Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          {/* Commercial Parking Norm */}
+          <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1">
+            <span className="text-[11px] font-bold text-purple-900 uppercase tracking-wide block">
+              Commercial Norm
+            </span>
+            <div className="text-[11px] text-slate-600">
+              Carpet: <strong className="font-mono">{((parkingReq.commercialCarpetSqm || 0) * unitFactor).toFixed(2)}</strong> {unitLabel}
+            </div>
+            <div className="text-[11px] font-mono text-slate-800">
+              Base Cars (2/100 sqm): <strong>{(parkingReq.commercialCars || 0).toFixed(2)}</strong>
+            </div>
+            <div className="text-[11px] font-mono text-slate-800">
+              Base Scooters (6/100 sqm): <strong>{(parkingReq.commercialTwoWheelers || 0).toFixed(2)}</strong>
+            </div>
+          </div>
+
+          {/* Residential Parking Norm */}
+          <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1">
+            <span className="text-[11px] font-bold text-blue-900 uppercase tracking-wide block">
+              Residential Norm
+            </span>
+            <div className="text-[11px] text-slate-600">
+              Total Tenements: <strong className="font-mono">{parkingReq.totalResidentialTenements || 0}</strong>
+            </div>
+            <div className="text-[11px] font-mono text-slate-800">
+              Base Cars: <strong>{(parkingReq.residentialCars || 0).toFixed(2)}</strong>
+            </div>
+            <div className="text-[11px] font-mono text-slate-800">
+              Base Scooters: <strong>{(parkingReq.residentialTwoWheelers || 0).toFixed(2)}</strong>
+            </div>
+          </div>
+
+          {/* Gross Demand & NMC Multiplier */}
+          <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1">
+            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wide block">
+              Gross + Visitor (5%) × 0.90
+            </span>
+            <div className="text-[11px] font-mono text-slate-700">
+              Gross Cars: <strong>{(parkingReq.totalGrossCars || 0).toFixed(2)}</strong>
+            </div>
+            <div className="text-[11px] font-mono text-slate-700">
+              Gross Scooters: <strong>{(parkingReq.totalGrossTwoWheelers || 0).toFixed(2)}</strong>
+            </div>
+            <div className="text-[10px] text-slate-500 pt-0.5">
+              Ceil after authority multiplier (0.90) applied
+            </div>
+          </div>
+
+          {/* Net Requirement vs Proposed */}
+          <div className="p-3 bg-slate-100/90 rounded-lg border border-slate-300 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-slate-900 uppercase tracking-wide">
+                Compliance Status
+              </span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${parkingReq.isCarRequirementMet && parkingReq.isTwoWheelerRequirementMet ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                {parkingReq.isCarRequirementMet && parkingReq.isTwoWheelerRequirementMet ? 'Compliant' : 'Review Parking'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-slate-700">Cars: Req <strong>{parkingReq.requiredCars || 0}</strong> | Prop <strong>{parkingReq.proposedCars || 0}</strong></span>
+              <span className={`font-bold px-1.5 py-0.2 rounded text-[11px] ${(parkingReq.surplusDeficitCars || 0) >= 0 ? 'text-emerald-700 bg-emerald-50' : 'text-red-600 bg-red-50'}`}>
+                {(parkingReq.surplusDeficitCars || 0) >= 0 ? `+${parkingReq.surplusDeficitCars || 0}` : parkingReq.surplusDeficitCars}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-slate-700">Scooters: Req <strong>{parkingReq.requiredTwoWheelers || 0}</strong> | Prop <strong>{parkingReq.proposedTwoWheelers || 0}</strong></span>
+              <span className={`font-bold px-1.5 py-0.2 rounded text-[11px] ${(parkingReq.surplusDeficitTwoWheelers || 0) >= 0 ? 'text-emerald-700 bg-emerald-50' : 'text-red-600 bg-red-50'}`}>
+                {(parkingReq.surplusDeficitTwoWheelers || 0) >= 0 ? `+${parkingReq.surplusDeficitTwoWheelers || 0}` : parkingReq.surplusDeficitTwoWheelers}
+              </span>
+            </div>
           </div>
         </div>
       </div>
