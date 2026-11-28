@@ -222,11 +222,8 @@ describe('Full Area Metrics Calculation with Floor-Wise Columns', () => {
     expect(result.totalProposedPlineSqm).toBe(1200.00);
   });
 
-  test('financial viability consumes authoritative floor realization and controlled overrides', () => {
+  test('financial viability consumes authoritative salable units receipts and controlled overrides', () => {
     const areaResult = calculateAreaMetrics(statement, floors);
-    // Set floor rates
-    areaResult.evaluatedFloors[1].rate_per_sqm = 25000; // Floor 1
-    areaResult.evaluatedFloors[2].rate_per_sqm = 26000; // Floor 2
 
     const financialRecord = {
       rr_rate_per_sqm: 35000,
@@ -242,10 +239,22 @@ describe('Full Area Metrics Calculation with Floor-Wise Columns', () => {
       }
     };
 
-    const finResult = calculateFinancialMetrics(financialRecord, [], [], areaResult);
+    const salableUnits = [
+      {
+        id: 1,
+        unit_name: 'Standard 2 BHK',
+        carpet_area_sqft: 700,
+        super_buildup_loading_sqft: 300,
+        unit_count: 10,
+        landowner_unit_count: 0,
+        rate_per_sqft: 5000
+      }
+    ];
+
+    const finResult = calculateFinancialMetrics(financialRecord, [], salableUnits, areaResult);
     expect(finResult.costOfConstructionD).toBe(35000000); // Overridden amount
     expect(finResult.costOfConstructionD_details.has_override).toBe(true);
-    expect(finResult.totalReceipts).toBeGreaterThan(0);
+    expect(finResult.totalReceipts).toBe(50000000);
   });
 });
 

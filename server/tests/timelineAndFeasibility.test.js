@@ -990,8 +990,8 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       expect(mNeg.evaluatedFloors[0].area_for_1_unit).toBe(0); // Negative protected
     });
 
-    it('REQ-K: enforces strict 5-tier Gunthewari road-width matrix and rejects invalid widths with 400', async () => {
-      // Valid width 12m with Gunthewari
+    it('REQ-K & FR-08: enforces Gunthewari Slum-only TDR & 5-tier Regular matrix, rejecting invalid widths with 400', async () => {
+      // Valid width 12m with Gunthewari (FR-08: Slum TDR = 0.325 only, Regular TDR = 0)
       const validRes = await request(app)
         .put(`/api/projects/${testProject.id}/feasibility/area`)
         .set('Authorization', `Bearer ${testUsers.admin.token}`)
@@ -1003,20 +1003,24 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       expect(validRes.status).toBe(200);
       expect(parseFloat(validRes.body.statement.road_width_m)).toBe(12);
       expect(validRes.body.statement.is_gunthewari).toBe(true);
-      expect(parseFloat(validRes.body.statement.regular_tdr_factor)).toBe(0.65); // Regular 12m rate
-      expect(parseFloat(validRes.body.statement.slum_tdr_factor)).toBe(0.325); // Concurrent Gunthewari/Slum 12m rate
+      expect(parseFloat(validRes.body.statement.regular_tdr_factor)).toBe(0);
+      expect(parseFloat(validRes.body.statement.slum_tdr_factor)).toBe(0.325);
+      expect(parseFloat(validRes.body.statement.total_tdr_factor)).toBe(0.325);
 
-      // Valid width 24m without Gunthewari (Regular)
+      // Valid width 24m without Gunthewari (Regular: Total 1.10 split 50/50 -> 0.55 + 0.55)
       const valid24 = await request(app)
         .put(`/api/projects/${testProject.id}/feasibility/area`)
         .set('Authorization', `Bearer ${testUsers.admin.token}`)
         .send({
           road_width_m: 24,
-          is_gunthewari: false
+          is_gunthewari: false,
+          reset_regular_tdr: true
         });
 
       expect(valid24.status).toBe(200);
-      expect(parseFloat(valid24.body.statement.regular_tdr_factor)).toBe(1.10); // Regular 24m rate
+      expect(parseFloat(valid24.body.statement.total_tdr_factor)).toBe(1.10);
+      expect(parseFloat(valid24.body.statement.regular_tdr_factor)).toBe(0.55);
+      expect(parseFloat(valid24.body.statement.slum_tdr_factor)).toBe(0.55);
 
       // Invalid road width e.g. 10m -> 400 Bad Request
       const invalidRes = await request(app)
@@ -1110,31 +1114,34 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       // area_for_1_unit = 80 / 2 = 40. cost_for_1_unit = 40 * 50000 = 2,000,000
       expect(parseFloat(addRes.body.floor.cost_for_1_unit)).toBe(2000000);
 
-      // 2. Verify calculateFinancialMetrics floor-wise realization
+      // 2. Verify FR-15 & FR-32: Section D uses cost_of_construction_rate strictly (no Cost B fallback) & Salable Units receipts
       const stmt = { plot_area_sqm: 500 };
       const fls = [
         {
           floor_name: 'Ground Floor',
           pline_area_sqm: 100,
           builtup_for_sale_sqm: 80,
-          no_of_units: 2,
-          rate_per_sqm: 50000,
-          cost_for_1_unit: 2000000
+          no_of_units: 2
         }
       ];
       const areaMetrics = calculateAreaMetrics(stmt, fls);
       expect(areaMetrics.evaluatedFloors[0].area_for_1_unit).toBe(40);
-      expect(areaMetrics.evaluatedFloors[0].cost_for_1_unit).toBe(2000000);
 
-      const finMetrics = calculateFinancialMetrics(
-        { rr_rate_per_sqm: 25000, estimated_cost_b_rate: 20000 },
+      const zeroRateFin = calculateFinancialMetrics(
+        { rr_rate_per_sqm: 25000, estimated_cost_b_rate: 20000, cost_of_construction_rate: 0 },
         [],
         [],
         areaMetrics
       );
-      // Floor realization: 80 sqm * 50000 = 4,000,000 (or 2 units * 2,000,000)
+      expect(zeroRateFin.costOfConstructionD).toBe(0);
+
+      const finMetrics = calculateFinancialMetrics(
+        { rr_rate_per_sqm: 25000, estimated_cost_b_rate: 20000, cost_of_construction_rate: 20000 },
+        [],
+        [{ unit_name: 'Unit A', carpet_area_sqft: 800, super_buildup_loading_sqft: 200, unit_count: 1, rate_per_sqft: 4000 }],
+        areaMetrics
+      );
       expect(finMetrics.totalReceipts).toBe(4000000);
-      // Civil construction cost derived from estimated_cost_b_rate (100 sqm * 20000 = 2,000,000)
       expect(finMetrics.costOfConstructionD).toBe(2000000);
 
       // Clean up added floor

@@ -1,1234 +1,1029 @@
 // client/src/components/projects/feasibility/AreaStatementForm.jsx
+// Authentic Excel-structured Area Statement (1..4, A..H) & exact 6-column Floor-wise Proposed P-Line Table.
+// All derived figures render strictly from backend `areaMetrics` returned by /feasibility & /preview.
+
 import React, { useState } from 'react';
 import {
   Building2,
-  Calculator,
-  Layers,
   RefreshCw,
+  RotateCcw,
   AlertTriangle,
-  ShieldCheck,
-  CheckCircle2,
-  Sliders,
-  ChevronDown,
-  ChevronRight,
-  Car,
+  Lock,
   Info
 } from 'lucide-react';
-import { deriveTdrSplit, ROAD_WIDTH_TOTAL_TDR_MAP } from '../../../utils/feasibilityCalculations';
+import toast from 'react-hot-toast';
+import {
+  ROAD_WIDTHS,
+  ROAD_WIDTH_TOTAL_TDR_MAP,
+  ROAD_WIDTH_TDR_MAP,
+  toDisplayArea,
+  fromDisplayArea,
+  formatArea,
+  formatNum,
+  deriveTdrSplit
+} from '../../../utils/feasibilityCalculations';
 
-const ROAD_WIDTHS = [9, 12, 15, 18, 24];
+/**
+ * Unit-aware decimal input: edits smoothly in active unitDisplay ('sq_m' or 'sq_ft'),
+ * validates on blur/commit (never silently clamping negative Net Plotable Area), and persists Sq M.
+ */
+function AreaUnitInput({
+  valueSqm,
+  unitDisplay,
+  decimals = 3,
+  disabled = false,
+  placeholder = '0.000',
+  className = '',
+  onChangeSqm
+}) {
+  const [focused, setFocused] = useState(false);
+  const [text, setText] = useState('');
 
-const ROAD_WIDTH_TDR_MAP = {
-  9: { regular: 0.20, slum: 0.20 },
-  12: { regular: 0.325, slum: 0.325 },
-  15: { regular: 0.40, slum: 0.40 },
-  18: { regular: 0.45, slum: 0.45 },
-  24: { regular: 0.575, slum: 0.575 }
-};
+  const formattedOutside =
+    valueSqm === null || valueSqm === undefined || valueSqm === ''
+      ? ''
+      : Number(toDisplayArea(valueSqm, unitDisplay)).toFixed(decimals);
+
+  const commitSqm = (raw, isBlur = false) => {
+    const valSqm = raw === '' ? 0 : fromDisplayArea(raw, unitDisplay);
+    if (!Number.isFinite(valSqm) || valSqm < 0) {
+      if (isBlur) setFocused(false);
+      return;
+    }
+    const roundedSqm = Math.round(valSqm * 10000) / 10000;
+    const res = onChangeSqm(roundedSqm);
+    if (res && res.ok === false && isBlur) {
+      toast.error(res.error);
+      setFocused(false);
+    } else if (isBlur) {
+      setFocused(false);
+    }
+  };
+
+  return (
+    <input
+      type="number"
+      step="any"
+      min="0"
+      disabled={disabled}
+      placeholder={placeholder}
+      value={focused ? text : formattedOutside}
+      onFocus={() => {
+        setFocused(true);
+        setText(formattedOutside);
+      }}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setText(raw);
+        commitSqm(raw, false);
+      }}
+      onBlur={() => commitSqm(text, true)}
+      className={className}
+    />
+  );
+}
+
+/**
+ * Plain decimal input for dimensionless factors, meters, percentages, or nullable auto-suggest fields.
+ * Rejects invalid entries on commit/blur instead of silently clamping.
+ */
+function PlainDecimalInput({
+  value,
+  decimals = 3,
+  nullable = false,
+  disabled = false,
+  placeholder = '',
+  className = '',
+  onChangeValue
+}) {
+  const [focused, setFocused] = useState(false);
+  const [text, setText] = useState('');
+
+  const formattedOutside =
+    value === null || value === undefined || value === ''
+      ? ''
+      : Number(value).toFixed(decimals);
+
+  const commitVal = (raw, isBlur = false) => {
+    if (raw === '') {
+      const res = onChangeValue(nullable ? null : 0);
+      if (res && res.ok === false && isBlur) toast.error(res.error);
+      if (isBlur) setFocused(false);
+      return;
+    }
+    const parsed = parseFloat(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      if (isBlur) {
+        toast.error('Please enter a valid non-negative number.');
+        setFocused(false);
+      }
+      return;
+    }
+    const res = onChangeValue(parsed);
+    if (res && res.ok === false && isBlur) {
+      toast.error(res.error);
+      setFocused(false);
+    } else if (isBlur) {
+      setFocused(false);
+    }
+  };
+
+  return (
+    <input
+      type="number"
+      step="any"
+      min="0"
+      disabled={disabled}
+      placeholder={placeholder}
+      value={focused ? text : formattedOutside}
+      onFocus={() => {
+        setFocused(true);
+        setText(formattedOutside);
+      }}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setText(raw);
+        commitVal(raw, false);
+      }}
+      onBlur={() => commitVal(text, true)}
+      className={className}
+    />
+  );
+}
 
 export default function AreaStatementForm({
   statement = {},
   floors = [],
   areaMetrics = {},
+  unitDisplay = 'sq_m',
+  canEdit = false,
   onUpdateStatement,
   onUpdateFloor,
-  onReconcileFloors,
-  unitDisplay = 'sq_m',
-  isPrivileged
+  onReconcileFloors
 }) {
-  const isSqft = unitDisplay === 'sq_ft';
-  const unitFactor = isSqft ? 10.764 : 1;
-  const unitLabel = isSqft ? 'sq ft' : 'sq m';
+  const unitShort = unitDisplay === 'sq_ft' ? 'Sq. Ft.' : 'Sq. Mtr.';
+  const isGunthewari = Boolean(statement.is_gunthewari);
+  const buildingUse = statement.building_use || 'Residential';
+  const isMixedUse = buildingUse === 'Mixed Use';
+  const roadWidth = statement.road_width_m ? Number(statement.road_width_m) : '';
 
-  const [showProjectOverrideModal, setShowProjectOverrideModal] = useState(false);
-  const [projectOverrideVal, setProjectOverrideVal] = useState(statement.total_proposed_pline_override_sqm || '');
-  const [projectOverrideReason, setProjectOverrideReason] = useState(statement.proposed_pline_override_reason || '');
+  const evaluatedFloors = areaMetrics.evaluatedFloors || floors;
+  const evalById = new Map(evaluatedFloors.map((f) => [f.id, f]));
 
-  // Mobile/Tablet expandable floor cards state
-  const [expandedFloorKeys, setExpandedFloorKeys] = useState({});
+  const primaryResPct =
+    statement.primary_fsi_residential_pct !== null && statement.primary_fsi_residential_pct !== undefined
+      ? Number(statement.primary_fsi_residential_pct)
+      : Number(areaMetrics.primaryFsiResidentialPct ?? (buildingUse === 'Commercial' ? 0 : buildingUse === 'Mixed Use' ? 50 : 100));
+  const primaryCommPct = Math.max(0, Math.round((100 - primaryResPct) * 100) / 100);
 
-  const toggleFloorCard = (key) => {
-    setExpandedFloorKeys((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  // Road-width & Dual TDR helper (50/50 split with override support)
-  const roadWidth = parseFloat(statement.road_width_m);
-  const totalTdrFromRoad = !isNaN(roadWidth) && ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth] !== undefined
-    ? ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth]
-    : 0.65;
-
-  const currentTotalTdr = statement.total_tdr_factor !== undefined && !isNaN(parseFloat(statement.total_tdr_factor))
-    ? parseFloat(statement.total_tdr_factor)
-    : totalTdrFromRoad;
-
-  const rawReqRegular = statement.regular_tdr_factor !== undefined && statement.regular_tdr_factor !== null
-    ? statement.regular_tdr_factor
-    : null;
-
-  const tdrSplit = deriveTdrSplit(currentTotalTdr, rawReqRegular);
-  const isRegularOverridden = tdrSplit.isRegularTdrOverridden;
-  const effectiveRegularTdr = tdrSplit.regularTdrFactor;
-  const effectiveSlumTdr = tdrSplit.slumTdrFactor;
-  const isRegularExceedingTotal = (parseFloat(statement.regular_tdr_factor) || 0) > currentTotalTdr;
-
-  let resolvedTdrBadge = null;
-  if (!isNaN(roadWidth) && ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth] !== undefined) {
-    resolvedTdrBadge = `Road ${roadWidth}m: Total TDR ${totalTdrFromRoad.toFixed(3)} (50% Regular: ${(totalTdrFromRoad / 2).toFixed(3)} | 50% Slum: ${(totalTdrFromRoad / 2).toFixed(3)})`;
-  }
-
-  const handleRoadWidthChange = (val) => {
-    const parsed = val ? parseFloat(val) : null;
-    const newTotalTdr = parsed && ROAD_WIDTH_TOTAL_TDR_MAP[parsed] !== undefined
-      ? ROAD_WIDTH_TOTAL_TDR_MAP[parsed]
-      : 0.65;
-    const split = deriveTdrSplit(newTotalTdr, null);
-    onUpdateStatement({
-      road_width_m: parsed,
-      total_tdr_factor: newTotalTdr,
-      regular_tdr_factor: split.regularTdrFactor,
-      slum_tdr_factor: split.slumTdrFactor,
-      is_regular_tdr_overridden: false
-    });
-  };
-
-  const handleRegularTdrChange = (val) => {
-    const parsed = val === '' ? '' : parseFloat(val);
-    const split = deriveTdrSplit(currentTotalTdr, parsed === '' ? null : parsed);
-    onUpdateStatement({
-      regular_tdr_factor: val,
-      slum_tdr_factor: split.slumTdrFactor,
-      is_regular_tdr_overridden: split.isRegularTdrOverridden
-    });
-  };
-
-  const handleResetRegularTdr = () => {
-    const split = deriveTdrSplit(currentTotalTdr, null);
-    onUpdateStatement({
-      regular_tdr_factor: split.regularTdrFactor,
-      slum_tdr_factor: split.slumTdrFactor,
-      is_regular_tdr_overridden: false
-    });
-  };
-
-  const handleGunthewariToggle = (gunthewariVal) => {
-    onUpdateStatement({
-      is_gunthewari: gunthewariVal
-    });
-  };
-
-  const handleLobbyChange = (floor, newLobbyStr) => {
-    onUpdateFloor(floor.id, {
-      lobby_area_sqm: newLobbyStr,
-      is_lobby_overridden: true
-    });
-  };
-
-  const handleResetLobbyToDefault = (floor) => {
-    const pline = parseFloat(floor.pline_area_sqm) || 0;
-    onUpdateFloor(floor.id, {
-      lobby_area_sqm: Math.round(pline * 0.15 * 100) / 100,
-      is_lobby_overridden: false
-    });
-  };
-
-  const handleResetFloorPline = (floor) => {
-    onUpdateFloor(floor.id, {
-      is_pline_overridden: false,
-      pline_override_reason: null
-    });
-  };
-
-  const handleSaveProjectPlineOverride = () => {
-    const parsed = parseFloat(projectOverrideVal);
-    if (!isNaN(parsed) && parsed >= 0) {
+  // FR-08 & Section 3: Switching classification revalidates & resets proposed consumption to new eligibility
+  const handleClassificationChange = (gunth) => {
+    if (!canEdit) return;
+    if (roadWidth && ROAD_WIDTH_TDR_MAP[roadWidth]) {
+      const tier = ROAD_WIDTH_TDR_MAP[roadWidth];
+      if (gunth) {
+        onUpdateStatement({
+          is_gunthewari: true,
+          regular_tdr_factor: 0,
+          slum_tdr_factor: tier.gunthewari,
+          total_tdr_factor: tier.gunthewari,
+          tdr_factor: tier.gunthewari,
+          proposed_regular_tdr_factor: 0,
+          proposed_slum_tdr_factor: null
+        }, true);
+      } else {
+        const total = ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth];
+        onUpdateStatement({
+          is_gunthewari: false,
+          regular_tdr_factor: tier.regular,
+          slum_tdr_factor: tier.slum,
+          total_tdr_factor: total,
+          tdr_factor: total,
+          proposed_regular_tdr_factor: null,
+          proposed_slum_tdr_factor: null
+        }, true);
+      }
+    } else if (gunth) {
+      const currentSlum = Number(statement.slum_tdr_factor ?? areaMetrics.slumTdrFactor ?? 0);
       onUpdateStatement({
-        total_proposed_pline_override_sqm: parsed,
-        is_proposed_pline_overridden: true,
-        proposed_pline_override_reason: projectOverrideReason
+        is_gunthewari: true,
+        regular_tdr_factor: 0,
+        slum_tdr_factor: currentSlum,
+        total_tdr_factor: currentSlum,
+        tdr_factor: currentSlum,
+        proposed_regular_tdr_factor: 0,
+        proposed_slum_tdr_factor: null
+      }, true);
+    } else {
+      onUpdateStatement({
+        is_gunthewari: false,
+        proposed_regular_tdr_factor: null,
+        proposed_slum_tdr_factor: null
+      }, true);
+    }
+  };
+
+  // Total TDR is strictly road-width derived; changing road width resets & revalidates proposed consumption
+  const handleRoadWidthChange = (val) => {
+    if (!canEdit || !val) return;
+    const w = Number(val);
+    const tier = ROAD_WIDTH_TDR_MAP[w];
+    if (!tier) return;
+    if (isGunthewari) {
+      onUpdateStatement({
+        road_width_m: w,
+        regular_tdr_factor: 0,
+        slum_tdr_factor: tier.gunthewari,
+        total_tdr_factor: tier.gunthewari,
+        tdr_factor: tier.gunthewari,
+        proposed_regular_tdr_factor: 0,
+        proposed_slum_tdr_factor: null
+      }, true);
+    } else {
+      const total = ROAD_WIDTH_TOTAL_TDR_MAP[w];
+      onUpdateStatement({
+        road_width_m: w,
+        regular_tdr_factor: tier.regular,
+        slum_tdr_factor: tier.slum,
+        total_tdr_factor: total,
+        tdr_factor: total,
+        proposed_regular_tdr_factor: null,
+        proposed_slum_tdr_factor: null
+      }, true);
+    }
+  };
+
+  const handleBuildingUseChange = (nextUse) => {
+    if (!canEdit) return;
+    const nextResPct = nextUse === 'Residential' ? 100 : nextUse === 'Commercial' ? 0 : 50;
+    onUpdateStatement({
+      building_use: nextUse,
+      primary_fsi_residential_pct: nextResPct
+    }, true);
+  };
+
+  // Regular TDR editable only on Regular plots within road-width Total TDR; Slum = Total - Regular
+  const handlePermRegTdrChange = (val) => {
+    if (!canEdit || isGunthewari) return { ok: false, error: 'Regular TDR is locked for Gunthewari plots.' };
+    if (!roadWidth || ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth] === undefined) {
+      return { ok: false, error: 'Select an Abutting Road Width (9m–24m) before editing Regular TDR.' };
+    }
+    const total = ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth];
+    const split = deriveTdrSplit(total, val, false);
+    if (!split.isSplitValid) {
+      return onUpdateStatement({
+        total_tdr_factor: total,
+        tdr_factor: total,
+        regular_tdr_factor: val
       });
     }
-    setShowProjectOverrideModal(false);
-  };
-
-  const handleResetProjectPlineOverride = () => {
-    onUpdateStatement({
-      total_proposed_pline_override_sqm: null,
-      is_proposed_pline_overridden: false,
-      proposed_pline_override_reason: null
+    const propReg = statement.proposed_regular_tdr_factor;
+    const propSlum = statement.proposed_slum_tdr_factor;
+    return onUpdateStatement({
+      total_tdr_factor: split.totalTdrFactor,
+      tdr_factor: split.totalTdrFactor,
+      regular_tdr_factor: split.regularTdrFactor,
+      slum_tdr_factor: split.slumTdrFactor,
+      ...(propReg !== null && propReg !== undefined && propReg > split.regularTdrFactor ? { proposed_regular_tdr_factor: null } : {}),
+      ...(propSlum !== null && propSlum !== undefined && propSlum > split.slumTdrFactor ? { proposed_slum_tdr_factor: null } : {})
     });
-    setProjectOverrideVal('');
-    setProjectOverrideReason('');
-    setShowProjectOverrideModal(false);
   };
 
-  const regTdr = parseFloat(statement.regular_tdr_factor) || 0;
-  const slumTdr = parseFloat(statement.slum_tdr_factor) || 0;
-  const combinedTdr = Math.round((regTdr + slumTdr) * 10000) / 10000;
+  const inputCls =
+    'w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-900 focus:border-slate-900 font-mono disabled:bg-slate-100 disabled:text-slate-500';
+  const tblInputCls =
+    'w-24 px-1.5 py-1 text-right text-xs bg-white border border-slate-300 rounded focus:ring-1 focus:ring-slate-900 font-mono disabled:bg-slate-100';
 
-  const permissiblePline = areaMetrics.permissiblePlineTotalSqm || 0;
-  const calculatedProposedPline = areaMetrics.calculatedProposedPlineSqm || areaMetrics.proposedPlineTotalSqm || 0;
-  const effectiveProposedPline = areaMetrics.effectiveProposedPlineSqm || calculatedProposedPline;
-  const isProjectOverridden = Boolean(areaMetrics.isProposedPlineOverridden || statement.is_proposed_pline_overridden);
-
-  // Parking configuration helper
-  const parkingConfig = typeof statement.parking_config === 'string'
-    ? (() => { try { return JSON.parse(statement.parking_config || '{}'); } catch { return {}; } })()
-    : (statement.parking_config || {});
-
-  const updateParkingConfig = (patch) => {
-    const updatedCfg = { ...parkingConfig, ...patch };
-    onUpdateStatement({ parking_config: updatedCfg });
-  };
-
-  const parkingReq = areaMetrics.parkingRequirements || {};
+  const commAncPct = Number(areaMetrics.commAncillaryPct ?? 0.8);
+  const resAncPct = Number(areaMetrics.resAncillaryPct ?? 0.6);
 
   return (
-    <div className="space-y-6">
-      {/* 1. Plot & Survey Baseline + 2. Building Use & Plot Regulatory Classification */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Plot & Survey Baseline */}
-        <div className="lg:col-span-4 bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-            <Building2 size={14} className="text-[#E05A1E] shrink-0" />
-            Plot &amp; Survey Baseline
-          </h4>
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold text-slate-700 block">Plot Area ({unitLabel})</label>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="e.g. 500"
-              className="w-full text-sm bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-900 font-bold font-mono focus:outline-none focus:border-[#E05A1E]"
-              value={statement.plot_area_sqm || ''}
-              onChange={(e) => onUpdateStatement({ plot_area_sqm: e.target.value })}
-              disabled={!isPrivileged}
-            />
-            <p className="text-[11px] text-muted leading-snug">
-              Primary baseline for all FSI potential and permissible area calculations.
-            </p>
-          </div>
-        </div>
-
-        {/* Building Use & Plot Regulatory Classification */}
-        <div className="lg:col-span-8 bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-            <Building2 size={14} className="text-[#E05A1E] shrink-0" />
-            Building Use &amp; Plot Regulatory Classification
-          </h4>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-700 block">Building Use</label>
-              <select
-                className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 font-semibold focus:outline-none focus:border-[#E05A1E]"
-                value={statement.building_use || 'Residential'}
-                onChange={(e) => onUpdateStatement({ building_use: e.target.value })}
-                disabled={!isPrivileged}
-              >
-                <option value="Residential">Residential (60% Ancillary FSI)</option>
-                <option value="Commercial">Commercial (80% Ancillary FSI)</option>
-                <option value="Mixed Use">Mixed Use (Commercial + Residential)</option>
-              </select>
-              <span className="text-[11px] text-muted block">
-                {statement.building_use === 'Commercial' ? '80% Ancillary applied' : '60% Ancillary applied'}
-              </span>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-700 block">Plot Classification</label>
-              <select
-                className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 font-semibold focus:outline-none focus:border-[#E05A1E]"
-                value={statement.is_gunthewari ? 'gunthewari' : 'regular'}
-                onChange={(e) => handleGunthewariToggle(e.target.value === 'gunthewari')}
-                disabled={!isPrivileged}
-              >
-                <option value="regular">Regular Development Plot</option>
-                <option value="gunthewari">Gunthewari Scheme Plot</option>
-              </select>
-              <span className="text-[11px] text-muted block">
-                {statement.is_gunthewari ? 'Gunthewari status active' : 'Regular Development plot active'}
-              </span>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-700 block">Road Width</label>
-              <select
-                className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 font-semibold focus:outline-none focus:border-[#E05A1E]"
-                value={statement.road_width_m || ''}
-                onChange={(e) => handleRoadWidthChange(e.target.value)}
-                disabled={!isPrivileged}
-              >
-                <option value="">Select Road Width...</option>
-                {ROAD_WIDTHS.map((rw) => (
-                  <option key={rw} value={rw}>{rw} meters road</option>
-                ))}
-              </select>
-              {resolvedTdrBadge && (
-                <span className="text-[11px] text-[#E05A1E] font-medium block leading-snug">
-                  {resolvedTdrBadge}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Regulatory FSI & Dual TDR Assumptions */}
-      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-            <Calculator size={14} className="text-[#E05A1E] shrink-0" />
-            Regulatory FSI &amp; Dual TDR Assumptions
-          </h4>
-          <span className="text-[11px] font-bold text-[#E05A1E] bg-orange-50 px-2.5 py-0.5 rounded-full border border-orange-200">
-            Total TDR Factor: {currentTotalTdr.toFixed(3)}
-          </span>
-        </div>
-
-        {/* Visual formula breakdown banner */}
-        <div className={`p-2.5 rounded-lg border text-xs flex flex-wrap items-center justify-between gap-2 ${isRegularOverridden ? 'bg-amber-50/80 border-amber-300 text-amber-950' : 'bg-blue-50/80 border-blue-200 text-blue-950'}`}>
+    <div className="space-y-4">
+      {/* 1. Compact Contextual Plot, Classification & Factor Inputs */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
           <div className="flex items-center gap-2">
-            <Info size={14} className={isRegularOverridden ? 'text-amber-600 shrink-0' : 'text-blue-600 shrink-0'} />
-            <span>
-              <strong>TDR Formula:</strong> Regular TDR ({effectiveRegularTdr.toFixed(3)}) + Slum TDR ({effectiveSlumTdr.toFixed(3)}) = Total TDR ({currentTotalTdr.toFixed(3)})
-            </span>
+            <Building2 className="w-4 h-4 text-slate-700" />
+            <h3 className="text-sm font-bold text-slate-900">Plot &amp; Permissible / Proposed Parameters</h3>
           </div>
-          <div className="flex items-center gap-2">
-            {isRegularOverridden ? (
-              <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-200 text-amber-900 rounded flex items-center gap-1">
-                <Sliders size={10} /> Admin Overridden
-              </span>
-            ) : (
-              <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded">
-                Default 50 / 50 Split
-              </span>
-            )}
-          </div>
+          <span className="text-[11px] text-slate-500">Editing in {unitShort} (canonical storage in Sq. Mtr.)</span>
         </div>
 
-        {isRegularExceedingTotal && (
-          <div className="p-2.5 bg-red-50 border border-red-300 rounded-lg flex items-center gap-2 text-xs text-red-800">
-            <AlertTriangle size={14} className="text-red-600 shrink-0" />
-            <span>
-              <strong>Constraint Violation:</strong> Regular TDR ({parseFloat(statement.regular_tdr_factor)}) cannot exceed Total TDR ({currentTotalTdr}). Slum TDR is clamped to 0. Please correct the value.
-            </span>
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-600 block">Basic FSI Factor</label>
-            <input
-              type="number"
-              step="0.01"
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 font-mono font-semibold focus:outline-none focus:border-[#E05A1E]"
-              value={statement.basic_fsi_factor !== undefined ? statement.basic_fsi_factor : 1.1}
-              onChange={(e) => onUpdateStatement({ basic_fsi_factor: e.target.value })}
-              disabled={!isPrivileged}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-600 block">Paid FSI Factor</label>
-            <input
-              type="number"
-              step="0.01"
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 font-mono font-semibold focus:outline-none focus:border-[#E05A1E]"
-              value={statement.paid_fsi_factor !== undefined ? statement.paid_fsi_factor : 0.5}
-              onChange={(e) => onUpdateStatement({ paid_fsi_factor: e.target.value })}
-              disabled={!isPrivileged}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-1">
-              <label className="text-[11px] font-semibold text-slate-600">Regular TDR Factor</label>
-              {isRegularOverridden && isPrivileged && (
-                <button
-                  type="button"
-                  onClick={handleResetRegularTdr}
-                  className="text-[10px] text-red-600 hover:underline flex items-center gap-0.5 font-semibold"
-                  title="Reset to 50/50 default split"
-                >
-                  <RefreshCw size={9} /> Reset (50%)
-                </button>
-              )}
-            </div>
-            <div className="relative">
-              <input
-                type="number"
-                step="0.001"
-                className={`w-full text-xs border rounded-lg px-3 py-2 font-mono font-bold focus:outline-none focus:border-[#E05A1E] ${
-                  isRegularOverridden ? 'bg-amber-50 border-amber-300 text-amber-950' : 'bg-white border-slate-200 text-slate-800'
-                }`}
-                value={statement.regular_tdr_factor !== undefined && statement.regular_tdr_factor !== null ? statement.regular_tdr_factor : effectiveRegularTdr}
-                onChange={(e) => handleRegularTdrChange(e.target.value)}
-                disabled={!isPrivileged}
-              />
-              {isRegularOverridden && (
-                <span className="absolute right-2 top-2 text-[9px] font-bold px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded">
-                  Override
-                </span>
-              )}
-            </div>
-            <span className="text-[10px] text-slate-500">
-              Default 50%: {tdrSplit.defaultRegularTdrFactor.toFixed(3)}
-            </span>
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-1">
-              <label className="text-[11px] font-semibold text-slate-600">Slum TDR Factor</label>
-              <span className="text-[10px] text-slate-500 font-medium">Remainder</span>
-            </div>
-            <div className="w-full text-xs bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 font-bold font-mono">
-              {effectiveSlumTdr.toFixed(3)}
-            </div>
-            <span className="text-[10px] text-slate-500">
-              Auto: Total ({currentTotalTdr.toFixed(3)}) − Regular ({effectiveRegularTdr.toFixed(3)})
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* 4. Permissible and Proposed P-Line Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Permissible Potential */}
-        <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-200 space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
-              <ShieldCheck size={14} className="text-emerald-600 shrink-0" />
-              Total Permissible P-Line
-            </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">
-              Independent Potential
-            </span>
-          </div>
-          <div className="text-2xl font-black text-emerald-950 font-mono">
-            {(permissiblePline * unitFactor).toFixed(2)} <span className="text-sm font-semibold">{unitLabel}</span>
-          </div>
-          <div className="text-[11px] text-emerald-800/80 space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span>Built-up FSI: <strong className="font-mono">{((areaMetrics.permissibleTotalBuiltupSqm || 0) * unitFactor).toFixed(2)}</strong> {unitLabel}</span>
-              <span>•</span>
-              <span>Total Ancillary: <strong className="font-mono">{((areaMetrics.permissibleTotalAncillarySqm || areaMetrics.permissibleAncillaryResSqm || 0) * unitFactor).toFixed(2)}</strong> {unitLabel}</span>
-            </div>
-            {statement.building_use === 'Mixed Use' && (
-              <div className="text-[10px] bg-emerald-100/60 p-1.5 rounded text-emerald-900 flex flex-wrap items-center gap-2">
-                <span>Res Ancillary (60%): <strong className="font-mono">{((areaMetrics.permissibleResidentialAncillarySqm || 0) * unitFactor).toFixed(2)}</strong></span>
-                <span>|</span>
-                <span>Comm Ancillary (80%): <strong className="font-mono">{((areaMetrics.permissibleCommercialAncillarySqm || 0) * unitFactor).toFixed(2)}</strong></span>
-              </div>
-            )}
-            {statement.building_use === 'Mixed Use' && areaMetrics.sourceUnallocatedPermissiblePlineSqm && (
-              <div className="text-[10px] bg-emerald-100/40 p-1.5 rounded text-emerald-900 flex flex-wrap items-center justify-between gap-1 border border-emerald-200">
-                <span>Historical Source Potential: <strong className="font-mono">{((areaMetrics.sourceUnallocatedPermissiblePlineSqm || 0) * unitFactor).toFixed(2)}</strong> {unitLabel}</span>
-                <span className="text-[9px] text-emerald-700">(Dual Ancillary Baseline)</span>
-              </div>
-            )}
-            <div className="text-[11px] text-emerald-700">
-              Calculated from Plot ({((parseFloat(statement.plot_area_sqm) || 0) * unitFactor).toFixed(2)} {unitLabel}) × Permissible Factors
-            </div>
-          </div>
-        </div>
-
-        {/* Proposed Development & Equal Distribution Source */}
-        <div className={`p-4 rounded-xl border space-y-2 ${isProjectOverridden ? 'bg-amber-50/60 border-amber-300' : 'bg-orange-50/50 border-orange-200'}`}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-              <Calculator size={14} className="text-[#E05A1E] shrink-0" />
-              Total Proposed P-Line
-            </span>
-            <div className="flex items-center gap-2 flex-wrap">
-              {isProjectOverridden ? (
-                <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-200 text-amber-900 rounded flex items-center gap-1">
-                  <Sliders size={10} /> Override Active
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-100 text-[#E05A1E] rounded flex items-center gap-1">
-                  <CheckCircle2 size={10} /> Auto-Calculated
-                </span>
-              )}
-              {isPrivileged && (
-                <button
-                  type="button"
-                  onClick={() => setShowProjectOverrideModal(true)}
-                  className="text-[11px] text-[#E05A1E] hover:underline font-semibold"
-                >
-                  {isProjectOverridden ? 'Edit Override' : 'Override Total'}
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="text-2xl font-black text-slate-900 font-mono">
-            {(effectiveProposedPline * unitFactor).toFixed(2)} <span className="text-sm font-semibold">{unitLabel}</span>
-          </div>
-
-          <div className="text-[11px] text-slate-600 space-y-1">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span>
-                {isProjectOverridden ? (
-                  <span className="text-amber-800 font-medium">Calculated: {(calculatedProposedPline * unitFactor).toFixed(2)} {unitLabel}</span>
-                ) : (
-                  <span>Distributed across {areaMetrics.applicableHabitableFloorsCount || floors.filter(f => f.floor_type !== 'parking' && f.floor_type !== 'terrace').length} habitable floors</span>
-                )}
-              </span>
-              {isProjectOverridden && isPrivileged && (
-                <button
-                  type="button"
-                  onClick={handleResetProjectPlineOverride}
-                  className="text-[11px] text-red-600 hover:underline flex items-center gap-0.5 font-semibold"
-                >
-                  <RefreshCw size={10} /> Reset to Calculated
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-orange-200/60 text-[11px]">
-              <span className="text-slate-700">
-                Floor Sum: <strong className="font-mono">{((areaMetrics.floorSumPlineSqm || 0) * unitFactor).toFixed(2)}</strong> {unitLabel}
-              </span>
-              {areaMetrics.sourceProposedPlineDifferenceSqm !== undefined && Math.abs(areaMetrics.sourceProposedPlineDifferenceSqm) > 0.001 && (
-                <span className="text-amber-800 bg-amber-100/90 border border-amber-300 px-2 py-0.5 rounded text-[10px] font-semibold" title="Benchmark residual difference between target P-Line and floor sum">
-                  Benchmark Diff: {areaMetrics.sourceProposedPlineDifferenceSqm > 0 ? `+${areaMetrics.sourceProposedPlineDifferenceSqm.toFixed(3)}` : areaMetrics.sourceProposedPlineDifferenceSqm.toFixed(3)} sq m
-                </span>
-              )}
-            </div>
-            {statement.building_use === 'Mixed Use' && (
-              <div className="text-[10px] bg-orange-100/60 p-1.5 rounded text-orange-900 flex flex-wrap items-center gap-2">
-                <span>Res FSI: <strong className="font-mono">{((areaMetrics.proposedResidentialFsiSqm || 0) * unitFactor).toFixed(2)}</strong> (60%: {((areaMetrics.proposedResidentialAncillarySqm || 0) * unitFactor).toFixed(2)})</span>
-                <span>|</span>
-                <span>Comm FSI: <strong className="font-mono">{((areaMetrics.proposedCommercialFsiSqm || 0) * unitFactor).toFixed(2)}</strong> (80%: {((areaMetrics.proposedCommercialAncillarySqm || 0) * unitFactor).toFixed(2)})</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Project Override Modal Dialog */}
-      {showProjectOverrideModal && (
-        <div className="p-4 bg-amber-50 rounded-xl border border-amber-300 space-y-3">
-          <h5 className="text-xs font-bold text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
-            <Sliders size={14} className="text-amber-700" />
-            Override Total Proposed P-Line Area
-          </h5>
-          <p className="text-xs text-amber-900">
-            Engine-calculated proposed P-Line is <strong className="font-mono">{calculatedProposedPline.toFixed(2)} sq m</strong>. Entering an override will redistribute the updated target equally across all applicable floors.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-700">Target Proposed P-Line (sq m)</label>
-              <input
-                type="number"
-                step="0.01"
-                placeholder={calculatedProposedPline.toFixed(2)}
-                className="w-full text-xs bg-white border border-amber-300 rounded-lg px-3 py-2 font-bold font-mono text-slate-900 focus:outline-none focus:border-[#E05A1E]"
-                value={projectOverrideVal}
-                onChange={(e) => setProjectOverrideVal(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-700">Justification / Reason</label>
-              <input
-                type="text"
-                placeholder="e.g. Architect revised client brief"
-                className="w-full text-xs bg-white border border-amber-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-                value={projectOverrideReason}
-                onChange={(e) => setProjectOverrideReason(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => setShowProjectOverrideModal(false)}
-              className="text-xs px-3 py-1.5 text-slate-600 hover:text-slate-800"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveProjectPlineOverride}
-              className="btn-primary text-xs py-1.5 px-3"
-            >
-              Apply Override
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 5. Centralised Building Structure */}
-      <div className="bg-sky-50/70 p-4 rounded-xl border border-sky-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-start gap-2.5">
-          <Layers className="text-sky-600 shrink-0 mt-0.5" size={16} />
+        {/* Plot Area & Independent Records (FR-02 & Section 4) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
-            <h5 className="text-xs font-bold text-sky-950">
-              Centralised Building Structure ({floors.length} configured floors)
-            </h5>
-            <p className="text-[11px] text-sky-800 leading-relaxed">
-              Building Configuration is the sole authoritative source for floors, basements and vertical hierarchy. Equal P-Line distribution flows automatically to habitable levels.
-            </p>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">1. Area Of Plot ({unitShort})</label>
+            <AreaUnitInput
+              valueSqm={statement.plot_area_sqm}
+              unitDisplay={unitDisplay}
+              disabled={!canEdit}
+              className={inputCls}
+              onChangeSqm={(sqm) => onUpdateStatement({ plot_area_sqm: sqm })}
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">2. As Per City Survey Record ({unitShort})</label>
+            <AreaUnitInput
+              valueSqm={statement.city_survey_area_sqm}
+              unitDisplay={unitDisplay}
+              disabled={!canEdit}
+              className={inputCls}
+              onChangeSqm={(sqm) => onUpdateStatement({ city_survey_area_sqm: sqm })}
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">3. As per site ({unitShort})</label>
+            <AreaUnitInput
+              valueSqm={statement.site_area_sqm}
+              unitDisplay={unitDisplay}
+              disabled={!canEdit}
+              className={inputCls}
+              onChangeSqm={(sqm) => onUpdateStatement({ site_area_sqm: sqm })}
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">4. Deductions For Proposed D.P. ({unitShort})</label>
+            <AreaUnitInput
+              valueSqm={statement.dp_deductions_sqm}
+              unitDisplay={unitDisplay}
+              disabled={!canEdit}
+              className={inputCls}
+              onChangeSqm={(sqm) => onUpdateStatement({ dp_deductions_sqm: sqm })}
+            />
           </div>
         </div>
-        {isPrivileged && (
-          <button
-            type="button"
-            onClick={onReconcileFloors}
-            className="text-xs px-3 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-900 font-bold rounded-lg border border-sky-300 flex items-center gap-1.5 shrink-0 self-start sm:self-center transition-colors"
-            title="Re-synchronize floor records from Building Configuration"
-          >
-            <RefreshCw size={12} />
-            Re-sync Floors
-          </button>
-        )}
+
+        {/* Building Use, Mixed-Use Allocation & Road Width / Gunthewari Classification */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">Building Use</label>
+            <select
+              disabled={!canEdit}
+              value={buildingUse}
+              onChange={(e) => handleBuildingUseChange(e.target.value)}
+              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-900"
+            >
+              <option value="Residential">Residential (60% Ancillary)</option>
+              <option value="Commercial">Commercial (80% Ancillary)</option>
+              <option value="Mixed Use">Mixed Use (60% Res / 80% Comm)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">Plot Classification (FR-08)</label>
+            <select
+              disabled={!canEdit}
+              value={isGunthewari ? 'gunthewari' : 'regular'}
+              onChange={(e) => handleClassificationChange(e.target.value === 'gunthewari')}
+              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-900"
+            >
+              <option value="regular">Regular Development (Regular + Slum TDR)</option>
+              <option value="gunthewari">Gunthewari Plot (Slum TDR Only)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">Abutting Road Width</label>
+            <select
+              disabled={!canEdit}
+              value={roadWidth}
+              onChange={(e) => handleRoadWidthChange(e.target.value)}
+              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-900"
+            >
+              {!roadWidth && <option value="">Select Road Width (9m–24m)</option>}
+              {ROAD_WIDTHS.map((w) => (
+                <option key={w} value={w}>
+                  {w} m ({isGunthewari ? `Slum ${ROAD_WIDTH_TDR_MAP[w].gunthewari}` : `Total ${ROAD_WIDTH_TOTAL_TDR_MAP[w].toFixed(2)}`})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {isMixedUse ? (
+            <div className="bg-indigo-50/70 border border-indigo-200 rounded-lg p-2">
+              <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                Primary FSI Allocation (FR-11, Total 100%)
+              </label>
+              <div className="flex items-center gap-2 text-xs">
+                <div className="flex-1">
+                  <span className="text-[10px] text-indigo-700">Res %</span>
+                  <PlainDecimalInput
+                    decimals={1}
+                    disabled={!canEdit}
+                    value={primaryResPct}
+                    className="w-full px-2 py-1 text-xs bg-white border border-indigo-300 rounded font-mono"
+                    onChangeValue={(val) => {
+                      if (val < 0 || val > 100) {
+                        return { ok: false, error: 'Residential percentage must be between 0 and 100.' };
+                      }
+                      return onUpdateStatement({ primary_fsi_residential_pct: val });
+                    }}
+                  />
+                </div>
+                <div className="flex-1">
+                  <span className="text-[10px] text-indigo-700">Comm %</span>
+                  <PlainDecimalInput
+                    decimals={1}
+                    disabled={!canEdit}
+                    value={primaryCommPct}
+                    className="w-full px-2 py-1 text-xs bg-white border border-indigo-300 rounded font-mono"
+                    onChangeValue={(val) => {
+                      if (val < 0 || val > 100) {
+                        return { ok: false, error: 'Commercial percentage must be between 0 and 100.' };
+                      }
+                      return onUpdateStatement({ primary_fsi_residential_pct: Math.round((100 - val) * 100) / 100 });
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-end pb-1">
+              {isGunthewari ? (
+                <div className="w-full text-[11px] bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 shrink-0" />
+                  <span>Gunthewari: Regular TDR locked at 0 (Slum TDR only).</span>
+                </div>
+              ) : (
+                <div className="w-full text-[11px] bg-slate-50 border border-slate-200 text-slate-600 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 shrink-0 text-slate-500" />
+                  <span>Total TDR road-derived; Slum TDR = Total − Regular.</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Permissible & Proposed FSI/TDR Consumption Factors (Section 3 & FR-05/09) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pt-1">
+          {/* Permissible Factors Box */}
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                Permissible Potential Factors
+              </div>
+              <span className="text-[11px] font-mono font-semibold text-slate-700">
+                Road Total TDR: {formatNum(areaMetrics.totalTdrFactor, 3)}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Basic FSI</label>
+                <PlainDecimalInput
+                  decimals={2}
+                  disabled={!canEdit}
+                  value={statement.basic_fsi_factor ?? 1.1}
+                  className={inputCls}
+                  onChangeValue={(v) => onUpdateStatement({ basic_fsi_factor: v })}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Max Paid FSI</label>
+                <PlainDecimalInput
+                  decimals={2}
+                  disabled={!canEdit}
+                  value={statement.paid_fsi_factor ?? 0.5}
+                  className={inputCls}
+                  onChangeValue={(v) => onUpdateStatement({ paid_fsi_factor: v })}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">
+                  Perm. Reg TDR {isGunthewari && '(Locked)'}
+                </label>
+                <PlainDecimalInput
+                  decimals={3}
+                  disabled={!canEdit || isGunthewari || !roadWidth}
+                  value={isGunthewari ? 0 : (areaMetrics.regularTdrFactor ?? 0)}
+                  className={inputCls}
+                  onChangeValue={handlePermRegTdrChange}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">
+                  Perm. Slum TDR (Balance)
+                </label>
+                <input
+                  type="text"
+                  readOnly
+                  disabled
+                  value={formatNum(areaMetrics.slumTdrFactor ?? 0, 3)}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Proposed Consumption Factors Box (FR-05/09) */}
+          <div className="bg-emerald-50/50 border border-emerald-200 rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-900">
+                Proposed Utilization Factors (FR-05 / FR-09)
+              </div>
+              {(areaMetrics.isProposedPaidFsiEdited || areaMetrics.isProposedTdrEdited) && canEdit && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateStatement(
+                      {
+                        proposed_paid_fsi_factor: null,
+                        proposed_regular_tdr_factor: isGunthewari ? 0 : null,
+                        proposed_slum_tdr_factor: null,
+                        proposed_tdr_factor: null
+                      },
+                      true
+                    )
+                  }
+                  className="text-[10px] font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1 underline"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Reset to Auto-Suggested
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-700 mb-0.5">
+                  Proposed Paid FSI{' '}
+                  <span className="text-[9px] text-slate-500">
+                    ({areaMetrics.isProposedPaidFsiEdited ? 'Edited' : `Auto ${Number(areaMetrics.suggestedPaidFsiFactor ?? 0).toFixed(3)}`})
+                  </span>
+                </label>
+                <PlainDecimalInput
+                  decimals={3}
+                  nullable
+                  disabled={!canEdit}
+                  value={
+                    statement.proposed_paid_fsi_factor !== null && statement.proposed_paid_fsi_factor !== undefined
+                      ? statement.proposed_paid_fsi_factor
+                      : areaMetrics.effectiveProposedPaidFsiFactor
+                  }
+                  className={inputCls}
+                  onChangeValue={(v) => onUpdateStatement({ proposed_paid_fsi_factor: v })}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-700 mb-0.5">
+                  Prop. Regular TDR{' '}
+                  <span className="text-[9px] text-slate-500">
+                    ({isGunthewari ? 'Locked 0' : `Auto ${Number(areaMetrics.suggestedRegularTdrFactor ?? 0).toFixed(3)}`})
+                  </span>
+                </label>
+                <PlainDecimalInput
+                  decimals={3}
+                  nullable
+                  disabled={!canEdit || isGunthewari}
+                  value={
+                    isGunthewari
+                      ? 0
+                      : (statement.proposed_regular_tdr_factor !== null && statement.proposed_regular_tdr_factor !== undefined
+                          ? statement.proposed_regular_tdr_factor
+                          : areaMetrics.effectiveProposedRegularTdrFactor)
+                  }
+                  className={inputCls}
+                  onChangeValue={(v) => onUpdateStatement({ proposed_regular_tdr_factor: v })}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-700 mb-0.5">
+                  Prop. Slum TDR{' '}
+                  <span className="text-[9px] text-slate-500">
+                    (Auto {Number(areaMetrics.suggestedSlumTdrFactor ?? 0).toFixed(3)})
+                  </span>
+                </label>
+                <PlainDecimalInput
+                  decimals={3}
+                  nullable
+                  disabled={!canEdit}
+                  value={
+                    statement.proposed_slum_tdr_factor !== null && statement.proposed_slum_tdr_factor !== undefined
+                      ? statement.proposed_slum_tdr_factor
+                      : areaMetrics.effectiveProposedSlumTdrFactor
+                  }
+                  className={inputCls}
+                  onChangeValue={(v) => onUpdateStatement({ proposed_slum_tdr_factor: v })}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Inconsistency Warning Alert */}
-      {areaMetrics.isPlineInconsistent && (
-        <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-300 flex items-center gap-3 text-amber-900">
-          <AlertTriangle className="text-amber-600 shrink-0" size={18} />
-          <div className="text-xs font-semibold">
-            {areaMetrics.plineInconsistencyMessage || 'Total overridden floor P-Lines exceed project proposed P-Line. Please review floor overrides.'}
-          </div>
-        </div>
-      )}
-
-      {/* 6. Floor-wise Proposed P-Line Area Statement */}
-      <div className="space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-            <Layers size={14} className="text-[#E05A1E] shrink-0" />
-            Floor-wise Proposed P-Line Area Statement ({floors.length} levels)
-          </h4>
-          <span className="text-[11px] text-muted">
-            Formula: FSI + Ancillary = P-Line | Lobby = 15% | Sale = P-Line − Lobby | Unit Area = Sale ÷ Units
+      {/* 2. Authentic Excel Table 1: Area Statement (1..4, A..H) */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-slate-900 text-white px-4 py-2.5 flex items-center justify-between">
+          <h3 className="text-xs font-bold tracking-wide uppercase">
+            Table 1 — Area Statement ({unitShort}) — Permissible vs Proposed
+          </h3>
+          <span className="text-[11px] text-slate-300">
+            Unused Paid FSI / TDR is excluded from Section A &amp; Section B costs
           </span>
         </div>
 
-        {/* Desktop Full-Width Table (xl and up — zero nested horizontal scroll) */}
-        <div className="hidden xl:block border border-slate-200 rounded-xl bg-white overflow-hidden">
-          <table className="w-full text-xs text-left border-collapse">
-            <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-              <tr>
-                <th className="px-2.5 py-2.5">1. Floor Level</th>
-                <th className="px-2 py-2.5 text-center">2. Use</th>
-                <th className="px-2 py-2.5 text-center">3. Height (m)</th>
-                <th className="px-2 py-2.5 text-right">4. FSI ({unitLabel})</th>
-                <th className="px-2 py-2.5 text-right">5. Ancillary ({unitLabel})</th>
-                <th className="px-2 py-2.5 text-right">6. P-Line ({unitLabel})</th>
-                <th className="px-2 py-2.5 text-right">7. Lobby ({unitLabel})</th>
-                <th className="px-2 py-2.5 text-right">8. Saleable ({unitLabel})</th>
-                <th className="px-2 py-2.5 text-center">9. Units</th>
-                <th className="px-2.5 py-2.5 text-right">10. Area/Unit ({unitLabel})</th>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-100 text-slate-700 border-b border-slate-300 text-[11px]">
+                <th className="py-2 px-3 text-center border-r border-slate-200 w-12">Sr.</th>
+                <th className="py-2 px-3 text-left border-r border-slate-200">Particulars</th>
+                <th className="py-2 px-3 text-left border-r border-slate-200">Allocation / Notes</th>
+                <th className="py-2 px-3 text-right border-r border-slate-200 w-24">Perm. Factor</th>
+                <th className="py-2 px-3 text-right border-r border-slate-200 w-36">Permissible ({unitShort})</th>
+                <th className="py-2 px-3 text-right border-r border-slate-200 w-36">Proposed ({unitShort})</th>
+                <th className="py-2 px-3 text-right w-24">Prop. Factor</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {floors.map((floor, idx) => {
-                const isParking = floor.floor_type === 'parking';
-                const isTerrace = floor.floor_type === 'terrace';
-                const isHabitable = !isParking && !isTerrace;
-                const isPlineOverridden = Boolean(floor.is_pline_overridden);
-                const isLobbyOverridden = Boolean(floor.is_lobby_overridden);
-                const plineVal = parseFloat(floor.pline_area_sqm) || 0;
-                const fsiVal = parseFloat(floor.fsi_area_sqm) || 0;
-                const ancillaryVal = parseFloat(floor.ancillary_area_sqm) || 0;
-                const ancPct = floor.ancillary_pct || (floor.usage_type === 'Commercial' ? 0.8 : 0.6);
-                const lobbyVal = parseFloat(floor.lobby_area_sqm) || 0;
-                const saleVal = parseFloat(floor.builtup_for_sale_sqm) || 0;
-                const units = parseInt(floor.no_of_units, 10) || 0;
-                const area1Unit = parseFloat(floor.area_for_1_unit) || 0;
-                const floorUsage = floor.usage_type || (statement.building_use === 'Commercial' ? 'Commercial' : (isParking ? 'Parking' : isTerrace ? 'Terrace' : 'Residential'));
-
-                return (
-                  <tr
-                    key={floor.id || floor.floor_key || idx}
-                    className={`hover:bg-slate-50/70 transition-colors ${isParking ? 'bg-amber-50/30' : isTerrace ? 'bg-slate-50/40' : ''}`}
-                  >
-                    <td className="px-2.5 py-2 font-bold text-slate-800">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span>{floor.floor_name}</span>
-                        {isParking && (
-                          <span className="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded font-semibold">Parking</span>
-                        )}
-                        {isTerrace && (
-                          <span className="text-[9px] px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded font-semibold">Terrace</span>
-                        )}
-                      </div>
-                    </td>
-
-                    <td className="px-2 py-2 text-center">
-                      {isHabitable ? (
-                        statement.building_use === 'Mixed Use' ? (
-                          <select
-                            className="text-[11px] bg-white border border-slate-200 rounded px-1.5 py-1 font-semibold text-slate-700 focus:outline-none focus:border-[#E05A1E]"
-                            value={floor.usage_type || 'Residential'}
-                            onChange={(e) => onUpdateFloor(floor.id, { usage_type: e.target.value })}
-                            disabled={!isPrivileged}
-                          >
-                            <option value="Residential">Residential (60%)</option>
-                            <option value="Commercial">Commercial (80%)</option>
-                          </select>
-                        ) : (
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${floorUsage === 'Commercial' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
-                            {floorUsage}
-                          </span>
-                        )
-                      ) : (
-                        <span className="text-slate-400 font-mono text-[10px]">{isParking ? 'Parking' : 'Terrace'}</span>
-                      )}
-                    </td>
-
-                    <td className="px-2 py-2 text-center">
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="w-14 text-center text-xs bg-slate-50 border border-slate-200 rounded px-1 py-1 text-slate-700 focus:outline-none focus:border-[#E05A1E]"
-                        value={floor.height_meters || 3.00}
-                        onChange={(e) => onUpdateFloor(floor.id, { height_meters: e.target.value })}
-                        disabled={!isPrivileged}
-                      />
-                    </td>
-
-                    <td className="px-2 py-2 text-right font-mono font-semibold text-slate-800 tabular-nums">
-                      {isHabitable ? (fsiVal * unitFactor).toFixed(2) : '0.00'}
-                    </td>
-
-                    <td className="px-2 py-2 text-right font-mono text-slate-700 tabular-nums">
-                      {isHabitable ? (
-                        <span>
-                          {(ancillaryVal * unitFactor).toFixed(2)}{' '}
-                          <span className="text-[10px] text-muted">({Math.round(ancPct * 100)}%)</span>
-                        </span>
-                      ) : (
-                        <span className="text-slate-400">0.00</span>
-                      )}
-                    </td>
-
-                    <td className="px-2 py-2 text-right">
-                      {isHabitable ? (
-                        <div className="flex items-center justify-end gap-1">
-                          <input
-                            type="number"
-                            step="0.01"
-                            className={`w-20 text-right text-xs border rounded px-1.5 py-1 font-bold font-mono ${isPlineOverridden ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-white border-slate-200 text-slate-800 focus:border-[#E05A1E]'}`}
-                            value={plineVal || ''}
-                            onChange={(e) => onUpdateFloor(floor.id, {
-                              pline_area_sqm: e.target.value,
-                              is_pline_overridden: true
-                            })}
-                            disabled={!isPrivileged}
-                            title={isPlineOverridden ? (floor.pline_override_reason || 'Manual P-Line override') : 'Equal share'}
-                          />
-                          {isPlineOverridden && isPrivileged && (
-                            <button
-                              type="button"
-                              onClick={() => handleResetFloorPline(floor)}
-                              className="text-slate-400 hover:text-red-600 p-0.5"
-                              title="Reset to Equal Share"
-                            >
-                              <RefreshCw size={11} />
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="font-mono text-slate-400">0.00</span>
-                      )}
-                    </td>
-
-                    <td className="px-2 py-2 text-right">
-                      {isHabitable ? (
-                        <div className="flex items-center justify-end gap-1">
-                          {isLobbyOverridden && isPrivileged && (
-                            <button
-                              type="button"
-                              onClick={() => handleResetLobbyToDefault(floor)}
-                              className="text-slate-400 hover:text-[#E05A1E] p-0.5"
-                              title="Reset Lobby to 15% default"
-                            >
-                              <RefreshCw size={10} />
-                            </button>
-                          )}
-                          <input
-                            type="number"
-                            step="0.01"
-                            className={`w-16 text-right text-xs border rounded px-1.5 py-1 font-mono ${isLobbyOverridden ? 'bg-orange-50 border-orange-300 font-semibold text-orange-950' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
-                            value={lobbyVal || ''}
-                            onChange={(e) => handleLobbyChange(floor, e.target.value)}
-                            disabled={!isPrivileged}
-                          />
-                        </div>
-                      ) : (
-                        <span className="font-mono text-slate-400">0.00</span>
-                      )}
-                    </td>
-
-                    <td className="px-2 py-2 text-right font-mono font-bold text-[#E05A1E] tabular-nums">
-                      {isHabitable ? (saleVal * unitFactor).toFixed(2) : '0.00'}
-                    </td>
-
-                    <td className="px-2 py-2 text-center">
-                      {isHabitable ? (
-                        <input
-                          type="number"
-                          min="0"
-                          className="w-14 text-center text-xs font-bold bg-white border border-slate-200 rounded px-1 py-1 text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-                          value={units}
-                          onChange={(e) => onUpdateFloor(floor.id, { no_of_units: e.target.value })}
-                          disabled={!isPrivileged}
-                        />
-                      ) : (
-                        <span className="text-slate-400 font-mono">0</span>
-                      )}
-                    </td>
-
-                    <td className="px-2.5 py-2 text-right font-mono font-bold text-slate-800 tabular-nums">
-                      {isHabitable ? (units > 0 ? (area1Unit * unitFactor).toFixed(2) : '0.00') : '0.00'}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-bold text-[11px] text-slate-800">
+            <tbody className="divide-y divide-slate-200 font-mono">
               <tr>
-                <td className="px-2.5 py-2.5 uppercase tracking-wider text-slate-600">
-                  Total ({floors.length})
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">1</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">Area Of Plot</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">Gross Plot Area</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200 text-slate-400">—</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.plotAreaSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200 text-slate-400">—</td>
+                <td className="py-1.5 px-3 text-right text-slate-400">—</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">2</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">As Per City Survey Record</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">Independent PR record</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200 text-slate-400">—</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.citySurveyAreaSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200 text-slate-400">—</td>
+                <td className="py-1.5 px-3 text-right text-slate-400">—</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">3</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">As per site</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">Actual site measurement</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200 text-slate-400">—</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.siteAreaSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200 text-slate-400">—</td>
+                <td className="py-1.5 px-3 text-right text-slate-400">—</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">4</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">Deductions For Proposed D.P.</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">Road / DP deduction</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200 text-slate-400">—</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.dpDeductionsSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200 text-slate-400">—</td>
+                <td className="py-1.5 px-3 text-right text-slate-400">—</td>
+              </tr>
+              <tr className="bg-slate-50 font-semibold">
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">A</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">Plotable area (1 − 4)</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 font-normal border-r border-slate-200">Net Plotable Basis</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200 text-slate-400">—</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.plotableAreaSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.plotableAreaSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right text-slate-400">—</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">B</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">Basic Permissible FSI</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">Base FSI of Net Plotable</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(statement.basic_fsi_factor ?? 1.1, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.permissibleFsiSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.proposedBasicFsiSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right">{formatNum(statement.basic_fsi_factor ?? 1.1, 3)}</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">C</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">Paid FSI</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">
+                  {areaMetrics.isProposedPaidFsiEdited ? 'Architect edited utilization' : 'Auto-suggested utilization'}
                 </td>
-                <td className="px-2 py-2.5 text-center text-slate-400 font-normal">—</td>
-                <td className="px-2 py-2.5 text-center font-mono">
-                  {(areaMetrics.totalHeightMeters || 0).toFixed(2)} m
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(statement.paid_fsi_factor ?? 0.5, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.permissiblePaidFsiSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200 font-semibold text-emerald-800">{formatArea(areaMetrics.proposedPaidFsiSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right font-semibold text-emerald-800">{formatNum(areaMetrics.effectiveProposedPaidFsiFactor, 3)}</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">D1</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">Regular TDR</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">
+                  {areaMetrics.isGunthewari ? 'Ineligible (Gunthewari = 0)' : 'Regular TDR component'}
                 </td>
-                <td className="px-2 py-2.5 text-right font-mono text-slate-800 font-bold">
-                  {((areaMetrics.proposedTotalFsiSqm || 0) * unitFactor).toFixed(2)}
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(areaMetrics.regularTdrFactor, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.permissibleRegularTdrSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.regularTdrSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right">{formatNum(areaMetrics.effectiveProposedRegularTdrFactor, 3)}</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">D2</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">Slum TDR</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">
+                  {areaMetrics.isGunthewari ? 'Gunthewari Slum TDR only' : 'Remaining TDR balance'}
                 </td>
-                <td className="px-2 py-2.5 text-right font-mono text-slate-700">
-                  {((areaMetrics.totalProposedAncillarySqm || 0) * unitFactor).toFixed(2)}
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(areaMetrics.slumTdrFactor, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.permissibleSlumTdrSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.slumTdrSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right">{formatNum(areaMetrics.effectiveProposedSlumTdrFactor, 3)}</td>
+              </tr>
+              <tr className="bg-slate-50 font-semibold">
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">D</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">Total TDR (D1 + D2)</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 font-normal border-r border-slate-200">Road-width derived Total</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(areaMetrics.totalTdrFactor, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.permissibleTdrSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.proposedTdrSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right">{formatNum(areaMetrics.totalProposedTdrFactor, 3)}</td>
+              </tr>
+              <tr className="bg-slate-100 font-bold">
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">E</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">Primary FSI / Total Builtup Area (B+C+D)</td>
+                <td className="py-1.5 px-3 font-sans text-slate-600 font-normal border-r border-slate-200">Primary FSI Basis</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200 text-slate-400">—</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.permissibleTotalBuiltupSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.proposedTotalBuiltupSqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right text-slate-400">—</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">F</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">TOTAL FSI Ratio (E / A)</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">Dimensionless ratio</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200 text-slate-400">—</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(areaMetrics.permissibleTotalFsi, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(areaMetrics.proposedTotalFsi, 3)}</td>
+                <td className="py-1.5 px-3 text-right text-slate-400">—</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">G1</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">ANCILLARY — Comm. ({Math.round(commAncPct * 100)}%)</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">
+                  Comm. Primary Alloc: {formatNum(areaMetrics.primaryFsiCommercialPct ?? 0, 1)}%
                 </td>
-                <td className="px-2 py-2.5 text-right font-mono text-slate-900 font-black">
-                  {((areaMetrics.totalProposedPlineSqm || 0) * unitFactor).toFixed(2)}
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum((areaMetrics.primaryFsiCommercialPct ?? 0) / 100, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.permissibleCommercialAncillarySqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.table1ProposedCommAncSqm ?? areaMetrics.proposedCommercialAncillarySqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right">{formatNum((areaMetrics.primaryFsiCommercialPct ?? 0) / 100, 3)}</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">G2</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">ANCILLARY — Residential ({Math.round(resAncPct * 100)}%)</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">
+                  Res. Primary Alloc: {formatNum(areaMetrics.primaryFsiResidentialPct ?? 100, 1)}%
                 </td>
-                <td className="px-2 py-2.5 text-right font-mono text-slate-700">
-                  {((areaMetrics.totalLobbyAreaSqm || 0) * unitFactor).toFixed(2)}
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum((areaMetrics.primaryFsiResidentialPct ?? 100) / 100, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.permissibleResidentialAncillarySqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.table1ProposedResAncSqm ?? areaMetrics.proposedResidentialAncillarySqm, unitDisplay, 3)}</td>
+                <td className="py-1.5 px-3 text-right">{formatNum((areaMetrics.primaryFsiResidentialPct ?? 100) / 100, 3)}</td>
+              </tr>
+              <tr className="bg-emerald-50 font-bold border-t-2 border-slate-400">
+                <td className="py-2 px-3 text-center font-sans border-r border-slate-200">H</td>
+                <td className="py-2 px-3 font-sans border-r border-slate-200">Total P-Line Area (E + G1 + G2)</td>
+                <td className="py-2 px-3 font-sans font-normal text-emerald-900 border-r border-slate-200">
+                  {areaMetrics.isProposedPlineOverridden
+                    ? 'Manual Total P-Line Override active'
+                    : 'Permissible vs Proposed Potential'}
                 </td>
-                <td className="px-2 py-2.5 text-right font-mono text-[#E05A1E] font-black">
-                  {((areaMetrics.totalBuiltupForSaleSqm || 0) * unitFactor).toFixed(2)}
+                <td className="py-2 px-3 text-right border-r border-slate-200 text-slate-400">—</td>
+                <td className="py-2 px-3 text-right border-r border-slate-200 text-slate-900">{formatArea(areaMetrics.permissiblePlineTotalSqm, unitDisplay, 3)}</td>
+                <td className="py-2 px-3 text-right border-r border-slate-200 text-emerald-900">
+                  {formatArea(
+                    areaMetrics.isProposedPlineOverridden
+                      ? areaMetrics.effectiveProposedPlineSqm
+                      : (areaMetrics.proposedPlineTotalSqm ?? areaMetrics.effectiveProposedPlineSqm),
+                    unitDisplay,
+                    3
+                  )}
                 </td>
-                <td className="px-2 py-2.5 text-center font-mono font-black text-slate-900">
-                  {areaMetrics.totalUnitsCount || 0}
+                <td className="py-2 px-3 text-right font-sans">
+                  {canEdit && (
+                    areaMetrics.isProposedPlineOverridden ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateStatement({
+                            is_proposed_pline_overridden: false,
+                            total_proposed_pline_override_sqm: null
+                          }, true)
+                        }
+                        className="text-[10px] text-rose-700 underline hover:text-rose-900"
+                      >
+                        Reset H
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateStatement({
+                            is_proposed_pline_overridden: true,
+                            total_proposed_pline_override_sqm: areaMetrics.calculatedProposedPlineSqm || 0
+                          }, true)
+                        }
+                        className="text-[10px] text-slate-600 underline hover:text-slate-900"
+                      >
+                        Override
+                      </button>
+                    )
+                  )}
                 </td>
-                <td className="px-2.5 py-2.5 text-right text-slate-400 font-normal">—</td>
+              </tr>
+              {statement.is_proposed_pline_overridden && (
+                <tr className="bg-amber-50/70">
+                  <td colSpan={5} className="py-1.5 px-3 text-right font-sans text-[11px] font-semibold text-amber-900 border-r border-slate-200">
+                    Manual Proposed Total P-Line Override ({unitShort}):
+                  </td>
+                  <td className="py-1.5 px-3 text-right border-r border-slate-200">
+                    <AreaUnitInput
+                      valueSqm={statement.total_proposed_pline_override_sqm}
+                      unitDisplay={unitDisplay}
+                      disabled={!canEdit}
+                      className={tblInputCls}
+                      onChangeSqm={(sqm) => onUpdateStatement({ total_proposed_pline_override_sqm: sqm })}
+                    />
+                  </td>
+                  <td className="py-1.5 px-3 text-[10px] font-sans text-amber-800">
+                    Calc: {formatArea(areaMetrics.calculatedProposedPlineSqm, unitDisplay, 2)}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 3. Authentic Excel Table 2: Exact 6-Column Proposed P-Line Area Statement */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-slate-800 text-white px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-xs font-bold tracking-wide uppercase">
+              Table 2 — Proposed P-Line Area Statement ({unitShort})
+            </h3>
+            <p className="text-[11px] text-slate-300 mt-0.5">
+              Floors synchronized from Central Building Configuration ({areaMetrics.applicableHabitableFloorsCount || 0} habitable floors)
+            </p>
+          </div>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={onReconcileFloors}
+              className="px-2.5 py-1 text-[11px] font-semibold bg-white/10 hover:bg-white/20 text-white rounded border border-white/20 flex items-center gap-1"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Sync From Building Config</span>
+            </button>
+          )}
+        </div>
+
+        {areaMetrics.isPlineInconsistent && areaMetrics.plineInconsistencyMessage && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-800 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
+            <span>{areaMetrics.plineInconsistencyMessage}</span>
+          </div>
+        )}
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-100 text-slate-700 border-b border-slate-300 text-[11px]">
+                <th className="py-2 px-3 text-left border-r border-slate-200">1. Floor</th>
+                <th className="py-2 px-3 text-center border-r border-slate-200">2. Height (m)</th>
+                <th className="py-2 px-3 text-right border-r border-slate-200">3. P-Line Area ({unitShort})</th>
+                <th className="py-2 px-3 text-right border-r border-slate-200">4. Lobby Area ({unitShort})</th>
+                <th className="py-2 px-3 text-right border-r border-slate-200">5. Built-up for Owners ({unitShort})</th>
+                <th className="py-2 px-3 text-right">6. Built-up for Sale ({unitShort})</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 font-mono">
+              {floors.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center font-sans text-slate-500">
+                    No floor rows configured. Click &ldquo;Sync From Building Config&rdquo;.
+                  </td>
+                </tr>
+              ) : (
+                floors.map((fl) => {
+                  const ev = evalById.get(fl.id) || fl;
+                  const isHabitable = fl.floor_type !== 'parking' && fl.floor_type !== 'terrace';
+
+                  return (
+                    <tr key={fl.id} className={isHabitable ? 'bg-white' : 'bg-slate-50/70 text-slate-500'}>
+                      <td className="py-1.5 px-3 font-sans font-medium text-slate-800 border-r border-slate-200 whitespace-nowrap">
+                        {fl.floor_name}
+                      </td>
+                      <td className="py-1.5 px-3 text-center border-r border-slate-200">
+                        <PlainDecimalInput
+                          decimals={2}
+                          disabled={!canEdit}
+                          value={fl.height_meters ?? 0}
+                          className="w-20 px-1.5 py-0.5 text-center text-xs bg-white border border-slate-300 rounded font-mono disabled:bg-slate-100"
+                          onChangeValue={(v) => onUpdateFloor(fl.id, { height_meters: v })}
+                        />
+                      </td>
+                      <td className="py-1.5 px-3 text-right border-r border-slate-200">
+                        <div className="inline-flex items-center gap-1">
+                          {isHabitable ? (
+                            <AreaUnitInput
+                              decimals={2}
+                              disabled={!canEdit}
+                              valueSqm={fl.is_pline_overridden ? fl.pline_area_sqm : ev.pline_area_sqm}
+                              unitDisplay={unitDisplay}
+                              className={`w-24 px-1.5 py-0.5 text-right text-xs border rounded font-mono ${
+                                fl.is_pline_overridden
+                                  ? 'bg-amber-50 border-amber-400 font-semibold text-amber-900'
+                                  : 'bg-white border-slate-300'
+                              }`}
+                              onChangeSqm={(sqm) =>
+                                onUpdateFloor(fl.id, { pline_area_sqm: sqm, is_pline_overridden: true })
+                              }
+                            />
+                          ) : (
+                            <span className="text-slate-400">0.00</span>
+                          )}
+                          {fl.is_pline_overridden && canEdit && (
+                            <button
+                              type="button"
+                              title="Reset manual P-Line override to equal distribution"
+                              onClick={() => onUpdateFloor(fl.id, { is_pline_overridden: false }, true)}
+                              className="text-amber-700 hover:text-amber-950"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-1.5 px-3 text-right border-r border-slate-200">
+                        <div className="inline-flex items-center gap-1">
+                          {isHabitable ? (
+                            <AreaUnitInput
+                              decimals={2}
+                              disabled={!canEdit}
+                              valueSqm={fl.is_lobby_overridden ? fl.lobby_area_sqm : ev.lobby_area_sqm}
+                              unitDisplay={unitDisplay}
+                              className={`w-24 px-1.5 py-0.5 text-right text-xs border rounded font-mono ${
+                                fl.is_lobby_overridden
+                                  ? 'bg-amber-50 border-amber-400 font-semibold text-amber-900'
+                                  : 'bg-white border-slate-300'
+                              }`}
+                              onChangeSqm={(sqm) =>
+                                onUpdateFloor(fl.id, { lobby_area_sqm: sqm, is_lobby_overridden: true })
+                              }
+                            />
+                          ) : (
+                            <span className="text-slate-400">0.00</span>
+                          )}
+                          {fl.is_lobby_overridden && canEdit && (
+                            <button
+                              type="button"
+                              title="Reset manual Lobby override to 15%"
+                              onClick={() => onUpdateFloor(fl.id, { is_lobby_overridden: false }, true)}
+                              className="text-amber-700 hover:text-amber-950"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-1.5 px-3 text-right border-r border-slate-200">
+                        {isHabitable ? (
+                          <AreaUnitInput
+                            decimals={2}
+                            disabled={!canEdit}
+                            valueSqm={fl.builtup_for_owners_sqm ?? ev.builtup_for_owners_sqm ?? 0}
+                            unitDisplay={unitDisplay}
+                            className="w-24 px-1.5 py-0.5 text-right text-xs bg-white border border-slate-300 rounded font-mono disabled:bg-slate-100"
+                            onChangeSqm={(sqm) =>
+                              onUpdateFloor(fl.id, { builtup_for_owners_sqm: sqm })
+                            }
+                          />
+                        ) : (
+                          <span className="text-slate-400">0.00</span>
+                        )}
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-semibold text-slate-900">
+                        {formatArea(ev.builtup_for_sale_sqm, unitDisplay, 2)}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-100 font-bold border-t-2 border-slate-400 font-mono text-slate-900">
+                <td className="py-2 px-3 font-sans border-r border-slate-200">TOTAL</td>
+                <td className="py-2 px-3 text-center border-r border-slate-200">{formatNum(areaMetrics.totalHeightMeters, 2)} m</td>
+                <td className="py-2 px-3 text-right border-r border-slate-200 text-emerald-900">{formatArea(areaMetrics.totalProposedPlineSqm, unitDisplay, 2)}</td>
+                <td className="py-2 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.totalLobbyAreaSqm, unitDisplay, 2)}</td>
+                <td className="py-2 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.totalBuiltupForOwnersSqm, unitDisplay, 2)}</td>
+                <td className="py-2 px-3 text-right">{formatArea(areaMetrics.totalBuiltupForSaleSqm, unitDisplay, 2)}</td>
+              </tr>
+              <tr className="bg-slate-50 border-t border-slate-200 text-[11px]">
+                <td colSpan={2} className="py-1.5 px-3 font-semibold text-slate-700 border-r border-slate-200">
+                  Area Balance (Permissible H − Proposed Floor Sum)
+                </td>
+                <td className="py-1.5 px-3 text-right font-mono font-bold text-slate-900 border-r border-slate-200">
+                  {formatArea(areaMetrics.areaBalanceSqm, unitDisplay, 2)}
+                </td>
+                <td colSpan={3} className="py-1.5 px-3 font-semibold text-slate-700">
+                  Margin Required (Total Height H / 5):{' '}
+                  <span className="font-mono font-bold text-slate-900">{formatNum(areaMetrics.marginHBy5Meters, 2)} m</span>
+                </td>
               </tr>
             </tfoot>
           </table>
-        </div>
-
-        {/* Mobile & Tablet Expandable Floor Cards (< xl — zero horizontal scroll) */}
-        <div className="xl:hidden space-y-2.5">
-          {floors.map((floor, idx) => {
-            const floorKey = floor.id || floor.floor_key || idx;
-            const isExpanded = Boolean(expandedFloorKeys[floorKey]);
-            const isParking = floor.floor_type === 'parking';
-            const isTerrace = floor.floor_type === 'terrace';
-            const isHabitable = !isParking && !isTerrace;
-            const isPlineOverridden = Boolean(floor.is_pline_overridden);
-            const isLobbyOverridden = Boolean(floor.is_lobby_overridden);
-            const plineVal = parseFloat(floor.pline_area_sqm) || 0;
-            const fsiVal = parseFloat(floor.fsi_area_sqm) || 0;
-            const ancillaryVal = parseFloat(floor.ancillary_area_sqm) || 0;
-            const ancPct = floor.ancillary_pct || (floor.usage_type === 'Commercial' ? 0.8 : 0.6);
-            const lobbyVal = parseFloat(floor.lobby_area_sqm) || 0;
-            const saleVal = parseFloat(floor.builtup_for_sale_sqm) || 0;
-            const units = parseInt(floor.no_of_units, 10) || 0;
-            const area1Unit = parseFloat(floor.area_for_1_unit) || 0;
-            const floorUsage = floor.usage_type || (statement.building_use === 'Commercial' ? 'Commercial' : (isParking ? 'Parking' : isTerrace ? 'Terrace' : 'Residential'));
-
-            return (
-              <div
-                key={floorKey}
-                className={`rounded-xl border border-slate-200 overflow-hidden bg-white ${isParking ? 'bg-amber-50/30' : ''}`}
-              >
-                <button
-                  type="button"
-                  onClick={() => toggleFloorCard(floorKey)}
-                  className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left bg-slate-50/80 hover:bg-slate-100/70 transition-colors"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs font-bold text-slate-900">{floor.floor_name}</span>
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                        isParking ? 'bg-amber-100 text-amber-800' :
-                        isTerrace ? 'bg-slate-200 text-slate-700' :
-                        floorUsage === 'Commercial' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
-                      }`}>
-                        {isParking ? 'Parking' : isTerrace ? 'Terrace' : floorUsage}
-                      </span>
-                      {isPlineOverridden && (
-                        <span className="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-900 rounded font-bold">Override</span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-slate-600 mt-0.5 font-mono">
-                      P-Line: <strong>{(plineVal * unitFactor).toFixed(2)}</strong> • Sale: <strong className="text-[#E05A1E]">{(saleVal * unitFactor).toFixed(2)}</strong> • Units: <strong>{units}</strong>
-                    </div>
-                  </div>
-                  {isExpanded ? <ChevronDown size={15} className="text-slate-500 shrink-0" /> : <ChevronRight size={15} className="text-slate-500 shrink-0" />}
-                </button>
-
-                {isExpanded && (
-                  <div className="p-3.5 border-t border-slate-100 grid grid-cols-2 gap-3 text-xs">
-                    {isHabitable && statement.building_use === 'Mixed Use' && (
-                      <div className="col-span-2 space-y-1">
-                        <label className="text-[11px] font-semibold text-slate-600 block">Building Use</label>
-                        <select
-                          className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700"
-                          value={floor.usage_type || 'Residential'}
-                          onChange={(e) => onUpdateFloor(floor.id, { usage_type: e.target.value })}
-                          disabled={!isPrivileged}
-                        >
-                          <option value="Residential">Residential (60%)</option>
-                          <option value="Commercial">Commercial (80%)</option>
-                        </select>
-                      </div>
-                    )}
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-600 block">Height (m)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 font-mono"
-                        value={floor.height_meters || 3.00}
-                        onChange={(e) => onUpdateFloor(floor.id, { height_meters: e.target.value })}
-                        disabled={!isPrivileged}
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-600 block">No. of Units</label>
-                      {isHabitable ? (
-                        <input
-                          type="number"
-                          min="0"
-                          className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 font-mono"
-                          value={units}
-                          onChange={(e) => onUpdateFloor(floor.id, { no_of_units: e.target.value })}
-                          disabled={!isPrivileged}
-                        />
-                      ) : (
-                        <div className="text-xs font-mono text-slate-400 py-1.5">0</div>
-                      )}
-                    </div>
-
-                    <div className="space-y-0.5">
-                      <span className="text-[11px] text-slate-500 block">FSI Area ({unitLabel})</span>
-                      <span className="font-mono font-semibold text-slate-800">{isHabitable ? (fsiVal * unitFactor).toFixed(2) : '0.00'}</span>
-                    </div>
-
-                    <div className="space-y-0.5">
-                      <span className="text-[11px] text-slate-500 block">Ancillary ({Math.round(ancPct * 100)}%)</span>
-                      <span className="font-mono font-semibold text-slate-800">{isHabitable ? (ancillaryVal * unitFactor).toFixed(2) : '0.00'}</span>
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[11px] font-semibold text-slate-600">Proposed P-Line (sq m)</label>
-                        {isPlineOverridden && isPrivileged && (
-                          <button
-                            type="button"
-                            onClick={() => handleResetFloorPline(floor)}
-                            className="text-[10px] text-red-600 hover:underline flex items-center gap-0.5"
-                          >
-                            <RefreshCw size={9} /> Reset
-                          </button>
-                        )}
-                      </div>
-                      {isHabitable ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          className={`w-full text-xs border rounded-lg px-2.5 py-1.5 font-bold font-mono ${isPlineOverridden ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-white border-slate-200 text-slate-800'}`}
-                          value={plineVal || ''}
-                          onChange={(e) => onUpdateFloor(floor.id, {
-                            pline_area_sqm: e.target.value,
-                            is_pline_overridden: true
-                          })}
-                          disabled={!isPrivileged}
-                        />
-                      ) : (
-                        <div className="text-xs font-mono text-slate-400 py-1.5">0.00</div>
-                      )}
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[11px] font-semibold text-slate-600">Lobby Area (sq m)</label>
-                        {isLobbyOverridden && isPrivileged && (
-                          <button
-                            type="button"
-                            onClick={() => handleResetLobbyToDefault(floor)}
-                            className="text-[10px] text-[#E05A1E] hover:underline flex items-center gap-0.5"
-                          >
-                            <RefreshCw size={9} /> Reset
-                          </button>
-                        )}
-                      </div>
-                      {isHabitable ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          className={`w-full text-xs border rounded-lg px-2.5 py-1.5 font-mono ${isLobbyOverridden ? 'bg-orange-50 border-orange-300 font-semibold text-orange-950' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
-                          value={lobbyVal || ''}
-                          onChange={(e) => handleLobbyChange(floor, e.target.value)}
-                          disabled={!isPrivileged}
-                        />
-                      ) : (
-                        <div className="text-xs font-mono text-slate-400 py-1.5">0.00</div>
-                      )}
-                    </div>
-
-                    <div className="space-y-0.5">
-                      <span className="text-[11px] text-slate-500 block">Built-up Sale ({unitLabel})</span>
-                      <span className="font-mono font-bold text-[#E05A1E]">{isHabitable ? (saleVal * unitFactor).toFixed(2) : '0.00'}</span>
-                    </div>
-
-                    <div className="space-y-0.5">
-                      <span className="text-[11px] text-slate-500 block">Area for 1 Unit ({unitLabel})</span>
-                      <span className="font-mono font-bold text-slate-800">{isHabitable && units > 0 ? (area1Unit * unitFactor).toFixed(2) : '0.00'}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {/* Mobile Totals Card */}
-          <div className="bg-slate-100 p-3.5 rounded-xl border border-slate-200 grid grid-cols-2 gap-2.5 text-xs">
-            <div>
-              <span className="text-[10px] text-slate-500 uppercase font-semibold block">Total Proposed P-Line</span>
-              <span className="font-mono font-black text-slate-900">{((areaMetrics.totalProposedPlineSqm || 0) * unitFactor).toFixed(2)} {unitLabel}</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-500 uppercase font-semibold block">Total Built-up Sale</span>
-              <span className="font-mono font-black text-[#E05A1E]">{((areaMetrics.totalBuiltupForSaleSqm || 0) * unitFactor).toFixed(2)} {unitLabel}</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-500 uppercase font-semibold block">Total Height / Units</span>
-              <span className="font-mono font-bold text-slate-800">{(areaMetrics.totalHeightMeters || 0).toFixed(2)} m / {areaMetrics.totalUnitsCount || 0} units</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-500 uppercase font-semibold block">Total Lobby Area</span>
-              <span className="font-mono font-bold text-slate-800">{((areaMetrics.totalLobbyAreaSqm || 0) * unitFactor).toFixed(2)} {unitLabel}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 7. FSI Compliance Summary */}
-      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-          <ShieldCheck size={14} className="text-emerald-600 shrink-0" />
-          FSI Compliance Summary (Dividing Factor {statement.dividing_factor || 1.6})
-        </h4>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-white p-3 rounded-lg border border-slate-200">
-            <span className="text-[11px] text-slate-500 font-semibold block">Base Dividing Area</span>
-            <span className="font-mono text-sm font-bold text-slate-900">
-              {((areaMetrics.baseDividingFactorSqm || 0) * unitFactor).toFixed(2)} <span className="text-[11px] font-normal text-slate-500">{unitLabel}</span>
-            </span>
-          </div>
-          <div className="bg-white p-3 rounded-lg border border-slate-200">
-            <span className="text-[11px] text-slate-500 font-semibold block">Derived Ancillary Area</span>
-            <span className="font-mono text-sm font-bold text-slate-900">
-              {((areaMetrics.derivedAncillaryAreaSqm || 0) * unitFactor).toFixed(2)} <span className="text-[11px] font-normal text-slate-500">{unitLabel}</span>
-            </span>
-          </div>
-          <div className="bg-white p-3 rounded-lg border border-slate-200">
-            <span className="text-[11px] text-slate-500 font-semibold block">Paid FSI Required</span>
-            <span className="font-mono text-sm font-bold text-slate-900">
-              {((areaMetrics.paidFsiRequiredSqm || 0) * unitFactor).toFixed(2)} <span className="text-[11px] font-normal text-slate-500">{unitLabel}</span>
-            </span>
-          </div>
-          <div className="bg-white p-3 rounded-lg border border-slate-200">
-            <span className="text-[11px] text-slate-500 font-semibold block">Area Potential Balance</span>
-            <span className={`font-mono text-sm font-bold ${(areaMetrics.areaBalanceSqm || 0) >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-              {((areaMetrics.areaBalanceSqm || 0) * unitFactor).toFixed(2)} <span className="text-[11px] font-normal text-slate-500">{unitLabel}</span>
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* 8. Occupancy-Based Parking Statement (UDCPR Chapter 8) */}
-      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Car size={16} className="text-[#E05A1E] shrink-0" />
-            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              8. Occupancy-Based Parking Statement (UDCPR Chapter 8)
-            </h4>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-100 text-[#E05A1E] rounded">
-              NMC Multiplier: {parkingReq.authorityMultiplier || 0.90}
-            </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-200 text-slate-700 rounded">
-              Visitor: {parkingReq.visitorParkingPct || 5}%
-            </span>
-          </div>
-        </div>
-
-        {/* Input Configuration Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-700 block">Commercial Carpet ({unitLabel})</label>
-            <input
-              type="number"
-              step="0.01"
-              placeholder={((parkingReq.commercialCarpetSqm || 0) * unitFactor).toFixed(2)}
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-              value={parkingConfig.commercial_carpet_sqm ?? ''}
-              onChange={(e) => updateParkingConfig({ commercial_carpet_sqm: e.target.value })}
-              disabled={!isPrivileged}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-700 block">Tenements 40-80 sqm</label>
-            <input
-              type="number"
-              min="0"
-              placeholder={String(parkingReq.residentialTenements40_80 || 0)}
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-              value={parkingConfig.residential_tenements_40_80 ?? ''}
-              onChange={(e) => updateParkingConfig({ residential_tenements_40_80: e.target.value })}
-              disabled={!isPrivileged}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-700 block">Tenements &lt; 40 sqm</label>
-            <input
-              type="number"
-              min="0"
-              placeholder="0"
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-              value={parkingConfig.residential_tenements_under_40 ?? ''}
-              onChange={(e) => updateParkingConfig({ residential_tenements_under_40: e.target.value })}
-              disabled={!isPrivileged}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-700 block">Tenements &gt; 80 sqm</label>
-            <input
-              type="number"
-              min="0"
-              placeholder="0"
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-none focus:border-[#E05A1E]"
-              value={parkingConfig.residential_tenements_over_80 ?? ''}
-              onChange={(e) => updateParkingConfig({ residential_tenements_over_80: e.target.value })}
-              disabled={!isPrivileged}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-700 block">Proposed Cars</label>
-            <input
-              type="number"
-              min="0"
-              placeholder="0"
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono font-bold text-slate-900 focus:outline-none focus:border-[#E05A1E]"
-              value={parkingConfig.proposed_cars ?? ''}
-              onChange={(e) => updateParkingConfig({ proposed_cars: e.target.value })}
-              disabled={!isPrivileged}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-slate-700 block">Proposed 2-Wheelers</label>
-            <input
-              type="number"
-              min="0"
-              placeholder="0"
-              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono font-bold text-slate-900 focus:outline-none focus:border-[#E05A1E]"
-              value={parkingConfig.proposed_two_wheelers ?? ''}
-              onChange={(e) => updateParkingConfig({ proposed_two_wheelers: e.target.value })}
-              disabled={!isPrivileged}
-            />
-          </div>
-        </div>
-
-        {/* Requirements & Surplus Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-          {/* Commercial Parking Norm */}
-          <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1">
-            <span className="text-[11px] font-bold text-purple-900 uppercase tracking-wide block">
-              Commercial Norm
-            </span>
-            <div className="text-[11px] text-slate-600">
-              Carpet: <strong className="font-mono">{((parkingReq.commercialCarpetSqm || 0) * unitFactor).toFixed(2)}</strong> {unitLabel}
-            </div>
-            <div className="text-[11px] font-mono text-slate-800">
-              Base Cars (2/100 sqm): <strong>{(parkingReq.commercialCars || 0).toFixed(2)}</strong>
-            </div>
-            <div className="text-[11px] font-mono text-slate-800">
-              Base Scooters (6/100 sqm): <strong>{(parkingReq.commercialTwoWheelers || 0).toFixed(2)}</strong>
-            </div>
-          </div>
-
-          {/* Residential Parking Norm */}
-          <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1">
-            <span className="text-[11px] font-bold text-blue-900 uppercase tracking-wide block">
-              Residential Norm
-            </span>
-            <div className="text-[11px] text-slate-600">
-              Total Tenements: <strong className="font-mono">{parkingReq.totalResidentialTenements || 0}</strong>
-            </div>
-            <div className="text-[11px] font-mono text-slate-800">
-              Base Cars: <strong>{(parkingReq.residentialCars || 0).toFixed(2)}</strong>
-            </div>
-            <div className="text-[11px] font-mono text-slate-800">
-              Base Scooters: <strong>{(parkingReq.residentialTwoWheelers || 0).toFixed(2)}</strong>
-            </div>
-          </div>
-
-          {/* Gross Demand & NMC Multiplier */}
-          <div className="p-3 bg-white rounded-lg border border-slate-200 space-y-1">
-            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wide block">
-              Gross + Visitor (5%) × 0.90
-            </span>
-            <div className="text-[11px] font-mono text-slate-700">
-              Gross Cars: <strong>{(parkingReq.totalGrossCars || 0).toFixed(2)}</strong>
-            </div>
-            <div className="text-[11px] font-mono text-slate-700">
-              Gross Scooters: <strong>{(parkingReq.totalGrossTwoWheelers || 0).toFixed(2)}</strong>
-            </div>
-            <div className="text-[10px] text-slate-500 pt-0.5">
-              Ceil after authority multiplier (0.90) applied
-            </div>
-          </div>
-
-          {/* Net Requirement vs Proposed */}
-          <div className="p-3 bg-slate-100/90 rounded-lg border border-slate-300 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-slate-900 uppercase tracking-wide">
-                Compliance Status
-              </span>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${parkingReq.isCarRequirementMet && parkingReq.isTwoWheelerRequirementMet ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                {parkingReq.isCarRequirementMet && parkingReq.isTwoWheelerRequirementMet ? 'Compliant' : 'Review Parking'}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-slate-700">Cars: Req <strong>{parkingReq.requiredCars || 0}</strong> | Prop <strong>{parkingReq.proposedCars || 0}</strong></span>
-              <span className={`font-bold px-1.5 py-0.2 rounded text-[11px] ${(parkingReq.surplusDeficitCars || 0) >= 0 ? 'text-emerald-700 bg-emerald-50' : 'text-red-600 bg-red-50'}`}>
-                {(parkingReq.surplusDeficitCars || 0) >= 0 ? `+${parkingReq.surplusDeficitCars || 0}` : parkingReq.surplusDeficitCars}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-slate-700">Scooters: Req <strong>{parkingReq.requiredTwoWheelers || 0}</strong> | Prop <strong>{parkingReq.proposedTwoWheelers || 0}</strong></span>
-              <span className={`font-bold px-1.5 py-0.2 rounded text-[11px] ${(parkingReq.surplusDeficitTwoWheelers || 0) >= 0 ? 'text-emerald-700 bg-emerald-50' : 'text-red-600 bg-red-50'}`}>
-                {(parkingReq.surplusDeficitTwoWheelers || 0) >= 0 ? `+${parkingReq.surplusDeficitTwoWheelers || 0}` : parkingReq.surplusDeficitTwoWheelers}
-              </span>
-            </div>
-          </div>
         </div>
       </div>
     </div>

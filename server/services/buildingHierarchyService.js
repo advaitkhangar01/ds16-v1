@@ -2,7 +2,20 @@
 // Authoritative single-source floor hierarchy generation and reconciliation
 // Governed by timeline_configurations as the sole source of truth across DS16
 
-const { calculateAreaMetrics } = require('./feasibilityEngine');
+const { SQM_TO_SQFT } = require('./feasibilityEngine');
+
+/**
+ * Derive default floor usage from project building_type metadata.
+ * @param {Object} config timeline_configurations record
+ * @returns {'Commercial'|'Residential'} Default usage for newly generated habitable floors
+ */
+function resolveDefaultFloorUsage(config = {}) {
+  const btype = String(config.building_type || '').toLowerCase();
+  if (btype.includes('comm') && !btype.includes('mixed')) {
+    return 'Commercial';
+  }
+  return 'Residential';
+}
 
 /**
  * Generate standard building floor hierarchy from Building Configuration
@@ -15,7 +28,11 @@ function generateStandardFloorHierarchy(config = {}) {
   const upperParkingCount = Math.max(0, parseInt(config.upper_parking_count, 10) || 0);
 
   const groundConfig = config.ground_floor_config || 'parking_and_rooms';
-  const isGroundHabitable = groundConfig === 'parking_and_rooms' || groundConfig === 'habitable';
+  const hasExplicitGroundConfig = config.ground_floor_config !== undefined && config.ground_floor_config !== null;
+  const isStiltByConfig = groundConfig === 'stilt';
+  const isStiltByFlag = !hasExplicitGroundConfig && config.has_stilt_parking === true;
+  const isGroundHabitable = !isStiltByConfig && !isStiltByFlag && (groundConfig === 'parking_and_rooms' || groundConfig === 'habitable');
+  const defaultUsage = resolveDefaultFloorUsage(config);
 
   const floors = [];
   let order = 1;
@@ -40,8 +57,8 @@ function generateStandardFloorHierarchy(config = {}) {
     floor_name: isGroundHabitable ? 'Ground Floor' : 'Stilt Parking',
     floor_order: order++,
     floor_type: isGroundHabitable ? 'habitable' : 'parking',
-    usage_type: isGroundHabitable ? 'Residential' : 'Parking',
-    height_meters: 3.00,
+    usage_type: isGroundHabitable ? defaultUsage : 'Parking',
+    height_meters: isGroundHabitable && defaultUsage === 'Commercial' ? 3.60 : 3.00,
     no_of_units: isGroundHabitable ? 1 : 0,
     is_habitable: isGroundHabitable
   });
@@ -72,8 +89,8 @@ function generateStandardFloorHierarchy(config = {}) {
       floor_name: name,
       floor_order: order++,
       floor_type: 'habitable',
-      usage_type: 'Residential',
-      height_meters: 3.00,
+      usage_type: defaultUsage,
+      height_meters: defaultUsage === 'Commercial' ? 3.30 : 3.00,
       no_of_units: 1,
       is_habitable: true
     });
@@ -98,7 +115,7 @@ function generateStandardFloorHierarchy(config = {}) {
 
 /**
  * Reconcile project_area_floors against the central Building Configuration
- * Non-destructive: preserves existing floor measurements, overrides, and unit rates
+ * Non-destructive: preserves existing floor measurements, overrides, and unit counts
  * @param {Object} client PostgreSQL client (under active transaction or pool)
  * @param {number} projectId Project ID
  * @param {number} userId Current user ID
@@ -114,13 +131,14 @@ async function reconcileBuildingFloors(client, projectId, userId, config) {
 
   if (!statement) {
     const { rows: [proj] } = await client.query('SELECT area_sq_ft FROM projects WHERE id = $1', [projectId]);
-    const defaultPlot = parseFloat(proj?.area_sq_ft) ? (parseFloat(proj.area_sq_ft) / 10.764) : 0;
+    const defaultPlot = parseFloat(proj?.area_sq_ft) ? (parseFloat(proj.area_sq_ft) / SQM_TO_SQFT) : 0;
+    const roundedPlot = Math.round(defaultPlot * 100) / 100;
     const { rows: [newStmt] } = await client.query(
-      `INSERT INTO project_area_statements 
-        (project_id, plot_area_sqm, city_survey_area_sqm, site_area_sqm, dp_deductions_sqm, existing_builtup_area_sqm, dividing_factor, basic_fsi_factor, paid_fsi_factor, tdr_factor, proposed_tdr_factor, building_use, regular_tdr_factor, slum_tdr_factor, is_gunthewari, road_width_m, created_by)
-       VALUES ($1, $2, $2, $2, 0, 0, 1.6, 1.1, 0.5, 0.65, 0, 'Residential', 0, 0, false, null, $3)
+      `INSERT INTO project_area_statements
+        (project_id, plot_area_sqm, city_survey_area_sqm, site_area_sqm, dp_deductions_sqm, existing_builtup_area_sqm, dividing_factor, basic_fsi_factor, paid_fsi_factor, tdr_factor, total_tdr_factor, proposed_tdr_factor, building_use, regular_tdr_factor, slum_tdr_factor, is_gunthewari, road_width_m, created_by)
+       VALUES ($1, $2, $2, $2, 0, 0, 1.6, 1.1, 0.5, 0.65, NULL, 0, 'Residential', 0, 0, false, null, $3)
        RETURNING *`,
-      [projectId, Math.round(defaultPlot * 100) / 100, userId]
+      [projectId, roundedPlot, userId]
     );
     statement = newStmt;
   }
@@ -136,7 +154,6 @@ async function reconcileBuildingFloors(client, projectId, userId, config) {
     if (ef.floor_key) {
       existingMap.set(ef.floor_key, ef);
     } else {
-      // Legacy fallback mapping
       const key = ef.floor_order === 1 ? 'ground_floor' : `floor_${ef.floor_order}`;
       existingMap.set(key, ef);
     }
@@ -151,7 +168,6 @@ async function reconcileBuildingFloors(client, projectId, userId, config) {
     const existing = existingMap.get(cf.floor_key);
 
     if (existing) {
-      // Update metadata & ordering, preserve measurements
       await client.query(
         `UPDATE project_area_floors
          SET floor_name = $1,
@@ -165,7 +181,6 @@ async function reconcileBuildingFloors(client, projectId, userId, config) {
         [cf.floor_name, cf.floor_order, cf.floor_type, cf.usage_type, cf.floor_key, existing.id]
       );
     } else {
-      // Insert new floor row
       await client.query(
         `INSERT INTO project_area_floors
           (area_statement_id, floor_key, floor_name, floor_order, height_meters, pline_area_sqm, lobby_area_sqm, builtup_for_owners_sqm, builtup_for_sale_sqm, usage_type, floor_type, is_active, is_lobby_overridden, is_pline_overridden, no_of_units, rate_per_sqm, cost_for_1_unit)
@@ -177,7 +192,7 @@ async function reconcileBuildingFloors(client, projectId, userId, config) {
 
   // 4. Inactivate floors no longer in building configuration
   for (const ef of existingFloors) {
-    if (!activeKeys.has(ef.floor_key)) {
+    if (ef.floor_key && !activeKeys.has(ef.floor_key)) {
       await client.query(
         'UPDATE project_area_floors SET is_active = FALSE, updated_at = NOW() WHERE id = $1',
         [ef.id]

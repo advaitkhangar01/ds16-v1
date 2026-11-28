@@ -261,9 +261,9 @@ describe('Master Rebuild — Controlled Overrides Across All Cost Sections (Sect
     expect(calcExcluded.costOfPlotH_details.raw_amount).toBe(45000000);
   });
 
-  test('Overrides Labour Welfare on Parking Area in statutory table', () => {
+  test('Treats Labour Welfare on Parking Area as pure manual admin input (ignores formula overrides per FR-28)', () => {
     const statutoryCharges = [
-      { id: 1, charge_code: 'LABOUR_WELFARE_PARKING', charge_name: 'Labour Welfare on Parking', amount: 50000, calculated_amount: 50000 }
+      { id: 1, charge_code: 'LABOUR_WELFARE_PARKING', charge_name: 'Labour Welfare on Parking', amount: 50000, calculated_amount: null }
     ];
 
     const finWithOverride = {
@@ -275,7 +275,8 @@ describe('Master Rebuild — Controlled Overrides Across All Cost Sections (Sect
 
     const calc = calculateFinancialMetrics(finWithOverride, statutoryCharges, [], baseAreaMetrics);
     const parkingCharge = calc.evaluatedStatutoryCharges.find(sc => sc.charge_code === 'LABOUR_WELFARE_PARKING');
-    expect(parkingCharge.effective_amount).toBe(35000);
-    expect(parkingCharge.has_override).toBe(true);
+    expect(parkingCharge.effective_amount).toBe(50000);
+    expect(parkingCharge.has_override).toBe(false);
+    expect(parkingCharge.is_manual).toBe(true);
   });
 });

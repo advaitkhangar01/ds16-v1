@@ -14,9 +14,10 @@ describe('Manewada Commercial + Residential Benchmark Feasibility Suite', () => 
     existing_builtup_area_sqm: 0,
     basic_fsi_factor: 1.10,
     paid_fsi_factor: 0.50,
+    total_tdr_factor: 1.15,
     regular_tdr_factor: 1.15,
     slum_tdr_factor: 0,
-    road_width_m: 24,
+    road_width_m: null,
     building_use: 'Mixed Use',
     dividing_factor: 1.6,
     is_proposed_pline_overridden: true,
@@ -92,36 +93,12 @@ describe('Manewada Commercial + Residential Benchmark Feasibility Suite', () => 
     expect(area.sourceProposedPlineDifferenceSqm).toBeCloseTo(0.377, 3);
   });
 
-  test('4. Occupancy-Based Parking Statement (UDCPR Chapter 8) requirements & surplus', () => {
+  test('4. Scope Correction excludes Parking Calculation table from areaMetrics', () => {
     const area = calculateAreaMetrics(manewadaStatement, manewadaFloors);
-    const parking = area.parkingRequirements;
-
-    expect(parking).toBeDefined();
-    // Commercial carpet: 749.216 sqm -> cars = 14.984, scooters = 44.953
-    expect(parking.commercialCarpetSqm).toBeCloseTo(749.216, 2);
-    expect(parking.commercialCars).toBeCloseTo(14.984, 2);
-    expect(parking.commercialTwoWheelers).toBeCloseTo(44.953, 2);
-
-    // Residential: 32 tenements (40-80 sqm) -> cars = 16, scooters = 32
-    expect(parking.totalResidentialTenements).toBe(32);
-    expect(parking.residentialCars).toBeCloseTo(16.0, 1);
-    expect(parking.residentialTwoWheelers).toBeCloseTo(32.0, 1);
-
-    // Visitor 5% added, Nagpur 0.90 applied
-    // Gross: Cars = (14.984 + 16.0) * 1.05 = 32.533
-    // NMC 0.90: ceil(32.533 * 0.90) = ceil(29.280) = 30
-    // Gross: Scooters = (44.953 + 32.0) * 1.05 = 80.801
-    // NMC 0.90: ceil(80.801 * 0.90) = ceil(72.721) = 73
-    expect(parking.requiredCars).toBe(30);
-    expect(parking.requiredTwoWheelers).toBe(73);
-
-    // Proposed provision: 34 cars, 75 scooters
-    expect(parking.proposedCars).toBe(34);
-    expect(parking.proposedTwoWheelers).toBe(75);
-    expect(parking.surplusDeficitCars).toBe(4); // 34 - 30 = +4
-    expect(parking.surplusDeficitTwoWheelers).toBe(2); // 75 - 73 = +2
-    expect(parking.isCarRequirementMet).toBe(true);
-    expect(parking.isTwoWheelerRequirementMet).toBe(true);
+    // Standalone parking calculations are excluded per Scope Correction Section 5
+    expect(area.parkingRequirements).toBeUndefined();
+    expect(area.effectiveProposedPlineSqm).toBeCloseTo(4072.457, 3);
+    expect(area.totalProposedPlineSqm).toBeCloseTo(4072.080, 3);
   });
 
   test('5. Financial Viability preserves Cost A and Cost B separately, handles statutory charges with caps', () => {

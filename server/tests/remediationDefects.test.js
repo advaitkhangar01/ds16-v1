@@ -219,27 +219,28 @@ describe('Remediation Verification Suite — 7 Audit Findings', () => {
       const finMetrics = calculateFinancialMetrics(financial, [], salableUnits, {});
       const unit = finMetrics.evaluatedSalableUnits[0];
 
-      // Super sqft = 699.66 + 250 = 949.66
-      expect(unit.carpet_area_sqft).toBeCloseTo(699.66, 2);
-      expect(unit.super_buildup_area_sqft).toBeCloseTo(949.66, 2);
+      // carpet_area_sqm: 65.0 -> 65 * 10.7639104167 = 699.65 sq ft (FR-01)
+      // Super sqft = 699.654... + 250 = 949.65 sq ft
+      expect(unit.carpet_area_sqft).toBeCloseTo(699.65, 2);
+      expect(unit.super_buildup_area_sqft).toBeCloseTo(949.65, 2);
 
-      // Unit Price = 949.66 * 5000 = 4,748,300
-      expect(unit.unit_price).toBeCloseTo(4748300, 0);
+      // Unit Price = 949.65 * 5000 = 4,748,250
+      expect(unit.unit_price).toBeCloseTo(4748250, 0);
 
       // Developer Units = 7, Landowner Units = 3
       expect(unit.developer_unit_count).toBe(7);
       expect(unit.landowner_unit_count).toBe(3);
 
-      // Developer Realization = 4,748,300 * 7 = 33,238,100
-      expect(unit.developer_amount).toBeCloseTo(33238100, 0);
+      // Developer Realization = 4,748,250 * 7 = 33,237,750
+      expect(unit.developer_amount).toBeCloseTo(33237750, 0);
 
-      // Landowner Asset Value = 4,748,300 * 3 = 14,244,900
-      expect(unit.landowner_amount).toBeCloseTo(14244900, 0);
+      // Landowner Asset Value = 4,748,250 * 3 = 14,244,750
+      expect(unit.landowner_amount).toBeCloseTo(14244750, 0);
 
       // Total Receipts in financialMetrics strictly counts Developer Realization
-      expect(finMetrics.totalReceipts).toBeCloseTo(33238100, 0);
-      expect(finMetrics.totalGrossReceipts).toBeCloseTo(47483000, 0);
-      expect(finMetrics.totalLandownerReceipts).toBeCloseTo(14244900, 0);
+      expect(finMetrics.totalReceipts).toBeCloseTo(33237750, 0);
+      expect(finMetrics.totalGrossReceipts).toBeCloseTo(47482500, 0);
+      expect(finMetrics.totalLandownerReceipts).toBeCloseTo(14244750, 0);
     });
   });
 

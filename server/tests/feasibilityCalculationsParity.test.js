@@ -49,8 +49,8 @@ describe('Phase 4: Calculation Accuracy & Formula Parity', () => {
       const areaMetrics = { evaluatedFloors: [], totalProposedPlineSqm: 200 };
       const res = calculateFinancialMetrics(fin, [], salableUnits, areaMetrics);
       const evaluated = res.evaluatedSalableUnits[0];
-      // carpet_area_sqft = 100 * 10.764 = 1076.4
-      expect(evaluated.super_buildup_area_sqft).toBe(1076.4); // 1076.4 + 0, not + 300
+      // carpet_area_sqft = 100 * 10.7639104167 = 1076.39 (rounded to 2 decimals)
+      expect(evaluated.super_buildup_area_sqft).toBeCloseTo(1076.39, 2); // 1076.39 + 0, not + 300
     });
   });
 
