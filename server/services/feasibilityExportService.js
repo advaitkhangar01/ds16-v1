@@ -150,11 +150,14 @@ function buildAreaSheets(wb, data) {
   const dpDed = parseNum(statement.dp_deductions_sqm, 0);
   const basicFactor = parseNum(statement.basic_fsi_factor, 1.1);
   const maxPaidFactor = parseNum(statement.paid_fsi_factor, 0.5);
-  const propPaidFactor = parseNum(areaMetrics.effectiveProposedPaidFsiFactor, maxPaidFactor);
-  const permRegFactor = parseNum(areaMetrics.regularTdrFactor, 0);
-  const permSlumFactor = parseNum(areaMetrics.slumTdrFactor, 0);
-  const propRegFactor = parseNum(areaMetrics.effectiveProposedRegularTdrFactor, permRegFactor);
-  const propSlumFactor = parseNum(areaMetrics.effectiveProposedSlumTdrFactor, permSlumFactor);
+  const propPaidFactor = parseNum(areaMetrics.effectiveProposedPaidFsiFactor, 0);
+  const permRegFactor = parseNum(areaMetrics.eligibleRegularTdrFactor ?? areaMetrics.regularTdrFactor, 0);
+  const permSlumFactor = parseNum(areaMetrics.eligibleSlumTdrFactor ?? areaMetrics.slumTdrFactor, 0);
+  const underlyingTotalTdr = parseNum(areaMetrics.totalTdrFactor, 0);
+  const underlyingRegTdr = parseNum(areaMetrics.regularTdrFactor, 0);
+  const underlyingSlumTdr = parseNum(areaMetrics.slumTdrFactor, 0);
+  const propRegFactor = parseNum(areaMetrics.effectiveProposedRegularTdrFactor, 0);
+  const propSlumFactor = parseNum(areaMetrics.effectiveProposedSlumTdrFactor, 0);
   const commShare = parseNum(areaMetrics.primaryFsiCommercialPct, 0) / 100;
   const resShare = parseNum(areaMetrics.primaryFsiResidentialPct, 100) / 100;
   const commAncPct = parseNum(areaMetrics.commAncillaryPct, 0.8);
@@ -165,12 +168,12 @@ function buildAreaSheets(wb, data) {
     { r: 6, sr: '2', part: 'As Per City Survey Record', note: 'Independent PR record', perm: surveyArea, prop: '-' },
     { r: 7, sr: '3', part: 'As per site', note: 'Actual measured at site', perm: siteArea, prop: '-' },
     { r: 8, sr: '4', part: 'Deductions For Proposed D.P.', note: 'Road / DP deduction', perm: dpDed, prop: '-' },
-    { r: 9, sr: 'A', part: 'Plotable area', note: 'Plot Area - D.P. Deductions', permFormula: 'MAX(0,E5-E8)', propFormula: 'E9', bold: true, fill: FILL_SUBHEADER, valPerm: areaMetrics.plotableAreaSqm, valProp: areaMetrics.plotableAreaSqm },
+    { r: 9, sr: 'A', part: 'Plotable area', note: 'Plot Area - D.P. Deductions', permFormula: 'E5-E8', propFormula: 'E9', bold: true, fill: FILL_SUBHEADER, valPerm: areaMetrics.plotableAreaSqm, valProp: areaMetrics.plotableAreaSqm },
     { r: 10, sr: 'B', part: 'Basic Permissible FSI', note: `${basicFactor.toFixed(2)} of Plotable`, permFactor: basicFactor, propFactor: basicFactor, permFormula: 'E9*D10', propFormula: 'F9*G10', valPerm: areaMetrics.permissibleFsiSqm, valProp: areaMetrics.proposedBasicFsiSqm },
-    { r: 11, sr: 'C', part: 'Paid FSI', note: `Max ${(maxPaidFactor * 100).toFixed(1)}% / Prop ${(propPaidFactor * 100).toFixed(1)}%`, permFactor: maxPaidFactor, propFactor: propPaidFactor, permFormula: 'E9*D11', propFormula: 'F9*G11', valPerm: areaMetrics.permissiblePaidFsiSqm, valProp: areaMetrics.proposedPaidFsiSqm },
-    { r: 12, sr: 'D1', part: 'Regular TDR', note: areaMetrics.isGunthewari ? 'Ineligible (Gunthewari)' : 'Regular TDR share', permFactor: permRegFactor, propFactor: propRegFactor, permFormula: 'E9*D12', propFormula: 'F9*G12', valPerm: areaMetrics.permissibleRegularTdrSqm, valProp: areaMetrics.regularTdrSqm },
-    { r: 13, sr: 'D2', part: 'Slum TDR', note: areaMetrics.isGunthewari ? 'Gunthewari Slum TDR only' : 'Slum TDR share', permFactor: permSlumFactor, propFactor: propSlumFactor, permFormula: 'E9*D13', propFormula: 'F9*G13', valPerm: areaMetrics.permissibleSlumTdrSqm, valProp: areaMetrics.slumTdrSqm },
-    { r: 14, sr: 'D', part: 'Total TDR (D1 + D2)', note: 'Combined TDR potential/consumed', permFactorFormula: 'D12+D13', propFactorFormula: 'G12+G13', valFactorPerm: permRegFactor + permSlumFactor, valFactorProp: propRegFactor + propSlumFactor, permFormula: 'E12+E13', propFormula: 'F12+F13', bold: true, valPerm: areaMetrics.permissibleTdrSqm, valProp: areaMetrics.proposedTdrSqm },
+    { r: 11, sr: 'C', part: 'Paid FSI', note: `Max ${maxPaidFactor.toFixed(3)} / Auto ${parseNum(areaMetrics.suggestedPaidFsiFactor, 0).toFixed(3)} / Prop ${propPaidFactor.toFixed(3)}`, permFactor: maxPaidFactor, propFactor: propPaidFactor, permFormula: 'E9*D11', propFormula: 'F9*G11', valPerm: areaMetrics.permissiblePaidFsiSqm, valProp: areaMetrics.proposedPaidFsiSqm },
+    { r: 12, sr: 'D1', part: 'Regular TDR', note: areaMetrics.isGunthewari ? `Ineligible (Gunthewari = 0; Road Split ${underlyingRegTdr.toFixed(3)})` : `Regular TDR share (${underlyingRegTdr.toFixed(3)})`, permFactor: permRegFactor, propFactor: propRegFactor, permFormula: 'E9*D12', propFormula: 'F9*G12', valPerm: areaMetrics.permissibleRegularTdrSqm, valProp: areaMetrics.regularTdrSqm },
+    { r: 13, sr: 'D2', part: 'Slum TDR', note: areaMetrics.isGunthewari ? `Gunthewari Slum TDR only (${permSlumFactor.toFixed(3)})` : `Remaining balance (${underlyingSlumTdr.toFixed(3)})`, permFactor: permSlumFactor, propFactor: propSlumFactor, permFormula: 'E9*D13', propFormula: 'F9*G13', valPerm: areaMetrics.permissibleSlumTdrSqm, valProp: areaMetrics.slumTdrSqm },
+    { r: 14, sr: 'D', part: 'Total / Eligible TDR (D1 + D2)', note: `Road Total ${underlyingTotalTdr.toFixed(3)} | Rem Eligible ${(parseNum(areaMetrics.remainingTdrFactor, 0)).toFixed(3)}`, permFactorFormula: 'D12+D13', propFactorFormula: 'G12+G13', valFactorPerm: permRegFactor + permSlumFactor, valFactorProp: propRegFactor + propSlumFactor, permFormula: 'E12+E13', propFormula: 'F12+F13', bold: true, valPerm: areaMetrics.permissibleTdrSqm, valProp: areaMetrics.proposedTdrSqm },
     { r: 15, sr: 'E', part: 'Primary FSI / Total Builtup Area (B+C+D)', note: 'Base + Paid + Consumed TDR', permFormula: 'E10+E11+E14', propFormula: 'F10+F11+F14', bold: true, fill: FILL_SUBHEADER, valPerm: areaMetrics.permissibleTotalBuiltupSqm, valProp: areaMetrics.proposedTotalBuiltupSqm },
     { r: 16, sr: 'F', part: 'TOTAL FSI Ratio', note: 'Dimensionless FSI ratio', isRatio: true, permFormula: 'IF(E9>0,E15/E9,0)', propFormula: 'IF(F9>0,F15/F9,0)', valPerm: areaMetrics.permissibleTotalFsi, valProp: areaMetrics.proposedTotalFsi },
     { r: 17, sr: 'G1', part: `ANCILLARY — Comm. (${Math.round(commAncPct * 100)}%)`, note: `Primary Alloc: ${(commShare * 100).toFixed(1)}%`, permFactor: commShare, propFactor: commShare, permFormula: `E15*D17*${commAncPct}`, propFormula: `F15*G17*${commAncPct}`, valPerm: areaMetrics.permissibleCommercialAncillarySqm, valProp: areaMetrics.table1ProposedCommAncSqm ?? areaMetrics.proposedCommercialAncillarySqm },
@@ -255,7 +258,7 @@ function buildAreaSheets(wb, data) {
     styleRowCells(wsF, r, 1, 7, rowStyle);
   }
 
-  // Table 2: Floor-wise Proposed P-Line Area Statement (Exact 6 Excel columns starting at Row 21)
+  // Table 2: Floor-wise Proposed P-Line Area Statement (Approved 6-Column Unit Structure starting at Row 21)
   const buildFloorHeader = (ws, unitTxt) => {
     ws.mergeCells('A21:G21');
     ws.getCell('A21').value = `PROPOSED P-LINE AREA STATEMENT (${unitTxt})`;
@@ -271,13 +274,13 @@ function buildAreaSheets(wb, data) {
     hRow.getCell(3).value = '2. Height (m)';
     hRow.getCell(4).value = `3. P-Line Area (${unitTxt})`;
     hRow.getCell(5).value = `4. Lobby Area (${unitTxt})`;
-    hRow.getCell(6).value = `5. Built-up for Owners (${unitTxt})`;
-    hRow.getCell(7).value = `6. Built-up for Sale (${unitTxt})`;
+    hRow.getCell(6).value = '5. No. of Units';
+    hRow.getCell(7).value = `6. Built-up for Sale (1 Unit) (${unitTxt})`;
     styleRowCells(ws, 22, 1, 7, {
       font: FONT_TH,
       fill: FILL_SUBHEADER,
       border: BORDER_THIN,
-      align: { 1: { horizontal: 'left' }, 3: { horizontal: 'center' }, 4: { horizontal: 'right' }, 5: { horizontal: 'right' }, 6: { horizontal: 'right' }, 7: { horizontal: 'right' } }
+      align: { 1: { horizontal: 'left' }, 3: { horizontal: 'center' }, 4: { horizontal: 'right' }, 5: { horizontal: 'right' }, 6: { horizontal: 'center' }, 7: { horizontal: 'right' } }
     });
   };
 
@@ -285,14 +288,22 @@ function buildAreaSheets(wb, data) {
   buildFloorHeader(wsF, 'Sq. Ft.');
 
   const startFloorRow = 23;
+  const heightContributingRows = [];
+  const floorRowById = {};
+
   floors.forEach((fl, idx) => {
     const r = startFloorRow + idx;
-    const isHabitable = fl.floor_type !== 'parking' && fl.floor_type !== 'terrace';
+    if (fl.id !== undefined && fl.id !== null) floorRowById[Number(fl.id)] = r;
+    const isHabitable = fl.floor_type !== 'parking' && fl.floor_type !== 'terrace' && fl.floor_type !== 'service';
+    const contributesToHeight = fl.contributes_to_height !== false;
+    if (contributesToHeight) heightContributingRows.push(r);
+
     const height = parseNum(fl.height_meters, 0);
     const pline = parseNum(fl.pline_area_sqm, 0);
-    const lobby = parseNum(fl.lobby_area_sqm, 0);
-    const owners = isHabitable ? parseNum(fl.builtup_for_owners_sqm, 0) : 0;
-    const sale = isHabitable ? parseNum(fl.builtup_for_sale_sqm, 0) : 0;
+    const lobby = isHabitable ? parseNum(fl.lobby_area_sqm, 0) : 0;
+    const units = isHabitable ? parseInt(parseNum(fl.no_of_units, 0), 10) : 0;
+    const sale = isHabitable ? (pline - lobby) : 0;
+    const areaPerUnitSqm = (isHabitable && units > 0) ? (sale / units) : null;
 
     const mRow = wsM.getRow(r);
     const fRow = wsF.getRow(r);
@@ -303,62 +314,88 @@ function buildAreaSheets(wb, data) {
     wsF.mergeCells(`A${r}:B${r}`);
 
     mRow.getCell(1).value = fl.floor_name;
-    mRow.getCell(3).value = height;
+    mRow.getCell(3).value = contributesToHeight ? height : 0;
     mRow.getCell(4).value = pline;
     mRow.getCell(5).value = isHabitable && !fl.is_lobby_overridden ? { formula: `D${r}*0.15`, result: lobby } : lobby;
-    mRow.getCell(6).value = owners;
-    mRow.getCell(7).value = isHabitable ? { formula: `MAX(0,D${r}-E${r}-F${r})`, result: sale } : 0;
+    mRow.getCell(6).value = units;
+    mRow.getCell(7).value = isHabitable
+      ? { formula: `IF(F${r}>0,(D${r}-E${r})/F${r},"—")`, result: areaPerUnitSqm !== null ? areaPerUnitSqm : '—' }
+      : '—';
 
-    // Area (SQ FT) links every cell cleanly to Area (SQ M)
+    // Area (SQ FT) links cleanly to Area (SQ M) (Units stay unitless integer, Per-Unit converts via SQM_TO_SQFT)
     fRow.getCell(1).value = { formula: `'Area (SQ M)'!A${r}`, result: fl.floor_name };
-    fRow.getCell(3).value = { formula: `'Area (SQ M)'!C${r}`, result: height };
-    for (const c of [4, 5, 6, 7]) {
-      const colLet = wsM.getColumn(c).letter;
-      fRow.getCell(c).value = { formula: `'Area (SQ M)'!${colLet}${r}*${SQM_TO_SQFT}`, result: [pline, lobby, owners, sale][c - 4] * SQM_TO_SQFT };
-    }
+    fRow.getCell(3).value = { formula: `'Area (SQ M)'!C${r}`, result: contributesToHeight ? height : 0 };
+    fRow.getCell(4).value = { formula: `'Area (SQ M)'!D${r}*${SQM_TO_SQFT}`, result: pline * SQM_TO_SQFT };
+    fRow.getCell(5).value = { formula: `'Area (SQ M)'!E${r}*${SQM_TO_SQFT}`, result: lobby * SQM_TO_SQFT };
+    fRow.getCell(6).value = { formula: `'Area (SQ M)'!F${r}`, result: units };
+    fRow.getCell(7).value = isHabitable
+      ? { formula: `IF(F${r}>0,(D${r}-E${r})/F${r},"—")`, result: areaPerUnitSqm !== null ? areaPerUnitSqm * SQM_TO_SQFT : '—' }
+      : '—';
 
     for (const rowObj of [mRow, fRow]) {
-      [3, 4, 5, 6, 7].forEach((c) => { rowObj.getCell(c).numFmt = FMT_AREA2; });
+      rowObj.getCell(3).numFmt = FMT_AREA2;
+      rowObj.getCell(4).numFmt = FMT_AREA2;
+      rowObj.getCell(5).numFmt = FMT_AREA2;
+      rowObj.getCell(6).numFmt = FMT_INT;
+      rowObj.getCell(7).numFmt = FMT_AREA3;
     }
 
-    const flAlign = { 1: { horizontal: 'left' }, 3: { horizontal: 'center' }, 4: { horizontal: 'right' }, 5: { horizontal: 'right' }, 6: { horizontal: 'right' }, 7: { horizontal: 'right' } };
+    const flAlign = { 1: { horizontal: 'left' }, 3: { horizontal: 'center' }, 4: { horizontal: 'right' }, 5: { horizontal: 'right' }, 6: { horizontal: 'center' }, 7: { horizontal: 'right' } };
     styleRowCells(wsM, r, 1, 7, { font: FONT_TD, border: BORDER_THIN, align: flAlign });
     styleRowCells(wsF, r, 1, 7, { font: FONT_TD, border: BORDER_THIN, align: flAlign });
   });
 
   const endFloorRow = floors.length > 0 ? startFloorRow + floors.length - 1 : startFloorRow;
   const totalRowNum = endFloorRow + 1;
+  const heightFormulaExpr = heightContributingRows.length > 0
+    ? heightContributingRows.map((rn) => `C${rn}`).join('+')
+    : '0';
+
   const populateFloorTotal = (ws, isSqftSheet) => {
     const tRow = ws.getRow(totalRowNum);
     tRow.height = 20;
     ws.mergeCells(`A${totalRowNum}:B${totalRowNum}`);
-    tRow.getCell(1).value = 'TOTAL';
+    tRow.getCell(1).value = 'TOTAL / WEIGHTED AVG (COL 6)';
     const sumCols = floors.length > 0 ? (c) => `SUM(${c}${startFloorRow}:${c}${endFloorRow})` : () => '0';
-    tRow.getCell(3).value = { formula: sumCols('C'), result: areaMetrics.totalHeightMeters || 0 };
-    tRow.getCell(4).value = { formula: sumCols('D'), result: (areaMetrics.totalProposedPlineSqm || 0) * (isSqftSheet ? SQM_TO_SQFT : 1) };
-    tRow.getCell(5).value = { formula: sumCols('E'), result: (areaMetrics.totalLobbyAreaSqm || 0) * (isSqftSheet ? SQM_TO_SQFT : 1) };
-    tRow.getCell(6).value = { formula: sumCols('F'), result: (areaMetrics.totalBuiltupForOwnersSqm || 0) * (isSqftSheet ? SQM_TO_SQFT : 1) };
-    tRow.getCell(7).value = { formula: sumCols('G'), result: (areaMetrics.totalBuiltupForSaleSqm || 0) * (isSqftSheet ? SQM_TO_SQFT : 1) };
+    const mult = isSqftSheet ? SQM_TO_SQFT : 1;
+    tRow.getCell(3).value = { formula: heightFormulaExpr, result: areaMetrics.totalHeightMeters || 0 };
+    tRow.getCell(4).value = { formula: sumCols('D'), result: (areaMetrics.totalProposedPlineSqm || 0) * mult };
+    tRow.getCell(5).value = { formula: sumCols('E'), result: (areaMetrics.totalLobbyAreaSqm || 0) * mult };
+    tRow.getCell(6).value = { formula: sumCols('F'), result: areaMetrics.totalUnitsCount || 0 };
+    const avgRes = areaMetrics.weightedAverageAreaPerUnitRaw !== null && areaMetrics.weightedAverageAreaPerUnitRaw !== undefined
+      ? areaMetrics.weightedAverageAreaPerUnitRaw * mult
+      : '—';
+    tRow.getCell(7).value = { formula: `IF(F${totalRowNum}>0,(D${totalRowNum}-E${totalRowNum})/F${totalRowNum},"—")`, result: avgRes };
 
-    [3, 4, 5, 6, 7].forEach((c) => { tRow.getCell(c).numFmt = FMT_AREA2; });
+    tRow.getCell(3).numFmt = FMT_AREA2;
+    tRow.getCell(4).numFmt = FMT_AREA2;
+    tRow.getCell(5).numFmt = FMT_AREA2;
+    tRow.getCell(6).numFmt = FMT_INT;
+    tRow.getCell(7).numFmt = '"Avg: "#,##0.000';
 
     styleRowCells(ws, totalRowNum, 1, 7, {
       font: FONT_TD_BOLD,
       fill: FILL_SUBHEADER,
       border: BORDER_TOTAL,
-      align: { 1: { horizontal: 'left' }, 3: { horizontal: 'center' }, 4: { horizontal: 'right' }, 5: { horizontal: 'right' }, 6: { horizontal: 'right' }, 7: { horizontal: 'right' } }
+      align: { 1: { horizontal: 'left' }, 3: { horizontal: 'center' }, 4: { horizontal: 'right' }, 5: { horizontal: 'right' }, 6: { horizontal: 'center' }, 7: { horizontal: 'right' } }
     });
 
-    // Area Balance & Margin H/5 rows matching Excel layout
+    const saleRow = ws.getRow(totalRowNum + 1);
+    saleRow.getCell(1).value = 'Total Saleable Area (P-Line − Lobby)';
+    ws.mergeCells(`A${totalRowNum + 1}:C${totalRowNum + 1}`);
+    saleRow.getCell(4).value = { formula: `D${totalRowNum}-E${totalRowNum}`, result: (areaMetrics.totalBuiltupForSaleSqm || 0) * mult };
+    saleRow.getCell(4).numFmt = FMT_AREA2;
+    styleRowCells(ws, totalRowNum + 1, 1, 4, { font: FONT_TD_BOLD, border: BORDER_THIN, align: { 4: { horizontal: 'right' } } });
+
     const balRow = ws.getRow(totalRowNum + 2);
     balRow.getCell(1).value = 'Area Balance (Permissible P-Line − Floor Proposed Sum)';
     ws.mergeCells(`A${totalRowNum + 2}:C${totalRowNum + 2}`);
-    balRow.getCell(4).value = { formula: `E19-D${totalRowNum}`, result: ((areaMetrics.permissiblePlineTotalSqm || 0) - (areaMetrics.totalProposedPlineSqm || 0)) * (isSqftSheet ? SQM_TO_SQFT : 1) };
+    balRow.getCell(4).value = { formula: `E19-D${totalRowNum}`, result: ((areaMetrics.permissiblePlineTotalSqm || 0) - (areaMetrics.totalProposedPlineSqm || 0)) * mult };
     balRow.getCell(4).numFmt = FMT_AREA2;
     styleRowCells(ws, totalRowNum + 2, 1, 4, { font: FONT_TD_BOLD, border: BORDER_THIN, align: { 4: { horizontal: 'right' } } });
 
     const marRow = ws.getRow(totalRowNum + 3);
-    marRow.getCell(1).value = 'Margin (H / 5)';
+    marRow.getCell(1).value = 'Margin Required (Height H / 5)';
     ws.mergeCells(`A${totalRowNum + 3}:B${totalRowNum + 3}`);
     marRow.getCell(3).value = { formula: `C${totalRowNum}/5`, result: areaMetrics.marginHBy5Meters || 0 };
     marRow.getCell(3).numFmt = FMT_AREA2;
@@ -368,7 +405,7 @@ function buildAreaSheets(wb, data) {
   populateFloorTotal(wsM, false);
   populateFloorTotal(wsF, true);
 
-  return { floorTotalRowNum: totalRowNum };
+  return { floorTotalRowNum: totalRowNum, floorRowById };
 }
 
 /**
@@ -399,7 +436,7 @@ function buildFinancialSheet(wb, data, areaMeta) {
   factorRow.getCell(1).value = { formula: "'Area (SQ M)'!E9", result: areaMetrics.plotableAreaSqm || 0 };
   factorRow.getCell(2).value = { formula: "'Area (SQ M)'!D10", result: parseNum(statement.basic_fsi_factor, 1.1) };
   factorRow.getCell(3).value = { formula: "'Area (SQ M)'!D11", result: parseNum(statement.paid_fsi_factor, 0.5) };
-  factorRow.getCell(4).value = { formula: "'Area (SQ M)'!D14", result: parseNum(areaMetrics.totalTdrFactor, 0) };
+  factorRow.getCell(4).value = { formula: "'Area (SQ M)'!D14", result: parseNum(areaMetrics.eligibleTdrFactor ?? areaMetrics.totalTdrFactor, 0) };
   factorRow.getCell(5).value = { formula: 'B4+C4+D4' };
   factorRow.getCell(6).value = parseNum(areaMetrics.commAncillaryPct, 0.8);
   factorRow.getCell(7).value = parseNum(areaMetrics.resAncillaryPct, 0.6);
@@ -792,12 +829,17 @@ function buildFinancialSheet(wb, data, areaMeta) {
     const devAmt = parseNum(u.developer_amount, 0);
 
     uRow.getCell(2).value = `${u.unit_name || 'Unit'} (${u.building_use || 'Residential'})`;
-    uRow.getCell(3).value = cSqft;
+    const linkedRow = u.source_floor_id && areaMeta.floorRowById ? areaMeta.floorRowById[Number(u.source_floor_id)] : null;
+    uRow.getCell(3).value = linkedRow
+      ? { formula: `'Area (SQ M)'!G${linkedRow}*${SQM_TO_SQFT}`, result: cSqft }
+      : cSqft;
     uRow.getCell(4).value = u.loading_mode === 'percentage'
       ? { formula: `C${r}*(1+${lPct / 100})`, result: sSqft }
       : { formula: `C${r}+${lSqft}`, result: sSqft };
     uRow.getCell(5).value = ownU > 0 ? `${u.unit_count} (${ownU} Owner)` : `${u.unit_count || 0}`;
-    uRow.getCell(6).value = devU;
+    uRow.getCell(6).value = linkedRow
+      ? { formula: `'Area (SQ M)'!F${linkedRow}-${ownU}`, result: devU }
+      : devU;
     uRow.getCell(7).value = rate;
     uRow.getCell(8).value = { formula: `D${r}*G${r}`, result: uPrice };
     uRow.getCell(9).value = { formula: `H${r}*F${r}`, result: devAmt };
@@ -1000,9 +1042,9 @@ async function generateFeasibilityPdfBuffer(data) {
       Object.assign(['A', 'Plotable area', fmtNumPdf(areaMetrics.plotableAreaSqm, 3), fmtNumPdf(areaMetrics.plotableAreaSqm, 3), fmtNumPdf((areaMetrics.plotableAreaSqm || 0) * SQM_TO_SQFT, 2), fmtNumPdf((areaMetrics.plotableAreaSqm || 0) * SQM_TO_SQFT, 2)], { _bold: true }),
       ['B', `Basic FSI (${parseNum(statement.basic_fsi_factor, 1.1).toFixed(2)})`, fmtNumPdf(areaMetrics.permissibleFsiSqm, 3), fmtNumPdf(areaMetrics.proposedBasicFsiSqm, 3), fmtNumPdf((areaMetrics.permissibleFsiSqm || 0) * SQM_TO_SQFT, 2), fmtNumPdf((areaMetrics.proposedBasicFsiSqm || 0) * SQM_TO_SQFT, 2)],
       ['C', `Paid FSI (Max ${parseNum(statement.paid_fsi_factor, 0.5).toFixed(2)} / Prop ${parseNum(areaMetrics.effectiveProposedPaidFsiFactor, 0).toFixed(2)})`, fmtNumPdf(areaMetrics.permissiblePaidFsiSqm, 3), fmtNumPdf(areaMetrics.proposedPaidFsiSqm, 3), fmtNumPdf((areaMetrics.permissiblePaidFsiSqm || 0) * SQM_TO_SQFT, 2), fmtNumPdf((areaMetrics.proposedPaidFsiSqm || 0) * SQM_TO_SQFT, 2)],
-      ['D1', `Regular TDR (${parseNum(areaMetrics.regularTdrFactor, 0).toFixed(3)} / Prop ${parseNum(areaMetrics.effectiveProposedRegularTdrFactor, 0).toFixed(3)})`, fmtNumPdf(areaMetrics.permissibleRegularTdrSqm, 3), fmtNumPdf(areaMetrics.regularTdrSqm, 3), fmtNumPdf((areaMetrics.permissibleRegularTdrSqm || 0) * SQM_TO_SQFT, 2), fmtNumPdf((areaMetrics.regularTdrSqm || 0) * SQM_TO_SQFT, 2)],
-      ['D2', `Slum TDR (${parseNum(areaMetrics.slumTdrFactor, 0).toFixed(3)} / Prop ${parseNum(areaMetrics.effectiveProposedSlumTdrFactor, 0).toFixed(3)})`, fmtNumPdf(areaMetrics.permissibleSlumTdrSqm, 3), fmtNumPdf(areaMetrics.slumTdrSqm, 3), fmtNumPdf((areaMetrics.permissibleSlumTdrSqm || 0) * SQM_TO_SQFT, 2), fmtNumPdf((areaMetrics.slumTdrSqm || 0) * SQM_TO_SQFT, 2)],
-      Object.assign(['D', 'Total TDR (D1 + D2)', fmtNumPdf(areaMetrics.permissibleTdrSqm, 3), fmtNumPdf(areaMetrics.proposedTdrSqm, 3), fmtNumPdf((areaMetrics.permissibleTdrSqm || 0) * SQM_TO_SQFT, 2), fmtNumPdf((areaMetrics.proposedTdrSqm || 0) * SQM_TO_SQFT, 2)], { _bold: true }),
+      ['D1', `Regular TDR (Elig ${parseNum(areaMetrics.eligibleRegularTdrFactor ?? areaMetrics.regularTdrFactor, 0).toFixed(3)} / Prop ${parseNum(areaMetrics.effectiveProposedRegularTdrFactor, 0).toFixed(3)})`, fmtNumPdf(areaMetrics.permissibleRegularTdrSqm, 3), fmtNumPdf(areaMetrics.regularTdrSqm, 3), fmtNumPdf((areaMetrics.permissibleRegularTdrSqm || 0) * SQM_TO_SQFT, 2), fmtNumPdf((areaMetrics.regularTdrSqm || 0) * SQM_TO_SQFT, 2)],
+      ['D2', `Slum TDR (Elig ${parseNum(areaMetrics.eligibleSlumTdrFactor ?? areaMetrics.slumTdrFactor, 0).toFixed(3)} / Prop ${parseNum(areaMetrics.effectiveProposedSlumTdrFactor, 0).toFixed(3)})`, fmtNumPdf(areaMetrics.permissibleSlumTdrSqm, 3), fmtNumPdf(areaMetrics.slumTdrSqm, 3), fmtNumPdf((areaMetrics.permissibleSlumTdrSqm || 0) * SQM_TO_SQFT, 2), fmtNumPdf((areaMetrics.slumTdrSqm || 0) * SQM_TO_SQFT, 2)],
+      Object.assign(['D', `Total TDR (Road ${parseNum(areaMetrics.totalTdrFactor, 0).toFixed(3)} / Elig ${parseNum(areaMetrics.eligibleTdrFactor ?? areaMetrics.totalTdrFactor, 0).toFixed(3)})`, fmtNumPdf(areaMetrics.permissibleTdrSqm, 3), fmtNumPdf(areaMetrics.proposedTdrSqm, 3), fmtNumPdf((areaMetrics.permissibleTdrSqm || 0) * SQM_TO_SQFT, 2), fmtNumPdf((areaMetrics.proposedTdrSqm || 0) * SQM_TO_SQFT, 2)], { _bold: true }),
       Object.assign(['E', 'Primary FSI / Total Builtup Area (B+C+D)', fmtNumPdf(areaMetrics.permissibleTotalBuiltupSqm, 3), fmtNumPdf(areaMetrics.proposedTotalBuiltupSqm, 3), fmtNumPdf((areaMetrics.permissibleTotalBuiltupSqm || 0) * SQM_TO_SQFT, 2), fmtNumPdf((areaMetrics.proposedTotalBuiltupSqm || 0) * SQM_TO_SQFT, 2)], { _bold: true }),
       ['F', 'TOTAL FSI Ratio', fmtNumPdf(areaMetrics.permissibleTotalFsi, 3), fmtNumPdf(areaMetrics.proposedTotalFsi, 3), 'Ratio', 'Ratio'],
       ['G1', `Ancillary — Commercial (80% of ${parseNum(areaMetrics.primaryFsiCommercialPct, 0).toFixed(1)}%)`, fmtNumPdf(areaMetrics.permissibleCommercialAncillarySqm, 3), fmtNumPdf(areaMetrics.table1ProposedCommAncSqm ?? areaMetrics.proposedCommercialAncillarySqm, 3), fmtNumPdf((areaMetrics.permissibleCommercialAncillarySqm || 0) * SQM_TO_SQFT, 2), fmtNumPdf((areaMetrics.table1ProposedCommAncSqm ?? areaMetrics.proposedCommercialAncillarySqm ?? 0) * SQM_TO_SQFT, 2)],
@@ -1023,33 +1065,43 @@ async function generateFeasibilityPdfBuffer(data) {
       rows: areaTableRows
     });
 
-    const floorPdfRows = floors.map((fl) => [
-      fl.floor_name,
-      fmtNumPdf(fl.height_meters, 2),
-      fmtNumPdf(fl.pline_area_sqm, 2),
-      fmtNumPdf(fl.lobby_area_sqm, 2),
-      fmtNumPdf(fl.builtup_for_owners_sqm, 2),
-      fmtNumPdf(fl.builtup_for_sale_sqm, 2)
-    ]);
+    const floorPdfRows = floors.map((fl) => {
+      const isHab = fl.floor_type !== 'parking' && fl.floor_type !== 'terrace' && fl.floor_type !== 'service';
+      const units = isHab ? parseInt(parseNum(fl.no_of_units, 0), 10) : 0;
+      const area1Sqm = fl.area_for_1_unit_raw ?? (units > 0 ? parseNum(fl.area_for_1_unit, 0) : null);
+      const heightDisplay = fl.contributes_to_height === false ? '0.00 (Excl.)' : fmtNumPdf(fl.height_meters, 2);
+      return [
+        fl.floor_name,
+        heightDisplay,
+        fmtNumPdf(fl.pline_area_sqm, 2),
+        fmtNumPdf(fl.lobby_area_sqm, 2),
+        String(units),
+        isHab && units > 0 && area1Sqm !== null ? fmtNumPdf(area1Sqm, 3) : '—'
+      ];
+    });
+
+    const wtdAvgPdf = areaMetrics.weightedAverageAreaPerUnitRaw !== null && areaMetrics.weightedAverageAreaPerUnitRaw !== undefined
+      ? `Avg: ${fmtNumPdf(areaMetrics.weightedAverageAreaPerUnitRaw, 3)}`
+      : '—';
 
     drawPdfTable(doc, {
-      title: `TABLE 2: FLOOR-WISE PROPOSED P-LINE AREA STATEMENT  (Area Balance: ${fmtNumPdf(areaMetrics.areaBalanceSqm, 2)} sq m | Margin H/5: ${fmtNumPdf(areaMetrics.marginHBy5Meters, 2)} m)`,
+      title: `TABLE 2: FLOOR-WISE PROPOSED P-LINE AREA STATEMENT  (Saleable: ${fmtNumPdf(areaMetrics.totalBuiltupForSaleSqm, 2)} sq m | Area Balance: ${fmtNumPdf(areaMetrics.areaBalanceSqm, 2)} sq m | Margin H/5: ${fmtNumPdf(areaMetrics.marginHBy5Meters, 2)} m)`,
       columns: [
         { label: '1. Floor', w: 190 },
         { label: '2. Height (m)', w: 75, align: 'center' },
         { label: '3. P-Line Area (m²)', w: 105, align: 'right' },
         { label: '4. Lobby Area (m²)', w: 105, align: 'right' },
-        { label: '5. Built-up for Owners (m²)', w: 110, align: 'right' },
-        { label: '6. Built-up for Sale (m²)', w: 110, align: 'right' }
+        { label: '5. No. of Units', w: 90, align: 'center' },
+        { label: '6. Built-up for Sale (1 Unit) (m²)', w: 130, align: 'right' }
       ],
       rows: floorPdfRows,
       totalRow: [
-        'TOTAL',
+        'TOTAL / WTD. AVG (COL 6)',
         fmtNumPdf(areaMetrics.totalHeightMeters, 2),
         fmtNumPdf(areaMetrics.totalProposedPlineSqm, 2),
         fmtNumPdf(areaMetrics.totalLobbyAreaSqm, 2),
-        fmtNumPdf(areaMetrics.totalBuiltupForOwnersSqm, 2),
-        fmtNumPdf(areaMetrics.totalBuiltupForSaleSqm, 2)
+        String(areaMetrics.totalUnitsCount || 0),
+        wtdAvgPdf
       ]
     });
 

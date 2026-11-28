@@ -125,14 +125,13 @@ describe('Phase 9: Scope-Corrected DS16 Feasibility Rebuild Suite', () => {
       expect(fin.costOfTdrB).toBe(2200000);
     });
 
-    test('FR-08: Gunthewari locks Regular TDR to 0, computes Slum TDR only, and rejects invalid Regular TDR inputs', () => {
+    test('FR-08: Gunthewari locks Regular TDR eligibility to 0, computes Slum TDR only, preserves underlying split, and rejects invalid Regular TDR inputs', () => {
       const { validateAreaStatementInputs } = require('../services/feasibilityEngine');
       const invalidCheck = validateAreaStatementInputs({
         plot_area_sqm: 1000,
         dp_deductions_sqm: 0,
         is_gunthewari: true,
         road_width_m: 15,
-        regular_tdr_factor: 0.99,
         proposed_regular_tdr_factor: 0.99
       });
       expect(invalidCheck.valid).toBe(false);
@@ -146,10 +145,15 @@ describe('Phase 9: Scope-Corrected DS16 Feasibility Rebuild Suite', () => {
       }, []);
 
       expect(m.isGunthewari).toBe(true);
-      expect(m.regularTdrFactor).toBe(0);
-      expect(m.effectiveProposedRegularTdrFactor).toBe(0);
+      // Underlying road-width 50/50 split preserved (0.80 -> 0.40 + 0.40)
+      expect(m.totalTdrFactor).toBe(0.80);
+      expect(m.regularTdrFactor).toBe(0.40);
       expect(m.slumTdrFactor).toBe(0.40);
-      expect(m.totalTdrFactor).toBe(0.40);
+      // Gunthewari eligibility restricts to Slum TDR only (0.40), Regular = 0
+      expect(m.eligibleRegularTdrFactor).toBe(0);
+      expect(m.eligibleSlumTdrFactor).toBe(0.40);
+      expect(m.eligibleTdrFactor).toBe(0.40);
+      expect(m.effectiveProposedRegularTdrFactor).toBe(0);
     });
 
     test('FR-11: Mixed-Use explicit Residential/Commercial % split drives separate 60% & 80% ancillary', () => {
@@ -158,11 +162,15 @@ describe('Phase 9: Scope-Corrected DS16 Feasibility Rebuild Suite', () => {
         dp_deductions_sqm: 0,
         basic_fsi_factor: 1.1,
         paid_fsi_factor: 0.5,
+        proposed_paid_fsi_factor: 0.5,
         regular_tdr_factor: 0.2,
         slum_tdr_factor: 0.2,
         total_tdr_factor: 0.4,
+        proposed_regular_tdr_factor: 0.2,
+        proposed_slum_tdr_factor: 0.2,
         building_use: 'Mixed Use',
-        primary_fsi_residential_pct: 60
+        primary_fsi_residential_pct: 60,
+        primary_fsi_commercial_pct: 40
       }, []);
 
       // Total primary builtup = 1000 * 2.0 = 2000 sqm -> Res 60% = 1200, Comm 40% = 800
@@ -360,7 +368,6 @@ describe('Phase 9: Scope-Corrected DS16 Feasibility Rebuild Suite', () => {
         is_pline_overridden: false,
         lobby_area_sqm: f.lobby_area_sqm,
         is_lobby_overridden: false,
-        builtup_for_owners_sqm: f.floor_type === 'habitable' ? 25 : 0,
         usage_type: f.usage_type,
         no_of_units: f.floor_type === 'habitable' ? 4 : 0
       }));
@@ -370,11 +377,9 @@ describe('Phase 9: Scope-Corrected DS16 Feasibility Rebuild Suite', () => {
         .send({ floors: batchPayload });
       expect(batchRes.status).toBe(200);
       const firstHabitable = batchRes.body.floors.find((f) => f.floor_type === 'habitable');
-      expect(parseFloat(firstHabitable.builtup_for_owners_sqm)).toBe(25);
-      expect(firstHabitable.builtup_for_sale_sqm).toBeCloseTo(
-        Math.max(0, firstHabitable.pline_area_sqm - firstHabitable.lobby_area_sqm - 25),
-        1
-      );
+      const expectedSale = Math.max(0, firstHabitable.pline_area_sqm - firstHabitable.lobby_area_sqm);
+      expect(firstHabitable.builtup_for_sale_sqm).toBeCloseTo(expectedSale, 1);
+      expect(firstHabitable.area_for_1_unit_raw).toBeCloseTo(expectedSale / 4, 3);
 
       // Export binary Excel workbook and inspect sheets & formulas via ExcelJS
       const xlsxRes = await request(app)
@@ -395,14 +400,14 @@ describe('Phase 9: Scope-Corrected DS16 Feasibility Rebuild Suite', () => {
       const sheetNames = wb.worksheets.map((w) => w.name);
       expect(sheetNames).toEqual(['Area (SQ M)', 'Area (SQ FT)', 'FINANCIAL VIABILITY']);
 
-      // Verify Area (SQ M) & Area (SQ FT) Table 2 has strictly the 6 approved columns
+      // Verify Area (SQ M) & Area (SQ FT) Table 2 has strictly the 6 approved columns (Col 5 = No. of Units, Col 6 = Built-up for Sale (1 Unit))
       const wsM = wb.getWorksheet('Area (SQ M)');
       expect(wsM.getCell('A22').value).toBe('1. Floor');
       expect(wsM.getCell('C22').value).toBe('2. Height (m)');
       expect(wsM.getCell('D22').value).toContain('3. P-Line Area');
       expect(wsM.getCell('E22').value).toContain('4. Lobby Area');
-      expect(wsM.getCell('F22').value).toContain('5. Built-up for Owners');
-      expect(wsM.getCell('G22').value).toContain('6. Built-up for Sale');
+      expect(wsM.getCell('F22').value).toContain('5. No. of Units');
+      expect(wsM.getCell('G22').value).toContain('6. Built-up for Sale (1 Unit)');
       expect(wsM.getCell('H22').value).toBeNull();
 
       // Ensure NO ExcelJS formula starts with '=' anywhere in the workbook
@@ -499,14 +504,18 @@ describe('Phase 9: Scope-Corrected DS16 Feasibility Rebuild Suite', () => {
         .send({ is_gunthewari: true });
       expect(switchNoReset.status).toBe(400);
 
-      // Switching to Gunthewari WITH reset_proposed: true succeeds and locks regular=0
+      // Switching to Gunthewari WITH reset_proposed: true succeeds, preserves underlying split (0.325/0.325), and restricts eligibility to Slum only
       const switchWithReset = await request(app)
         .put(`/api/projects/${testProjectId}/feasibility/area`)
         .set('Authorization', `Bearer ${adminUser.token}`)
         .send({ is_gunthewari: true, reset_proposed: true });
       expect(switchWithReset.status).toBe(200);
-      expect(parseFloat(switchWithReset.body.statement.regular_tdr_factor)).toBe(0);
+      expect(parseFloat(switchWithReset.body.statement.total_tdr_factor)).toBe(0.65);
+      expect(parseFloat(switchWithReset.body.statement.regular_tdr_factor)).toBe(0.325);
       expect(parseFloat(switchWithReset.body.statement.slum_tdr_factor)).toBe(0.325);
+      expect(switchWithReset.body.areaMetrics.eligibleRegularTdrFactor).toBe(0);
+      expect(switchWithReset.body.areaMetrics.eligibleSlumTdrFactor).toBe(0.325);
+      expect(switchWithReset.body.areaMetrics.eligibleTdrFactor).toBe(0.325);
     });
   });
 });

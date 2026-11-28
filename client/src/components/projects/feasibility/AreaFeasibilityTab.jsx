@@ -22,7 +22,7 @@ import { ROAD_WIDTH_TOTAL_TDR_MAP, ROAD_WIDTH_TDR_MAP } from '../../../utils/fea
 import AreaStatementForm from './AreaStatementForm';
 import FinancialViabilityForm from './FinancialViabilityForm';
 
-function validateAreaDraftClient(stmt = {}) {
+function validateAreaDraftClient(stmt = {}, candidateFloors = null, evaluatedFloorsMap = null) {
   const numOrNull = (v) => {
     if (v === undefined || v === null || v === '') return null;
     const p = parseFloat(v);
@@ -37,10 +37,34 @@ function validateAreaDraftClient(stmt = {}) {
     return `Deductions For Proposed D.P. (${dp.toFixed(3)} m²) cannot exceed Area Of Plot (${plot.toFixed(3)} m²). Last valid data retained.`;
   }
 
+  const basic = numOrNull(stmt.basic_fsi_factor);
+  if (basic !== null && basic < 0) return 'Basic FSI cannot be negative.';
   const paidMax = numOrNull(stmt.paid_fsi_factor) ?? 0.5;
+  if (paidMax < 0) return 'Max Paid FSI cannot be negative.';
   const propPaid = numOrNull(stmt.proposed_paid_fsi_factor);
+  if (propPaid !== null && propPaid < 0) {
+    return 'Proposed Paid FSI cannot be negative.';
+  }
   if (propPaid !== null && propPaid > paidMax + 0.0001) {
     return `Proposed Paid FSI (${propPaid}) cannot exceed Max Paid FSI (${paidMax}). Last valid data retained.`;
+  }
+
+  if (stmt.building_use === 'Mixed Use') {
+    const resPct = numOrNull(stmt.primary_fsi_residential_pct);
+    const commPct =
+      stmt.primary_fsi_commercial_pct !== undefined &&
+      stmt.primary_fsi_commercial_pct !== null &&
+      stmt.primary_fsi_commercial_pct !== ''
+        ? numOrNull(stmt.primary_fsi_commercial_pct)
+        : resPct !== null
+          ? Math.round((100 - resPct) * 100) / 100
+          : null;
+    if (resPct === null || commPct === null || resPct <= 0 || commPct <= 0) {
+      return 'For Mixed Use buildings, both Residential % and Commercial % must be greater than 0% (select Residential or Commercial for single-use).';
+    }
+    if (resPct > 100 || commPct > 100 || Math.abs(resPct + commPct - 100) > 0.01) {
+      return `Mixed Use Residential % (${resPct}%) + Commercial % (${commPct}%) must equal 100% (currently ${(resPct + commPct).toFixed(2)}%).`;
+    }
   }
 
   const isGunth = Boolean(stmt.is_gunthewari);
@@ -49,12 +73,19 @@ function validateAreaDraftClient(stmt = {}) {
   const propReg = numOrNull(stmt.proposed_regular_tdr_factor);
   const propSlum = numOrNull(stmt.proposed_slum_tdr_factor);
 
-  if (isGunth) {
-    if (regTdr !== null && regTdr > 0.0001) {
-      return 'Regular TDR is not permitted for Gunthewari plots (Slum TDR only).';
+  if (propReg !== null && propReg < 0) return 'Proposed Regular TDR cannot be negative.';
+  if (propSlum !== null && propSlum < 0) return 'Proposed Slum TDR cannot be negative.';
+
+  if (rw !== null && ROAD_WIDTH_TOTAL_TDR_MAP[rw] !== undefined) {
+    const roadTotal = ROAD_WIDTH_TOTAL_TDR_MAP[rw];
+    if (regTdr !== null && (regTdr < 0 || regTdr > roadTotal + 0.0001)) {
+      return `Permissible Regular TDR (${regTdr}) must be between 0 and Total Road TDR (${roadTotal}).`;
     }
+  }
+
+  if (isGunth) {
     if (propReg !== null && propReg > 0.0001) {
-      return 'Proposed Regular TDR cannot exceed 0 for Gunthewari plots.';
+      return 'Proposed Regular TDR cannot exceed 0 for Gunthewari plots (Regular TDR eligibility = 0).';
     }
     const maxGunthSlum = rw !== null && ROAD_WIDTH_TDR_MAP[rw]
       ? ROAD_WIDTH_TDR_MAP[rw].gunthewari
@@ -64,9 +95,6 @@ function validateAreaDraftClient(stmt = {}) {
     }
   } else if (rw !== null && ROAD_WIDTH_TOTAL_TDR_MAP[rw] !== undefined) {
     const roadTotal = ROAD_WIDTH_TOTAL_TDR_MAP[rw];
-    if (regTdr !== null && (regTdr < 0 || regTdr > roadTotal + 0.0001)) {
-      return `Permissible Regular TDR (${regTdr}) must be between 0 and Total Road TDR (${roadTotal}).`;
-    }
     const effReg = regTdr !== null ? regTdr : Math.round((roadTotal / 2) * 10000) / 10000;
     const effSlum = Math.round((roadTotal - effReg) * 10000) / 10000;
     if (propReg !== null && propReg > effReg + 0.0001) {
@@ -74,6 +102,41 @@ function validateAreaDraftClient(stmt = {}) {
     }
     if (propSlum !== null && propSlum > effSlum + 0.0001) {
       return `Proposed Slum TDR (${propSlum}) cannot exceed Permissible Slum TDR (${effSlum}).`;
+    }
+    if ((propReg ?? 0) + (propSlum ?? 0) > roadTotal + 0.0001) {
+      return `Combined Proposed TDR (${((propReg ?? 0) + (propSlum ?? 0)).toFixed(3)}) cannot exceed Total Road TDR (${roadTotal}).`;
+    }
+  }
+
+  if (Array.isArray(candidateFloors)) {
+    for (const fl of candidateFloors) {
+      if (fl.is_active === false) continue;
+      const fname = fl.floor_name || `Floor #${fl.id}`;
+      const h = numOrNull(fl.height_meters);
+      if (h !== null && h < 0) return `${fname}: Height cannot be negative.`;
+      const units = fl.no_of_units;
+      if (units !== undefined && units !== null && units !== '') {
+        const numU = Number(units);
+        if (!Number.isInteger(numU) || numU < 0) {
+          return `${fname}: No. of Units must be a non-negative whole number.`;
+        }
+      }
+      const ev = evaluatedFloorsMap?.get(fl.id);
+      const effPline = fl.is_pline_overridden
+        ? numOrNull(fl.pline_area_sqm)
+        : (numOrNull(ev?.pline_area_sqm) ?? numOrNull(fl.pline_area_sqm));
+      if (fl.is_pline_overridden && (effPline ?? 0) < 0) {
+        return `${fname}: P-Line area cannot be negative.`;
+      }
+      const effLobby = fl.is_lobby_overridden
+        ? numOrNull(fl.lobby_area_sqm)
+        : null;
+      if (effLobby !== null && effLobby < 0) {
+        return `${fname}: Lobby area cannot be negative.`;
+      }
+      if (effLobby !== null && effPline !== null && effLobby > effPline + 0.0001) {
+        return `${fname}: Lobby area (${effLobby.toFixed(3)} m²) cannot exceed P-Line area (${effPline.toFixed(3)} m²).`;
+      }
     }
   }
 
@@ -217,10 +280,21 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
 
   // Draft updaters (no inline shadow math — everything validated and computed by backend preview)
   const handleUpdateStatement = useCallback((patch, immediate = false) => {
-    const candidate = { ...draftRef.current.statement, ...patch };
+    const { is_mixed_alloc_edit: isMixedAllocEdit, ...cleanPatch } = patch || {};
+    const candidate = { ...draftRef.current.statement, ...cleanPatch };
     const err = validateAreaDraftClient(candidate);
     if (err) {
       setValidationError(err);
+      if (isMixedAllocEdit) {
+        setStatement(() => {
+          const nextDraft = { ...draftRef.current, statement: candidate };
+          draftRef.current = nextDraft;
+          return candidate;
+        });
+        setIsDirty(true);
+        setDirtyModules((prev) => ({ ...prev, area: true }));
+        return { ok: false, error: err };
+      }
       return { ok: false, error: err };
     }
     setValidationError(null);
@@ -241,9 +315,17 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
   };
 
   const handleUpdateFloor = useCallback((floorId, patch, immediate = false) => {
+    const evalMap = new Map((areaMetrics?.evaluatedFloors || []).map((f) => [f.id, f]));
+    const nextFloors = (draftRef.current.floors || []).map((fl) =>
+      fl.id === floorId ? { ...fl, ...patch } : fl
+    );
+    const err = validateAreaDraftClient(draftRef.current.statement, nextFloors, evalMap);
+    if (err) {
+      setValidationError(err);
+      return { ok: false, error: err };
+    }
     setValidationError(null);
-    setFloors((prev) => {
-      const nextFloors = prev.map((fl) => (fl.id === floorId ? { ...fl, ...patch } : fl));
+    setFloors(() => {
       const nextDraft = { ...draftRef.current, floors: nextFloors };
       draftRef.current = nextDraft;
       schedulePreview(nextDraft, immediate);
@@ -251,7 +333,8 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
     });
     setIsDirty(true);
     setDirtyModules((prev) => ({ ...prev, floors: true }));
-  }, [schedulePreview]);
+    return { ok: true };
+  }, [schedulePreview, areaMetrics]);
 
   const handleUpdateFinancial = useCallback((patch, immediate = false) => {
     setValidationError(null);
@@ -289,7 +372,8 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
     if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
 
     const snap = draftRef.current;
-    const preErr = validateAreaDraftClient(snap.statement);
+    const evalMap = new Map((areaMetrics?.evaluatedFloors || []).map((f) => [f.id, f]));
+    const preErr = validateAreaDraftClient(snap.statement, snap.floors, evalMap);
     if (preErr) {
       setValidationError(preErr);
       toast.error(preErr);
@@ -318,13 +402,21 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
           total_tdr_factor: snap.statement.total_tdr_factor,
           slum_tdr_factor: snap.statement.slum_tdr_factor
         } : {}),
-        regular_tdr_factor: snap.statement.is_gunthewari ? 0 : snap.statement.regular_tdr_factor,
+        ...(snap.statement.reset_regular_tdr
+          ? { reset_regular_tdr: true }
+          : snap.statement.is_gunthewari
+            ? {}
+            : {
+                regular_tdr_factor: snap.statement.regular_tdr_factor,
+                is_regular_tdr_overridden: snap.statement.is_regular_tdr_overridden
+              }),
         proposed_regular_tdr_factor: snap.statement.is_gunthewari ? 0 : snap.statement.proposed_regular_tdr_factor,
         proposed_slum_tdr_factor: snap.statement.proposed_slum_tdr_factor,
         is_gunthewari: snap.statement.is_gunthewari,
         road_width_m: snap.statement.road_width_m,
         building_use: snap.statement.building_use,
         primary_fsi_residential_pct: snap.statement.primary_fsi_residential_pct,
+        primary_fsi_commercial_pct: snap.statement.primary_fsi_commercial_pct,
         ancillary_commercial_pct: snap.statement.ancillary_commercial_pct,
         ancillary_residential_pct: snap.statement.ancillary_residential_pct,
         unit_display: unitDisplay,
@@ -336,10 +428,11 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
       const areaRes = await api.put(`/projects/${projectId}/feasibility/area`, stmtPayload);
       const nextStmtVersion = areaRes.data?.statement?.version;
 
-      // 2. Floor batch update (exact 6-column data + internal dependencies preserved)
+      // 2. Floor batch update (exact 6-column data)
       if (snap.floors.length > 0 && dirtyModules.floors) {
         const floorPayload = snap.floors.map((fl) => ({
           id: fl.id,
+          floor_name: fl.floor_name,
           floor_type: fl.floor_type,
           height_meters: fl.height_meters,
           pline_area_sqm: fl.pline_area_sqm,
@@ -347,7 +440,6 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
           pline_override_reason: fl.pline_override_reason,
           lobby_area_sqm: fl.lobby_area_sqm,
           is_lobby_overridden: fl.is_lobby_overridden,
-          builtup_for_owners_sqm: fl.builtup_for_owners_sqm,
           usage_type: fl.usage_type,
           no_of_units: fl.no_of_units,
           remarks: fl.remarks
@@ -490,6 +582,25 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
       toast.success('Salable unit removed');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to delete salable unit');
+    }
+  };
+
+  const handleSyncSalableUnitsFromFloors = async () => {
+    if (!canEdit) return;
+    try {
+      if (isDirty) {
+        const ok = await handleSaveAll({ silent: true });
+        if (!ok) return;
+      }
+      const res = await api.post(`/projects/${projectId}/feasibility/financial/salable-units/sync-floors`);
+      const nextUnits = res.data?.salableUnits || [];
+      setSalableUnits(nextUnits);
+      draftRef.current = { ...draftRef.current, salableUnits: nextUnits };
+      if (res.data?.areaMetrics) setAreaMetrics(res.data.areaMetrics);
+      if (res.data?.financialMetrics) setFinancialMetrics(res.data.financialMetrics);
+      toast.success('Receipts synced from Area Statement floors');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to sync floor units into Receipts');
     }
   };
 
@@ -766,6 +877,7 @@ export default function AreaFeasibilityTab({ projectId, user, isAdmin, isAccount
           onAddSalableUnit={handleAddSalableUnit}
           onEditSalableUnit={handleEditSalableUnit}
           onDeleteSalableUnit={handleDeleteSalableUnit}
+          onSyncSalableUnitsFromFloors={handleSyncSalableUnitsFromFloors}
         />
       )}
 

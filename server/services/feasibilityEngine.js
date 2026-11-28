@@ -3,6 +3,7 @@
 // Implements all Scope-Corrected DS16 rules cleanly from one backend source of truth.
 
 const SQM_TO_SQFT = 10.7639104167;
+const AREA_BALANCE_ROUNDING_TOLERANCE_SQM = 0.05;
 
 /**
  * Versioned Regulatory Profiles for Maharashtra State (UDCPR 2020)
@@ -33,11 +34,11 @@ const REGULATORY_PROFILES = {
     basicFsi: 1.10,
     paidFsiMax: 0.50,
     tdrTiers: {
-      9: { regular: 0.40, slum: 0.20, gunthewari: 0.20 },
-      12: { regular: 0.65, slum: 0.325, gunthewari: 0.325 },
-      15: { regular: 0.80, slum: 0.40, gunthewari: 0.40 },
-      18: { regular: 0.90, slum: 0.45, gunthewari: 0.45 },
-      24: { regular: 1.10, slum: 0.55, gunthewari: 0.55 }
+      9: { regular: 0.20, slum: 0.20, gunthewari: 0.20 },
+      12: { regular: 0.325, slum: 0.325, gunthewari: 0.325 },
+      15: { regular: 0.40, slum: 0.40, gunthewari: 0.40 },
+      18: { regular: 0.45, slum: 0.45, gunthewari: 0.45 },
+      24: { regular: 0.55, slum: 0.55, gunthewari: 0.55 }
     },
     ancillaryPct: {
       residential: 0.60,
@@ -165,60 +166,79 @@ function deriveTdrSplit(totalTdrFactor, requestedRegularTdr = null) {
 }
 
 /**
- * Resolve permissible Regular, Slum, and Total TDR factors enforcing FR-08 & Section 3:
- * - Total TDR is strictly road-width-derived when road_width_m is set.
- * - Regular plots split Total TDR into Regular TDR + Slum TDR (where Slum = Total - Regular).
- * - Gunthewari plots use Slum TDR only (Regular TDR = 0 locked).
+ * Resolve underlying Road-Width TDR split vs Plot-Classification Eligibility:
+ * - Total TDR is strictly derived from ROAD_WIDTH_TOTAL_TDR_MAP when road_width_m is set.
+ * - Underlying Regular + Slum TDR split defaults to 50/50 and is NOT destroyed when Gunthewari changes.
+ * - Regular plot eligibility: Eligible Regular = regularTdrFactor, Eligible Slum = slumTdrFactor, Eligible Total = Total TDR.
+ * - Gunthewari plot eligibility: Eligible Regular = 0 (locked), Eligible Slum = Total TDR × 50%, Eligible Total = Eligible Slum only.
  */
 function resolvePermissibleTdr(statement = {}) {
   const isGunthewari = Boolean(statement.is_gunthewari);
   const roadWidth = parseOptNum(statement.road_width_m);
   const explicitTotal = parseOptNum(statement.total_tdr_factor);
   const legacyTdr = parseOptNum(statement.tdr_factor);
-  const explicitReg = parseOptNum(statement.regular_tdr_factor);
-  const explicitSlum = parseOptNum(statement.slum_tdr_factor);
+  let explicitReg = parseOptNum(statement.regular_tdr_factor);
+  let explicitSlum = parseOptNum(statement.slum_tdr_factor);
+  const hasExplicitRegOverrideFlag = statement.is_regular_tdr_overridden === true;
 
   const roadTotal = (roadWidth !== null && ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth] !== undefined)
     ? ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth]
     : null;
 
-  if (isGunthewari) {
-    // Gunthewari scheme: Regular TDR ineligible (0); Slum TDR only from road matrix
-    let slumFactor = 0;
-    if (roadWidth !== null && ROAD_WIDTH_TDR_MAP[roadWidth]) {
-      slumFactor = ROAD_WIDTH_TDR_MAP[roadWidth].gunthewari;
-    } else if (explicitSlum !== null && explicitSlum >= 0) {
-      slumFactor = roundTo(explicitSlum, 4);
-    } else if (explicitTotal !== null && explicitTotal >= 0) {
-      slumFactor = roundTo(explicitTotal / 2, 4);
-    }
-
-    return {
-      isGunthewari: true,
-      roadWidth,
-      totalTdrFactor: slumFactor,
-      regularTdrFactor: 0,
-      slumTdrFactor: slumFactor,
-      defaultRegularTdrFactor: 0,
-      defaultSlumTdrFactor: slumFactor,
-      isRegularTdrOverridden: false,
-      suggestedRoadTdrFactor: slumFactor
-    };
+  // Treat legacy schema-default (0, 0) or un-overridden 9m (0.40, 0.00) legacy defect as unset so 50/50 split applies cleanly
+  if (
+    !hasExplicitRegOverrideFlag &&
+    ((explicitReg === 0 && (explicitSlum === null || explicitSlum === 0)) ||
+     (roadWidth === 9 && explicitReg === 0.40 && (explicitSlum === null || explicitSlum === 0))) &&
+    (roadTotal !== null || (legacyTdr !== null && legacyTdr > 0))
+  ) {
+    explicitReg = null;
+    explicitSlum = null;
   }
 
-  // Regular plot: When roadWidth is set, Total TDR is strictly road-width-derived; Slum = Total - Regular.
   let baseTotal = 0.65;
   if (roadTotal !== null) {
     baseTotal = roadTotal;
   } else if (explicitTotal !== null) {
     baseTotal = explicitTotal;
+  } else if (explicitReg !== null && explicitSlum !== null && (explicitReg > 0 || explicitSlum > 0 || legacyTdr === 0)) {
+    baseTotal = roundTo(explicitReg + explicitSlum, 4);
   } else if (legacyTdr !== null) {
     baseTotal = legacyTdr;
-  } else if (explicitReg !== null && explicitSlum !== null) {
-    baseTotal = explicitReg + explicitSlum;
   }
 
-  const split = deriveTdrSplit(baseTotal, explicitReg);
+  // On Gunthewari, legacy records sometimes saved regular_tdr_factor=0; preserve 50/50 underlying split unless overridden
+  let effectiveReqRegForSplit = explicitReg;
+  if (isGunthewari && !hasExplicitRegOverrideFlag && effectiveReqRegForSplit === 0) {
+    effectiveReqRegForSplit = null;
+  }
+  const split = deriveTdrSplit(baseTotal, effectiveReqRegForSplit);
+
+  if (isGunthewari) {
+    let eligibleSlum = 0;
+    if (roadWidth !== null && ROAD_WIDTH_TDR_MAP[roadWidth]) {
+      eligibleSlum = ROAD_WIDTH_TDR_MAP[roadWidth].gunthewari;
+    } else if (explicitSlum !== null && explicitSlum >= 0 && explicitTotal === null) {
+      eligibleSlum = roundTo(explicitSlum, 4);
+    } else {
+      eligibleSlum = roundTo(split.totalTdrFactor * 0.5, 4);
+    }
+
+    return {
+      isGunthewari: true,
+      roadWidth,
+      totalTdrFactor: split.totalTdrFactor,
+      regularTdrFactor: split.regularTdrFactor,
+      slumTdrFactor: split.slumTdrFactor,
+      defaultRegularTdrFactor: split.defaultRegularTdrFactor,
+      defaultSlumTdrFactor: split.defaultSlumTdrFactor,
+      isRegularTdrOverridden: split.isRegularTdrOverridden,
+      eligibleRegularTdrFactor: 0,
+      eligibleSlumTdrFactor: eligibleSlum,
+      eligibleTdrFactor: eligibleSlum,
+      suggestedRoadTdrFactor: eligibleSlum
+    };
+  }
 
   return {
     isGunthewari: false,
@@ -229,14 +249,30 @@ function resolvePermissibleTdr(statement = {}) {
     defaultRegularTdrFactor: split.defaultRegularTdrFactor,
     defaultSlumTdrFactor: split.defaultSlumTdrFactor,
     isRegularTdrOverridden: split.isRegularTdrOverridden,
+    eligibleRegularTdrFactor: split.regularTdrFactor,
+    eligibleSlumTdrFactor: split.slumTdrFactor,
+    eligibleTdrFactor: split.totalTdrFactor,
     suggestedRoadTdrFactor: roadTotal !== null ? roadTotal : 0
   };
 }
 
 /**
- * Authoritative validation of Area Statement inputs (never silently clamps invalid values).
+ * Check whether a floor contributes vertical height above ground datum toward building height H (Margin H/5).
+ * Subterranean Basements and roof Terrace / tank slabs contribute 0m; Ground, Stilt, Upper Parking, and upper habitable floors contribute.
  */
-function validateAreaStatementInputs(statement = {}) {
+function isHeightContributingFloor(floor = {}) {
+  const fkey = String(floor.floor_key || '').toLowerCase();
+  const fname = String(floor.floor_name || '').toLowerCase();
+  const ftype = String(floor.floor_type || '').toLowerCase();
+  if (fkey.startsWith('basement') || fname.includes('basement')) return false;
+  if (ftype === 'terrace' || fkey === 'terrace' || fname.includes('terrace')) return false;
+  return true;
+}
+
+/**
+ * Authoritative validation of Area Statement and optional Floor inputs (never silently clamps invalid values).
+ */
+function validateAreaStatementInputs(statement = {}, floors = []) {
   const plotArea = parseOptNum(statement.plot_area_sqm);
   const dpDed = parseOptNum(statement.dp_deductions_sqm);
   const basicFsi = parseOptNum(statement.basic_fsi_factor);
@@ -245,6 +281,7 @@ function validateAreaStatementInputs(statement = {}) {
   const propRegTdr = parseOptNum(statement.proposed_regular_tdr_factor);
   const propSlumTdr = parseOptNum(statement.proposed_slum_tdr_factor);
   const primaryResPct = parseOptNum(statement.primary_fsi_residential_pct);
+  const primaryCommPct = parseOptNum(statement.primary_fsi_commercial_pct);
   const roadWidth = parseOptNum(statement.road_width_m);
   const isGunthewari = Boolean(statement.is_gunthewari);
 
@@ -276,7 +313,38 @@ function validateAreaStatementInputs(statement = {}) {
     return { valid: false, error: 'Paid FSI factor cannot be negative.' };
   }
   if (primaryResPct !== null && (primaryResPct < 0 || primaryResPct > 100)) {
-    return { valid: false, error: 'primary_fsi_residential_pct must be between 0 and 100.' };
+    return { valid: false, error: 'Residential Primary FSI allocation (%) must be between 0 and 100.' };
+  }
+  if (primaryCommPct !== null && (primaryCommPct < 0 || primaryCommPct > 100)) {
+    return { valid: false, error: 'Commercial Primary FSI allocation (%) must be between 0 and 100.' };
+  }
+
+  const rawUse = String(statement.building_use || 'Residential').trim().toLowerCase();
+  if (rawUse.includes('mixed')) {
+    if (primaryResPct !== null && primaryCommPct !== null) {
+      if (Math.abs((primaryResPct + primaryCommPct) - 100) > 0.01) {
+        return {
+          valid: false,
+          error: `Mixed-Use Primary FSI allocations must total 100% (Residential ${primaryResPct}% + Commercial ${primaryCommPct}% = ${roundTo(primaryResPct + primaryCommPct, 2)}%).`
+        };
+      }
+      if (primaryResPct <= 0 || primaryCommPct <= 0) {
+        return {
+          valid: false,
+          error: 'Mixed Use requires both Residential and Commercial allocations to be greater than 0%. Select Residential or Commercial instead.'
+        };
+      }
+    } else if (primaryResPct !== null && (primaryResPct <= 0 || primaryResPct >= 100)) {
+      return {
+        valid: false,
+        error: 'Mixed Use requires both Residential and Commercial allocations to be greater than 0%. Select Residential or Commercial instead.'
+      };
+    } else if (primaryCommPct !== null && (primaryCommPct <= 0 || primaryCommPct >= 100)) {
+      return {
+        valid: false,
+        error: 'Mixed Use requires both Residential and Commercial allocations to be greater than 0%. Select Residential or Commercial instead.'
+      };
+    }
   }
 
   const paidLimit = paidFsi ?? 0.5;
@@ -294,25 +362,21 @@ function validateAreaStatementInputs(statement = {}) {
   const reqTotal = parseOptNum(statement.total_tdr_factor);
 
   if (isGunthewari) {
-    if (reqReg !== null && reqReg > 0.0001) {
-      return { valid: false, error: 'Regular TDR is not permitted for Gunthewari plots (Slum TDR only).' };
+    if (statement.is_regular_tdr_overridden === true && reqReg !== null && reqReg > 0.0001 && roadWidth !== null && Math.abs(reqReg - ROAD_WIDTH_TDR_MAP[roadWidth].regular) > 0.0001) {
+      return { valid: false, error: 'Regular TDR cannot be overridden for Gunthewari plots (Slum TDR only).' };
     }
     if (propRegTdr !== null && propRegTdr > 0.0001) {
-      return { valid: false, error: 'Proposed Regular TDR cannot exceed 0 for Gunthewari plots.' };
+      return { valid: false, error: 'Proposed Regular TDR cannot exceed 0 for Gunthewari plots (Slum TDR only).' };
     }
     const maxGunthSlum = roadWidth !== null && ROAD_WIDTH_TDR_MAP[roadWidth]
       ? ROAD_WIDTH_TDR_MAP[roadWidth].gunthewari
-      : (reqSlum ?? 0);
-    if (roadWidth !== null && reqSlum !== null && Math.abs(reqSlum - maxGunthSlum) > 0.0001) {
+      : (reqSlum ?? (reqTotal !== null ? roundTo(reqTotal * 0.5, 4) : 0));
+    const roadTotal = roadWidth !== null ? ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth] : null;
+
+    if (roadTotal !== null && reqTotal !== null && Math.abs(reqTotal - roadTotal) > 0.0001 && Math.abs(reqTotal - maxGunthSlum) > 0.0001) {
       return {
         valid: false,
-        error: `Gunthewari Slum TDR is strictly road-width derived (${maxGunthSlum} for ${roadWidth}m road); independent overrides are not permitted.`
-      };
-    }
-    if (roadWidth !== null && reqTotal !== null && Math.abs(reqTotal - maxGunthSlum) > 0.0001) {
-      return {
-        valid: false,
-        error: `Total TDR for ${roadWidth}m Gunthewari plot is strictly ${maxGunthSlum}.`
+        error: `Total TDR for ${roadWidth}m road is strictly road-width derived (${roadTotal}; Gunthewari eligible Slum TDR = ${maxGunthSlum}).`
       };
     }
     if (propSlumTdr !== null) {
@@ -323,47 +387,86 @@ function validateAreaStatementInputs(statement = {}) {
         return { valid: false, error: `Proposed Slum TDR (${propSlumTdr}) cannot exceed Gunthewari Slum TDR eligibility (${maxGunthSlum}).` };
       }
     }
-    return { valid: true, error: null };
-  }
+  } else {
+    // Regular plot TDR validation
+    const baseTotal = roadWidth !== null && ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth] !== undefined
+      ? ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth]
+      : (reqTotal ?? parseOptNum(statement.tdr_factor) ?? 0.65);
 
-  // Regular plot TDR validation
-  const baseTotal = roadWidth !== null && ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth] !== undefined
-    ? ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth]
-    : (reqTotal ?? parseOptNum(statement.tdr_factor) ?? 0.65);
-
-  if (roadWidth !== null && reqTotal !== null && Math.abs(reqTotal - baseTotal) > 0.0001) {
-    return {
-      valid: false,
-      error: `Total TDR is strictly road-width derived (${baseTotal} for ${roadWidth}m road); unrestricted Total TDR override is not permitted.`
-    };
-  }
-
-  const split = deriveTdrSplit(baseTotal, reqReg);
-  if (!split.isSplitValid) {
-    return { valid: false, error: split.validationError };
-  }
-
-  if (roadWidth !== null && reqSlum !== null && Math.abs(reqSlum - split.slumTdrFactor) > 0.0001) {
-    return {
-      valid: false,
-      error: `Slum TDR (${split.slumTdrFactor}) is automatically derived as the remaining balance (Total ${baseTotal} − Regular ${split.regularTdrFactor}); independent Slum TDR overrides are not permitted.`
-    };
-  }
-
-  if (propRegTdr !== null) {
-    if (propRegTdr < 0) {
-      return { valid: false, error: 'Proposed Regular TDR factor cannot be negative.' };
+    if (roadWidth !== null && reqTotal !== null && Math.abs(reqTotal - baseTotal) > 0.0001) {
+      return {
+        valid: false,
+        error: `Total TDR is strictly road-width derived (${baseTotal} for ${roadWidth}m road); unrestricted Total TDR override is not permitted.`
+      };
     }
-    if (propRegTdr > split.regularTdrFactor + 0.0001) {
-      return { valid: false, error: `Proposed Regular TDR (${propRegTdr}) cannot exceed Permissible Regular TDR (${split.regularTdrFactor}).` };
+
+    const effectiveReqReg = (
+      statement.is_regular_tdr_overridden !== true &&
+      reqReg === 0 &&
+      (reqSlum === null || reqSlum === 0)
+    ) ? null : reqReg;
+
+    const split = deriveTdrSplit(baseTotal, effectiveReqReg);
+    if (!split.isSplitValid) {
+      return { valid: false, error: split.validationError };
+    }
+
+    if (roadWidth !== null && reqSlum !== null && !(reqReg === 0 && reqSlum === 0) && Math.abs(reqSlum - split.slumTdrFactor) > 0.0001) {
+      return {
+        valid: false,
+        error: `Slum TDR (${split.slumTdrFactor}) is automatically derived as the remaining balance (Total ${baseTotal} − Regular ${split.regularTdrFactor}); independent Slum TDR overrides are not permitted.`
+      };
+    }
+
+    if (propRegTdr !== null) {
+      if (propRegTdr < 0) {
+        return { valid: false, error: 'Proposed Regular TDR factor cannot be negative.' };
+      }
+      if (propRegTdr > split.regularTdrFactor + 0.0001) {
+        return { valid: false, error: `Proposed Regular TDR (${propRegTdr}) cannot exceed Permissible Regular TDR (${split.regularTdrFactor}).` };
+      }
+    }
+    if (propSlumTdr !== null) {
+      if (propSlumTdr < 0) {
+        return { valid: false, error: 'Proposed Slum TDR factor cannot be negative.' };
+      }
+      if (propSlumTdr > split.slumTdrFactor + 0.0001) {
+        return { valid: false, error: `Proposed Slum TDR (${propSlumTdr}) cannot exceed Permissible Slum TDR (${split.slumTdrFactor}).` };
+      }
+    }
+    const combinedPropTdr = (propRegTdr || 0) + (propSlumTdr || 0);
+    if (combinedPropTdr > baseTotal + 0.0001) {
+      return { valid: false, error: `Combined Proposed TDR (${roundTo(combinedPropTdr, 4)}) cannot exceed Total Eligible TDR (${baseTotal}).` };
     }
   }
-  if (propSlumTdr !== null) {
-    if (propSlumTdr < 0) {
-      return { valid: false, error: 'Proposed Slum TDR factor cannot be negative.' };
-    }
-    if (propSlumTdr > split.slumTdrFactor + 0.0001) {
-      return { valid: false, error: `Proposed Slum TDR (${propSlumTdr}) cannot exceed Permissible Slum TDR (${split.slumTdrFactor}).` };
+
+  // Validate floor inputs if supplied (Lobby <= P-Line, non-negative height/pline, non-negative integer units)
+  if (Array.isArray(floors)) {
+    for (const fl of floors) {
+      if (!fl || fl.is_active === false) continue;
+      const fname = fl.floor_name || 'Floor';
+      const h = parseOptNum(fl.height_meters);
+      if (h !== null && h < 0) {
+        return { valid: false, error: `${fname}: Height cannot be negative.` };
+      }
+      const pline = parseOptNum(fl.pline_area_sqm);
+      if (pline !== null && pline < 0) {
+        return { valid: false, error: `${fname}: P-Line Area cannot be negative.` };
+      }
+      const isLobbyOv = Boolean(fl.is_lobby_overridden);
+      const lobby = parseOptNum(fl.lobby_area_sqm);
+      if (lobby !== null && lobby < 0) {
+        return { valid: false, error: `${fname}: Lobby Area cannot be negative.` };
+      }
+      if (isLobbyOv && pline !== null && lobby !== null && lobby > pline + 0.0001) {
+        return { valid: false, error: `${fname}: Lobby Area (${lobby} sq m) cannot exceed P-Line Area (${pline} sq m).` };
+      }
+      if (fl.no_of_units !== undefined && fl.no_of_units !== null && fl.no_of_units !== '') {
+        const uNum = Number(fl.no_of_units);
+        if (!Number.isFinite(uNum) || !Number.isInteger(uNum) || uNum < 0) {
+          return { valid: false, error: `${fname}: No. of Units must be a non-negative integer.` };
+        }
+      }
     }
   }
 
@@ -568,9 +671,12 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     defaultRegularTdrFactor,
     defaultSlumTdrFactor,
     isRegularTdrOverridden,
+    eligibleRegularTdrFactor,
+    eligibleSlumTdrFactor,
+    eligibleTdrFactor,
     suggestedRoadTdrFactor
   } = tdrPermissible;
-  const permissibleTdrFactor = totalTdrFactor;
+  const permissibleTdrFactor = eligibleTdrFactor;
 
   // 3. Building Use & Ancillary Configuration (FR-11)
   const rawBuildingUse = (statement.building_use || 'Residential').trim();
@@ -655,11 +761,20 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     }
   }
 
-  // 5. Permissible Areas & Ancillary (FR-03, FR-04, FR-11)
+  // Also normalize explicit Res + Comm Mixed Use fallback if primary_fsi_commercial_pct set alongside residential
+  if (isMixedUse && explicitResPct !== null && explicitCommPct !== null) {
+    primaryFsiResidentialPct = Math.max(0, Math.min(100, roundTo(explicitResPct, 2)));
+    primaryFsiCommercialPct = Math.max(0, Math.min(100, roundTo(explicitCommPct, 2)));
+  }
+
+  // 5. Permissible Areas & Ancillary (FR-03, FR-04, FR-11, Section 4.3 Eligibility)
   const permissibleFsiSqm = plotableAreaSqm * basicFsiFactor;
   const permissiblePaidFsiSqm = plotableAreaSqm * paidFsiFactor;
-  const permissibleRegularTdrSqm = plotableAreaSqm * regularTdrFactor;
-  const permissibleSlumTdrSqm = plotableAreaSqm * slumTdrFactor;
+  const underlyingRegularTdrSqm = plotableAreaSqm * regularTdrFactor;
+  const underlyingSlumTdrSqm = plotableAreaSqm * slumTdrFactor;
+  const underlyingTotalTdrSqm = plotableAreaSqm * totalTdrFactor;
+  const permissibleRegularTdrSqm = plotableAreaSqm * eligibleRegularTdrFactor;
+  const permissibleSlumTdrSqm = plotableAreaSqm * eligibleSlumTdrFactor;
   const permissibleTdrSqm = permissibleRegularTdrSqm + permissibleSlumTdrSqm;
   const permissibleTotalBuiltupSqm = permissibleFsiSqm + permissiblePaidFsiSqm + permissibleTdrSqm;
   const permissibleTotalFsi = plotableAreaSqm > 0 ? permissibleTotalBuiltupSqm / plotableAreaSqm : 0;
@@ -675,13 +790,14 @@ function calculateAreaMetrics(statement = {}, floors = []) {
   const permissiblePlineTotalSqm = permissibleTotalBuiltupSqm + permissibleTotalAncillarySqm;
 
   // 6. Auto-Suggested vs Architect-Edited Proposed Paid FSI & TDR Consumption (FR-05, FR-09)
+  // Never automatically consume 100% of permissible Paid FSI or TDR: default suggestion = 0 unless P-Line demand exceeds Basic FSI.
   const isProposedPlineOverridden = Boolean(statement.is_proposed_pline_overridden);
   const totalProposedPlineOverrideSqm = parseOptNum(statement.total_proposed_pline_override_sqm);
 
   const isFloorOverridden = (f) => {
     if (f.is_pline_overridden === true) return true;
     if (f.is_pline_overridden === false) return false;
-    return false;
+    return !f.floor_key && parseFloat(f.pline_area_sqm) > 0;
   };
   const allHabitableOverridden = N_habitable > 0 && applicableHabitableFloors.every(isFloorOverridden);
 
@@ -697,9 +813,9 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     }, 0);
   }
 
-  let suggestedPaidFsiFactor = paidFsiFactor;
-  let suggestedRegularTdrFactor = regularTdrFactor;
-  let suggestedSlumTdrFactor = slumTdrFactor;
+  let suggestedPaidFsiFactor = 0;
+  let suggestedRegularTdrFactor = 0;
+  let suggestedSlumTdrFactor = 0;
 
   if (designPrimaryFsiNeededSqm !== null && plotableAreaSqm > 0) {
     const additionalFsiNeeded = Math.max(0, designPrimaryFsiNeededSqm - permissibleFsiSqm);
@@ -707,19 +823,26 @@ function calculateAreaMetrics(statement = {}, floors = []) {
 
     suggestedPaidFsiFactor = Math.min(paidFsiFactor, roundTo(additionalFactorNeeded, 4));
     const remainingAfterPaid = Math.max(0, additionalFactorNeeded - suggestedPaidFsiFactor);
-    const neededTdrTotal = Math.min(totalTdrFactor, roundTo(remainingAfterPaid, 4));
+    const neededTdrTotal = Math.min(eligibleTdrFactor, roundTo(remainingAfterPaid, 4));
 
     if (isGunthewari) {
       suggestedRegularTdrFactor = 0;
-      suggestedSlumTdrFactor = neededTdrTotal;
-    } else if (totalTdrFactor > 0) {
-      suggestedRegularTdrFactor = roundTo(neededTdrTotal * (regularTdrFactor / totalTdrFactor), 4);
-      suggestedSlumTdrFactor = roundTo(neededTdrTotal - suggestedRegularTdrFactor, 4);
-    } else {
-      suggestedRegularTdrFactor = 0;
-      suggestedSlumTdrFactor = 0;
+      suggestedSlumTdrFactor = Math.min(eligibleSlumTdrFactor, neededTdrTotal);
+    } else if (eligibleTdrFactor > 0) {
+      suggestedRegularTdrFactor = Math.min(
+        eligibleRegularTdrFactor,
+        roundTo(neededTdrTotal * (eligibleRegularTdrFactor / eligibleTdrFactor), 4)
+      );
+      let rawSlum = roundTo(neededTdrTotal - suggestedRegularTdrFactor, 4);
+      if (rawSlum > eligibleSlumTdrFactor) {
+        const excess = roundTo(rawSlum - eligibleSlumTdrFactor, 4);
+        suggestedRegularTdrFactor = Math.min(eligibleRegularTdrFactor, roundTo(suggestedRegularTdrFactor + excess, 4));
+        rawSlum = eligibleSlumTdrFactor;
+      }
+      suggestedSlumTdrFactor = Math.max(0, rawSlum);
     }
   }
+  const suggestedTdrFactor = roundTo(suggestedRegularTdrFactor + suggestedSlumTdrFactor, 4);
 
   // Apply explicit architect edits to Proposed Paid FSI & TDR consumption (no silent clamping)
   const rawProposedPaidFactor = parseOptNum(statement.proposed_paid_fsi_factor);
@@ -750,15 +873,15 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     legacyProposedTdr !== null &&
     legacyProposedTdr > 0 &&
     statement.total_tdr_factor === undefined &&
-    Math.abs(legacyProposedTdr - totalTdrFactor) > 0.0001
+    Math.abs(legacyProposedTdr - suggestedTdrFactor) > 0.0001
   ) {
     // Legacy compatibility (e.g. sample proposed_tdr_factor = 0.545 vs 0.65)
     const legacyFactor = roundTo(legacyProposedTdr, 4);
     if (isGunthewari) {
       effectiveProposedRegularTdrFactor = 0;
       effectiveProposedSlumTdrFactor = legacyFactor;
-    } else if (totalTdrFactor > 0) {
-      effectiveProposedRegularTdrFactor = roundTo(legacyFactor * (regularTdrFactor / totalTdrFactor), 4);
+    } else if (eligibleTdrFactor > 0) {
+      effectiveProposedRegularTdrFactor = roundTo(legacyFactor * (eligibleRegularTdrFactor / eligibleTdrFactor), 4);
       effectiveProposedSlumTdrFactor = roundTo(legacyFactor - effectiveProposedRegularTdrFactor, 4);
     }
     isProposedTdrEdited = true;
@@ -766,10 +889,12 @@ function calculateAreaMetrics(statement = {}, floors = []) {
 
   const totalProposedTdrFactor = roundTo(effectiveProposedRegularTdrFactor + effectiveProposedSlumTdrFactor, 4);
 
-  // Calculated (Auto-Suggested) vs Effective (Consumed/Chargeable) Areas
+  // Calculated (Auto-Suggested) vs Effective (Consumed/Chargeable) vs Remaining Eligible Areas
   const proposedBasicFsiSqm = permissibleFsiSqm;
   const calculatedProposedPaidFsiSqm = plotableAreaSqm * suggestedPaidFsiFactor;
   const proposedPaidFsiSqm = plotableAreaSqm * effectiveProposedPaidFsiFactor;
+  const remainingPaidFsiFactor = roundTo(Math.max(0, paidFsiFactor - effectiveProposedPaidFsiFactor), 4);
+  const remainingPaidFsiSqm = roundTo(Math.max(0, permissiblePaidFsiSqm - proposedPaidFsiSqm), 4);
 
   const calculatedProposedRegularTdrSqm = plotableAreaSqm * suggestedRegularTdrFactor;
   const calculatedProposedSlumTdrSqm = plotableAreaSqm * suggestedSlumTdrFactor;
@@ -778,6 +903,13 @@ function calculateAreaMetrics(statement = {}, floors = []) {
   const regularTdrSqm = plotableAreaSqm * effectiveProposedRegularTdrFactor;
   const slumTdrSqm = plotableAreaSqm * effectiveProposedSlumTdrFactor;
   const proposedTdrSqm = regularTdrSqm + slumTdrSqm;
+
+  const remainingRegularTdrFactor = roundTo(Math.max(0, eligibleRegularTdrFactor - effectiveProposedRegularTdrFactor), 4);
+  const remainingSlumTdrFactor = roundTo(Math.max(0, eligibleSlumTdrFactor - effectiveProposedSlumTdrFactor), 4);
+  const remainingTdrFactor = roundTo(remainingRegularTdrFactor + remainingSlumTdrFactor, 4);
+  const remainingRegularTdrSqm = roundTo(Math.max(0, permissibleRegularTdrSqm - regularTdrSqm), 4);
+  const remainingSlumTdrSqm = roundTo(Math.max(0, permissibleSlumTdrSqm - slumTdrSqm), 4);
+  const remainingTdrSqm = roundTo(Math.max(0, permissibleTdrSqm - proposedTdrSqm), 4);
 
   const proposedTotalBuiltupSqm = proposedBasicFsiSqm + proposedPaidFsiSqm + proposedTdrSqm;
   const proposedTotalFsi = plotableAreaSqm > 0 ? proposedTotalBuiltupSqm / plotableAreaSqm : 0;
@@ -792,23 +924,48 @@ function calculateAreaMetrics(statement = {}, floors = []) {
   let isPlineInconsistent = false;
   let plineInconsistencyMessage = null;
 
-  if (isMixedUse && isPrimaryFsiSplitExplicit && N_comm > 0 && N_res > 0) {
-    const commTargetFsi = targetProposedFsi * commRatio;
-    const resTargetFsi = targetProposedFsi * resRatio;
-    const commDist = distributeFsiAndAncillary(commTargetFsi, commFloors, {
-      resAncillaryPct,
-      commAncillaryPct,
-      defaultUsage: 'Commercial'
-    });
-    const resDist = distributeFsiAndAncillary(resTargetFsi, resFloors, {
-      resAncillaryPct,
-      commAncillaryPct,
-      defaultUsage: 'Residential'
-    });
-    commDist.assignedMap.forEach((v, k) => assignedMap.set(k, v));
-    resDist.assignedMap.forEach((v, k) => assignedMap.set(k, v));
-    isPlineInconsistent = commDist.isPlineInconsistent || resDist.isPlineInconsistent;
-    plineInconsistencyMessage = [commDist.plineInconsistencyMessage, resDist.plineInconsistencyMessage].filter(Boolean).join(' | ') || null;
+  if (isMixedUse && isPrimaryFsiSplitExplicit) {
+    if (N_comm > 0 && N_res > 0) {
+      const commTargetFsi = targetProposedFsi * commRatio;
+      const resTargetFsi = targetProposedFsi * resRatio;
+      const commDist = distributeFsiAndAncillary(commTargetFsi, commFloors, {
+        resAncillaryPct,
+        commAncillaryPct,
+        defaultUsage: 'Commercial'
+      });
+      const resDist = distributeFsiAndAncillary(resTargetFsi, resFloors, {
+        resAncillaryPct,
+        commAncillaryPct,
+        defaultUsage: 'Residential'
+      });
+      commDist.assignedMap.forEach((v, k) => assignedMap.set(k, v));
+      resDist.assignedMap.forEach((v, k) => assignedMap.set(k, v));
+      isPlineInconsistent = commDist.isPlineInconsistent || resDist.isPlineInconsistent;
+      plineInconsistencyMessage = [commDist.plineInconsistencyMessage, resDist.plineInconsistencyMessage].filter(Boolean).join(' | ') || null;
+    } else if (N_habitable > 0) {
+      // Floors lack per-floor Commercial vs Residential tags; distribute exact Weighted P-Line proportionally across floors
+      const weightedAncillaryTotal = (targetProposedFsi * commRatio * commAncillaryPct) + (targetProposedFsi * resRatio * resAncillaryPct);
+      const weightedPlineTarget = targetProposedFsi + weightedAncillaryTotal;
+      const plineDist = distributePlineEqually(weightedPlineTarget, applicableHabitableFloors);
+      isPlineInconsistent = plineDist.isPlineInconsistent;
+      plineInconsistencyMessage = plineDist.plineInconsistencyMessage;
+      for (const fl of applicableHabitableFloors) {
+        const key = fl.id || fl.floor_key || fl.floor_name;
+        const entry = plineDist.assignedMap.get(key) || plineDist.assignedMap.get(applicableHabitableFloors.indexOf(fl));
+        if (entry) {
+          const shareRatio = weightedPlineTarget > 0 ? (entry.pline / weightedPlineTarget) : (1 / N_habitable);
+          const flFsi = roundTo(targetProposedFsi * shareRatio, 4);
+          const flAnc = roundTo(entry.pline - flFsi, 2);
+          assignedMap.set(key, {
+            fsi: flFsi,
+            ancillary: flAnc,
+            pline: entry.pline,
+            is_overridden: entry.is_overridden,
+            ancillary_pct: targetWeightedMultiplier - 1
+          });
+        }
+      }
+    }
   } else {
     const dist = distributeFsiAndAncillary(targetProposedFsi, applicableHabitableFloors, {
       resAncillaryPct,
@@ -820,16 +977,16 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     plineInconsistencyMessage = dist.plineInconsistencyMessage;
   }
 
-  // 8. Floor Rows Aggregation (10 Mandatory Columns)
+  // 8. Floor Rows Aggregation (Approved 6-Column Unit Structure + Building Height H)
   let proposedResidentialFsiSqm = 0;
   let proposedCommercialFsiSqm = 0;
   let proposedResidentialAncillarySqm = 0;
   let proposedCommercialAncillarySqm = 0;
   let totalProposedPlineSqm = 0;
   let totalLobbyAreaSqm = 0;
-  let totalBuiltupForOwnersSqm = 0;
-  let totalBuiltupForSaleSqm = 0;
+  let totalSaleableRaw = 0;
   let totalHeightMeters = 0;
+  let excludedHeightFloorsCount = 0;
   let totalUnitsCount = 0;
 
   const evaluatedFloors = activeFloors.map((floor) => {
@@ -837,6 +994,7 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     const isParking = usage === 'Parking';
     const isTerrace = usage === 'Terrace' || usage === 'Services';
     const isHabitable = !isParking && !isTerrace;
+    const contributesToHeight = isHeightContributingFloor(floor);
 
     const key = floor.id || floor.floor_key || floor.floor_name;
     const distributionInfo = assignedMap.get(key);
@@ -869,46 +1027,58 @@ function calculateAreaMetrics(statement = {}, floors = []) {
       }
     }
 
-    const height = parseNum(floor.height_meters, 3.00);
+    const defaultZeroHeight = !contributesToHeight ? 0 : 3.00;
+    const height = parseNum(floor.height_meters, defaultZeroHeight);
+    if (contributesToHeight) {
+      totalHeightMeters += height;
+    } else {
+      excludedHeightFloorsCount += 1;
+    }
 
+    // Lobby Area = P-Line * 15% default unless manually overridden; never re-applied iteratively
     const isLobbyOverridden = Boolean(floor.is_lobby_overridden);
     let lobby = parseFloat(floor.lobby_area_sqm);
-    const calculatedLobby = roundTo(pline * 0.15, 2);
-    if (!isLobbyOverridden || isNaN(lobby)) {
+    const calculatedLobby = isHabitable ? roundTo(pline * 0.15, 2) : 0;
+    if (!isHabitable) {
+      lobby = 0;
+    } else if (!isLobbyOverridden || isNaN(lobby)) {
       lobby = calculatedLobby;
     }
 
-    let owners = parseFloat(floor.builtup_for_owners_sqm);
-    if (isNaN(owners) || floor.builtup_for_owners_sqm === null || floor.builtup_for_owners_sqm === undefined || owners < 0) {
-      owners = 0;
-    }
-
-    let sale = 0;
+    // Section 8.3: Total Saleable Area = P-Line Area - Lobby Area (never silently clamped)
+    let saleRaw = 0;
     if (isHabitable) {
-      if (floor.builtup_for_sale_sqm !== undefined && floor.builtup_for_sale_sqm !== null && !floor.floor_key && floor.is_pline_overridden === undefined && owners === 0) {
-        sale = parseFloat(floor.builtup_for_sale_sqm) || 0;
+      if (floor.pline_area_sqm === undefined && floor.builtup_for_sale_sqm !== undefined && floor.builtup_for_sale_sqm !== null) {
+        saleRaw = parseFloat(floor.builtup_for_sale_sqm) || 0;
       } else {
-        sale = Math.max(0, roundTo(pline - lobby - owners, 2));
+        saleRaw = pline - lobby;
       }
     }
+    const saleDisplay = roundTo(saleRaw, 4);
 
     let noOfUnits = parseInt(floor.no_of_units, 10);
-    if (isNaN(noOfUnits)) noOfUnits = isHabitable ? 1 : 0;
-    if (!isHabitable) noOfUnits = 0;
+    if (floor.no_of_units === undefined || floor.no_of_units === null || floor.no_of_units === '' || isNaN(noOfUnits)) {
+      noOfUnits = isHabitable ? 1 : 0;
+    }
+    if (!isHabitable || noOfUnits < 0) noOfUnits = 0;
 
-    const areaFor1Unit = noOfUnits > 0 ? roundTo(sale / noOfUnits, 4) : 0;
+    // Section 8.4: Built-up for Sale (1 Unit) = (P-Line - Lobby) / No. of Units in full precision
+    const areaFor1UnitRaw = (isHabitable && noOfUnits > 0) ? (saleRaw / noOfUnits) : null;
+    const areaFor1Unit = areaFor1UnitRaw !== null ? roundTo(areaFor1UnitRaw, 4) : 0;
+    const areaFor1UnitSqft = areaFor1UnitRaw !== null ? areaFor1UnitRaw * SQM_TO_SQFT : null;
 
     totalProposedPlineSqm += pline;
     totalLobbyAreaSqm += lobby;
-    totalBuiltupForOwnersSqm += owners;
-    totalBuiltupForSaleSqm += sale;
-    totalHeightMeters += height;
-    totalUnitsCount += noOfUnits;
+    if (isHabitable) {
+      totalSaleableRaw += saleRaw;
+      totalUnitsCount += noOfUnits;
+    }
 
     return {
       ...floor,
       usage_type: usage,
       height_meters: height,
+      contributes_to_height: contributesToHeight,
       fsi_area_sqm: roundTo(fsi, 2),
       ancillary_area_sqm: roundTo(ancillary, 2),
       ancillary_pct: ancPct,
@@ -918,19 +1088,22 @@ function calculateAreaMetrics(statement = {}, floors = []) {
       lobby_area_sqm: roundTo(lobby, 2),
       calculated_lobby_sqm: calculatedLobby,
       is_lobby_overridden: isLobbyOverridden,
-      builtup_for_owners_sqm: roundTo(owners, 2),
-      builtup_for_sale_sqm: roundTo(sale, 2),
+      builtup_for_owners_sqm: 0,
+      builtup_for_sale_sqm: roundTo(saleRaw, 2),
+      total_saleable_area_sqm: saleDisplay,
       no_of_units: noOfUnits,
+      area_for_1_unit_raw: areaFor1UnitRaw,
       area_for_1_unit: areaFor1Unit,
+      area_for_1_unit_sqft: areaFor1UnitSqft,
       total_floor_area_sqm: roundTo(pline, 2),
       pline_area_sqft: pline * SQM_TO_SQFT,
       lobby_area_sqft: lobby * SQM_TO_SQFT,
-      builtup_for_sale_sqft: sale * SQM_TO_SQFT
+      builtup_for_sale_sqft: saleRaw * SQM_TO_SQFT
     };
   });
 
-  // Fallback Proposed Primary FSI & Ancillary summary when 0 habitable floors exist yet
-  if (N_habitable === 0) {
+  // Ensure Mixed-Use Table 1 & Floor totals reconcile cleanly when explicit % allocation is active
+  if (N_habitable === 0 || (isMixedUse && isPrimaryFsiSplitExplicit && (N_comm === 0 || N_res === 0))) {
     proposedCommercialFsiSqm = roundTo(proposedTotalBuiltupSqm * commRatio, 2);
     proposedResidentialFsiSqm = roundTo(proposedTotalBuiltupSqm * resRatio, 2);
     proposedCommercialAncillarySqm = roundTo(proposedCommercialFsiSqm * commAncillaryPct, 2);
@@ -947,8 +1120,10 @@ function calculateAreaMetrics(statement = {}, floors = []) {
 
   totalProposedPlineSqm = roundTo(totalProposedPlineSqm, 2);
   totalLobbyAreaSqm = roundTo(totalLobbyAreaSqm, 2);
-  totalBuiltupForOwnersSqm = roundTo(totalBuiltupForOwnersSqm, 2);
-  totalBuiltupForSaleSqm = roundTo(totalBuiltupForSaleSqm, 2);
+  const totalBuiltupForSaleSqm = roundTo(totalSaleableRaw, 2);
+  const weightedAverageAreaPerUnitRaw = totalUnitsCount > 0 ? (totalSaleableRaw / totalUnitsCount) : null;
+  const weightedAverageAreaPerUnitSqm = weightedAverageAreaPerUnitRaw !== null ? roundTo(weightedAverageAreaPerUnitRaw, 4) : null;
+  const weightedAverageAreaPerUnitSqft = weightedAverageAreaPerUnitRaw !== null ? roundTo(weightedAverageAreaPerUnitRaw * SQM_TO_SQFT, 4) : null;
   totalHeightMeters = roundTo(totalHeightMeters, 2);
 
   const marginHBy5Meters = roundTo(totalHeightMeters / 5, 2);
@@ -960,14 +1135,25 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     ? totalProposedPlineOverrideSqm
     : calculatedProposedPlineSqm;
 
-  // Derived Compliance Checks & Area Balance
+  // Derived Compliance Checks, Area Balance & Documented Tolerance (Section 9)
   const proposedAfterExistingSqm = Math.max(0, totalProposedPlineSqm - existingBuiltup);
   const baseDividingFactorSqm = dividingFactor > 0 ? (proposedAfterExistingSqm / dividingFactor) : 0;
   const derivedAncillaryAreaSqm = Math.max(0, totalProposedPlineSqm - baseDividingFactorSqm);
   const basicFsiOfPlotSqm = plotableAreaSqm * basicFsiFactor;
   const tdrOfPlotSqm = plotableAreaSqm * 0.30;
   const paidFsiRequiredSqm = Math.max(0, baseDividingFactorSqm - basicFsiOfPlotSqm - tdrOfPlotSqm);
-  const areaBalanceSqm = roundTo(permissiblePlineTotalSqm - effectiveProposedPlineSqm, 2);
+
+  // Area Balance strictly = Permissible P-Line - Total Proposed Floor P-Line Sum (with documented tolerance)
+  const areaBalanceExactSqm = roundTo(permissiblePlineTotalSqm - totalProposedPlineSqm, 4);
+  const areaBalanceSqm = roundTo(areaBalanceExactSqm, 2);
+  const singleAncillaryPct = isCommercial ? commAncillaryPct : resAncillaryPct;
+  const table1ProposedCommAncSqm = roundTo((proposedTotalBuiltupSqm * commRatio) * commAncillaryPct, 2);
+  const table1ProposedResAncSqm = roundTo((proposedTotalBuiltupSqm * resRatio) * resAncillaryPct, 2);
+  const table1ProposedTotalAncSqm = roundTo(table1ProposedCommAncSqm + table1ProposedResAncSqm, 2);
+  const table1ProposedPlineTotalSqm = roundTo(proposedTotalBuiltupSqm + table1ProposedTotalAncSqm, 2);
+  const targetVsFloorSumDiffSqm = roundTo(table1ProposedPlineTotalSqm - totalProposedPlineSqm, 4);
+  const isAreaBalanceWithinTolerance = Math.abs(areaBalanceExactSqm) <= AREA_BALANCE_ROUNDING_TOLERANCE_SQM;
+  const isFloorSumWithinRoundingTolerance = Math.abs(targetVsFloorSumDiffSqm) <= AREA_BALANCE_ROUNDING_TOLERANCE_SQM;
 
   const isConfigured = (plotAreaSqm > 0) || (activeFloors.length > 0);
   const requiredTdrSqm = Math.max(0, proposedTotalBuiltupSqm - proposedBasicFsiSqm - proposedPaidFsiSqm);
@@ -978,12 +1164,6 @@ function calculateAreaMetrics(statement = {}, floors = []) {
   const sourceUnallocatedPermissiblePlineSqm = roundTo(permissibleTotalBuiltupSqm + sourceUnallocatedResidentialAncillarySqm + sourceUnallocatedCommercialAncillarySqm, 3);
   const floorSumPlineSqm = roundTo(totalProposedPlineSqm, 3);
   const sourceProposedPlineDifferenceSqm = roundTo(effectiveProposedPlineSqm - totalProposedPlineSqm, 3);
-
-  const singleAncillaryPct = isCommercial ? commAncillaryPct : resAncillaryPct;
-  const table1ProposedCommAncSqm = roundTo((proposedTotalBuiltupSqm * commRatio) * commAncillaryPct, 2);
-  const table1ProposedResAncSqm = roundTo((proposedTotalBuiltupSqm * resRatio) * resAncillaryPct, 2);
-  const table1ProposedTotalAncSqm = roundTo(table1ProposedCommAncSqm + table1ProposedResAncSqm, 2);
-  const table1ProposedPlineTotalSqm = roundTo(proposedTotalBuiltupSqm + table1ProposedTotalAncSqm, 2);
 
   return {
     isConfigured,
@@ -1007,6 +1187,9 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     defaultRegularTdrFactor,
     defaultSlumTdrFactor,
     isRegularTdrOverridden,
+    eligibleRegularTdrFactor,
+    eligibleSlumTdrFactor,
+    eligibleTdrFactor,
     totalProposedTdrFactor,
 
     // Baseline Measurements (FR-02)
@@ -1021,9 +1204,15 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     plotableAreaSqm,
     plotableAreaSqft: plotableAreaSqm * SQM_TO_SQFT,
 
-    // Permissible Column (FR-03, FR-04, FR-08, FR-11)
+    // Permissible Column (FR-03, FR-04, FR-08, FR-11, Section 4.3 Eligibility)
+    basicFsiFactor,
+    paidFsiFactor,
+    permissiblePaidFsiFactor: paidFsiFactor,
     permissibleFsiSqm,
     permissiblePaidFsiSqm,
+    underlyingTotalTdrSqm,
+    underlyingRegularTdrSqm,
+    underlyingSlumTdrSqm,
     permissibleRegularTdrSqm,
     permissibleSlumTdrSqm,
     permissibleTdrSqm,
@@ -1043,20 +1232,29 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     table1ProposedCommAncSqm,
     table1ProposedResAncSqm,
 
-    // Auto-Suggested vs Effective Proposed Paid FSI & TDR (FR-05, FR-09)
+    // Auto-Suggested vs Effective Proposed vs Remaining Eligible (FR-05, FR-09)
     suggestedPaidFsiFactor,
     effectiveProposedPaidFsiFactor,
     isProposedPaidFsiEdited,
     calculatedProposedPaidFsiSqm,
+    remainingPaidFsiFactor,
+    remainingPaidFsiSqm,
 
     suggestedRegularTdrFactor,
     suggestedSlumTdrFactor,
+    suggestedTdrFactor,
     effectiveProposedRegularTdrFactor,
     effectiveProposedSlumTdrFactor,
     isProposedTdrEdited,
     calculatedProposedRegularTdrSqm,
     calculatedProposedSlumTdrSqm,
     calculatedProposedTdrSqm,
+    remainingRegularTdrFactor,
+    remainingSlumTdrFactor,
+    remainingTdrFactor,
+    remainingRegularTdrSqm,
+    remainingSlumTdrSqm,
+    remainingTdrSqm,
 
     // Proposed Column (FR-10, FR-11)
     proposedBasicFsiSqm,
@@ -1096,13 +1294,19 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     totalProposedPlineSqft: totalProposedPlineSqm * SQM_TO_SQFT,
     totalLobbyAreaSqm,
     totalLobbyAreaSqft: totalLobbyAreaSqm * SQM_TO_SQFT,
-    totalBuiltupForOwnersSqm,
-    totalBuiltupForOwnersSqft: totalBuiltupForOwnersSqm * SQM_TO_SQFT,
+    totalBuiltupForOwnersSqm: 0,
+    totalBuiltupForOwnersSqft: 0,
     totalBuiltupForSaleSqm,
-    totalBuiltupForSaleSqft: totalBuiltupForSaleSqm * SQM_TO_SQFT,
-    totalOwnersAndSaleSqm: totalBuiltupForOwnersSqm + totalBuiltupForSaleSqm,
-    totalOwnersAndSaleSqft: (totalBuiltupForOwnersSqm + totalBuiltupForSaleSqm) * SQM_TO_SQFT,
+    totalBuiltupForSaleSqft: totalSaleableRaw * SQM_TO_SQFT,
+    totalSaleableAreaSqm: totalBuiltupForSaleSqm,
+    totalSaleableAreaSqft: totalSaleableRaw * SQM_TO_SQFT,
+    weightedAverageAreaPerUnitRaw,
+    weightedAverageAreaPerUnitSqm,
+    weightedAverageAreaPerUnitSqft,
+    totalOwnersAndSaleSqm: totalBuiltupForSaleSqm,
+    totalOwnersAndSaleSqft: totalSaleableRaw * SQM_TO_SQFT,
     totalHeightMeters,
+    excludedHeightFloorsCount,
     marginHBy5Meters,
     totalUnitsCount,
 
@@ -1112,7 +1316,12 @@ function calculateAreaMetrics(statement = {}, floors = []) {
     basicFsiOfPlotSqm,
     tdrOfPlotSqm,
     paidFsiRequiredSqm,
+    areaBalanceExactSqm,
     areaBalanceSqm,
+    targetVsFloorSumDiffSqm,
+    roundingToleranceSqm: AREA_BALANCE_ROUNDING_TOLERANCE_SQM,
+    isAreaBalanceWithinTolerance,
+    isFloorSumWithinRoundingTolerance,
 
     evaluatedFloors
   };
@@ -1379,7 +1588,7 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
     costOfInfra +
     interestCost;
 
-  // 5. RECEIPTS & SALABLE UNITS (Unified model inside Receipts — FR-32)
+  // 5. RECEIPTS & SALABLE UNITS (Unified model inside Receipts — FR-32 & Section 8.6 Floor-wise integration)
   let totalReceipts = 0;
   let totalGrossReceipts = 0;
   let totalLandownerReceipts = 0;
@@ -1388,12 +1597,42 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
   let totalSalableCarpetSqft = 0;
   let totalSalableSuperSqft = 0;
 
+  const evalFloorMap = new Map();
+  const floorUnitAreas = [];
+  for (const ef of (areaMetrics.evaluatedFloors || [])) {
+    if (ef && ef.id !== undefined && ef.id !== null) {
+      evalFloorMap.set(Number(ef.id), ef);
+    }
+    const isHab = ef.floor_type !== 'parking' && ef.floor_type !== 'terrace' && ef.floor_type !== 'service';
+    if (isHab && (ef.no_of_units || 0) > 0) {
+      const unitSqm = ef.area_for_1_unit_raw ?? ef.area_for_1_unit ?? 0;
+      floorUnitAreas.push({
+        floor_id: ef.id,
+        floor_name: ef.floor_name,
+        usage_type: ef.usage_type || 'Residential',
+        no_of_units: ef.no_of_units,
+        area_per_unit_sqm: roundTo(unitSqm, 4),
+        area_per_unit_sqft: roundTo(unitSqm * SQM_TO_SQFT, 4)
+      });
+    }
+  }
+
   const evaluatedSalableUnits = (salableUnits || []).map((unit) => {
+    const linkedFloor = unit.source_floor_id !== null && unit.source_floor_id !== undefined
+      ? evalFloorMap.get(Number(unit.source_floor_id))
+      : null;
+
     const rawCarpetSqft = parseOptNum(unit.carpet_area_sqft);
     const rawCarpetSqm = parseOptNum(unit.carpet_area_sqm);
     let carpetSqft = 0;
     let carpetSqm = 0;
-    if (rawCarpetSqft !== null && rawCarpetSqft >= 0 && (rawCarpetSqft > 0 || rawCarpetSqm === null || rawCarpetSqm === 0)) {
+    let hasFloorLink = false;
+
+    if (linkedFloor && (linkedFloor.no_of_units || 0) > 0) {
+      hasFloorLink = true;
+      carpetSqm = parseNum(linkedFloor.area_for_1_unit_raw ?? linkedFloor.area_for_1_unit, 0);
+      carpetSqft = carpetSqm * SQM_TO_SQFT;
+    } else if (rawCarpetSqft !== null && rawCarpetSqft >= 0 && (rawCarpetSqft > 0 || rawCarpetSqm === null || rawCarpetSqm === 0)) {
       carpetSqft = rawCarpetSqft;
       carpetSqm = carpetSqft / SQM_TO_SQFT;
     } else if (rawCarpetSqm !== null && rawCarpetSqm > 0) {
@@ -1414,14 +1653,18 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
       ? (carpetSqft + loadingSqft)
       : Math.max(0, parseNum(unit.super_buildup_area_sqft, 0));
 
-    const totalUnitsCount = Math.max(0, parseInt(parseNum(unit.unit_count, 0), 10));
+    const totalUnitsCount = hasFloorLink
+      ? Math.max(0, parseInt(parseNum(linkedFloor.no_of_units, 0), 10))
+      : Math.max(0, parseInt(parseNum(unit.unit_count, 0), 10));
     const rawLandowner = unit.landowner_unit_count !== undefined ? unit.landowner_unit_count : unit.landowner_units;
     const landownerUnits = Math.min(totalUnitsCount, Math.max(0, parseInt(parseNum(rawLandowner, 0), 10)));
     const developerUnits = Math.max(0, totalUnitsCount - landownerUnits);
 
     const rateSqft = Math.max(0, parseNum(unit.rate_per_sqft, 0));
+    // Full precision for Section 8.6 floor-linked areas; legacy manual rows preserve 2-decimal super_buildup rounding parity
+    const effectiveAreaForPricing = hasFloorLink ? superSqft : roundTo(superSqft, 2);
     const roundedSuperSqft = roundTo(superSqft, 2);
-    const unitPrice = roundTo(roundedSuperSqft * rateSqft, 2);
+    const unitPrice = roundTo(effectiveAreaForPricing * rateSqft, 2);
     const developerAmount = roundTo(unitPrice * developerUnits, 2);
     const grossAmount = roundTo(unitPrice * totalUnitsCount, 2);
     const landownerAmount = roundTo(unitPrice * landownerUnits, 2);
@@ -1432,16 +1675,20 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
     totalGrossReceipts += grossAmount;
     totalLandownerReceipts += landownerAmount;
     totalSalableCarpetSqft += (carpetSqft * totalUnitsCount);
-    totalSalableSuperSqft += (roundedSuperSqft * totalUnitsCount);
+    totalSalableSuperSqft += (effectiveAreaForPricing * totalUnitsCount);
 
     return {
       ...unit,
+      source_floor_id: unit.source_floor_id ?? null,
+      source_floor_name: linkedFloor ? linkedFloor.floor_name : null,
+      is_floor_linked: hasFloorLink,
       loading_mode: loadingMode,
       loading_pct: roundTo(loadingPct, 2),
       super_buildup_loading_sqft: roundTo(loadingSqft, 2),
       carpet_area_sqm: roundTo(carpetSqm, 4),
       carpet_area_sqft: roundTo(carpetSqft, 2),
       super_buildup_area_sqft: roundedSuperSqft,
+      super_buildup_area_sqft_exact: superSqft,
       unit_count: totalUnitsCount,
       landowner_unit_count: landownerUnits,
       developer_unit_count: developerUnits,
@@ -1499,6 +1746,7 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
 
     evaluatedStatutoryCharges,
     evaluatedSalableUnits,
+    floorUnitAreas,
     totalSalableCarpetSqft: roundTo(totalSalableCarpetSqft, 2),
     totalSalableSuperSqft: roundTo(totalSalableSuperSqft, 2)
   };
@@ -1506,11 +1754,13 @@ function calculateFinancialMetrics(financial = {}, statutoryItems = [], salableU
 
 module.exports = {
   SQM_TO_SQFT,
+  AREA_BALANCE_ROUNDING_TOLERANCE_SQM,
   ROAD_WIDTH_TDR_MAP,
   ROAD_WIDTH_TOTAL_TDR_MAP,
   REGULATORY_PROFILES,
   parseNum,
   parseOptNum,
+  isHeightContributingFloor,
   validateAreaStatementInputs,
   deriveTdrSplit,
   resolvePermissibleTdr,

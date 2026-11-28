@@ -122,8 +122,11 @@ describe('Phase 4: Calculation Accuracy & Formula Parity', () => {
         dp_deductions_sqm: 0,
         basic_fsi_factor: 1.1,
         paid_fsi_factor: 0.5,
+        proposed_paid_fsi_factor: 0.5,
         regular_tdr_factor: 0.4,
         slum_tdr_factor: 0.2,
+        proposed_regular_tdr_factor: 0.4,
+        proposed_slum_tdr_factor: 0.2,
         building_use: 'Mixed Use'
       };
       // 1 Commercial floor, 1 Residential floor

@@ -37,7 +37,7 @@ function generateStandardFloorHierarchy(config = {}) {
   const floors = [];
   let order = 1;
 
-  // 1. Basements (from deepest to highest basement, e.g. Basement 2, Basement 1)
+  // 1. Basements (from deepest to highest basement; subterranean height contribution = 0m per UDCPR & client methodology)
   for (let b = basementCount; b >= 1; b--) {
     floors.push({
       floor_key: `basement_${b}`,
@@ -45,7 +45,7 @@ function generateStandardFloorHierarchy(config = {}) {
       floor_order: order++,
       floor_type: 'parking',
       usage_type: 'Parking',
-      height_meters: 3.00,
+      height_meters: 0.00,
       no_of_units: 0,
       is_habitable: false
     });
@@ -96,7 +96,7 @@ function generateStandardFloorHierarchy(config = {}) {
     });
   }
 
-  // 5. Terrace Floor
+  // 5. Terrace Floor (roof/tank slab level — does not add habitable storey height H by default)
   if (config.has_terrace_tank_slab !== false) {
     floors.push({
       floor_key: 'terrace',
@@ -104,7 +104,7 @@ function generateStandardFloorHierarchy(config = {}) {
       floor_order: order++,
       floor_type: 'terrace',
       usage_type: 'Services',
-      height_meters: 3.00,
+      height_meters: 0.00,
       no_of_units: 0,
       is_habitable: false
     });
@@ -136,7 +136,7 @@ async function reconcileBuildingFloors(client, projectId, userId, config) {
     const { rows: [newStmt] } = await client.query(
       `INSERT INTO project_area_statements
         (project_id, plot_area_sqm, city_survey_area_sqm, site_area_sqm, dp_deductions_sqm, existing_builtup_area_sqm, dividing_factor, basic_fsi_factor, paid_fsi_factor, tdr_factor, total_tdr_factor, proposed_tdr_factor, building_use, regular_tdr_factor, slum_tdr_factor, is_gunthewari, road_width_m, created_by)
-       VALUES ($1, $2, $2, $2, 0, 0, 1.6, 1.1, 0.5, 0.65, NULL, 0, 'Residential', 0, 0, false, null, $3)
+       VALUES ($1, $2, $2, $2, 0, 0, 1.6, 1.1, 0.5, 0.65, NULL, NULL, 'Residential', NULL, NULL, false, null, $3)
        RETURNING *`,
       [projectId, roundedPlot, userId]
     );

@@ -4,6 +4,7 @@
 // via /api/projects/:projectId/feasibility and POST /preview. No shadow calculation engine is duplicated here.
 
 export const SQM_TO_SQFT = 10.7639104167;
+export const AREA_BALANCE_ROUNDING_TOLERANCE_SQM = 0.05;
 
 export const ROAD_WIDTHS = [9, 12, 15, 18, 24];
 
@@ -64,30 +65,18 @@ export function formatINR(val, decimals = 2) {
 
 /**
  * UI display helper for TDR split hints before backend /preview resolves.
- * Enforces FR-08: Gunthewari uses Slum TDR only (Regular TDR = 0).
+ * Preserves underlying Road-Width 50/50 split even when Gunthewari eligibility is active
+ * (Gunthewari eligibility uses Slum TDR only = 50% of Road Total TDR, Reg = 0).
  */
 export function deriveTdrSplit(totalTdrFactor, requestedRegularTdr = null, isGunthewari = false) {
   const round4 = (v) => Math.round((v + Number.EPSILON) * 10000) / 10000;
   const total = Math.max(0, round4(parseFloat(totalTdrFactor) || 0));
   const half = round4(total / 2);
 
-  if (isGunthewari) {
-    return {
-      totalTdrFactor: half,
-      regularTdrFactor: 0,
-      slumTdrFactor: half,
-      defaultRegularTdrFactor: 0,
-      defaultSlumTdrFactor: half,
-      isRegularTdrOverridden: false,
-      isSplitValid: true,
-      validationError: null
-    };
-  }
-
   const defaultRegular = half;
   const defaultSlum = round4(total - defaultRegular);
 
-  if (requestedRegularTdr !== null && requestedRegularTdr !== undefined && requestedRegularTdr !== '') {
+  if (!isGunthewari && requestedRegularTdr !== null && requestedRegularTdr !== undefined && requestedRegularTdr !== '') {
     const rawReq = parseFloat(requestedRegularTdr);
     if (isNaN(rawReq) || rawReq < 0 || round4(rawReq) > total) {
       return {
@@ -96,6 +85,9 @@ export function deriveTdrSplit(totalTdrFactor, requestedRegularTdr = null, isGun
         slumTdrFactor: defaultSlum,
         defaultRegularTdrFactor: defaultRegular,
         defaultSlumTdrFactor: defaultSlum,
+        eligibleRegularTdrFactor: defaultRegular,
+        eligibleSlumTdrFactor: defaultSlum,
+        eligibleTotalTdrFactor: total,
         isRegularTdrOverridden: false,
         isSplitValid: false,
         validationError: `Regular TDR must be between 0 and ${total.toFixed(3)}`
@@ -109,6 +101,9 @@ export function deriveTdrSplit(totalTdrFactor, requestedRegularTdr = null, isGun
       slumTdrFactor: derivedSlum,
       defaultRegularTdrFactor: defaultRegular,
       defaultSlumTdrFactor: defaultSlum,
+      eligibleRegularTdrFactor: roundedReq,
+      eligibleSlumTdrFactor: derivedSlum,
+      eligibleTotalTdrFactor: total,
       isRegularTdrOverridden: Math.abs(roundedReq - defaultRegular) > 0.0001,
       isSplitValid: true,
       validationError: null
@@ -121,6 +116,9 @@ export function deriveTdrSplit(totalTdrFactor, requestedRegularTdr = null, isGun
     slumTdrFactor: defaultSlum,
     defaultRegularTdrFactor: defaultRegular,
     defaultSlumTdrFactor: defaultSlum,
+    eligibleRegularTdrFactor: isGunthewari ? 0 : defaultRegular,
+    eligibleSlumTdrFactor: isGunthewari ? half : defaultSlum,
+    eligibleTotalTdrFactor: isGunthewari ? half : total,
     isRegularTdrOverridden: false,
     isSplitValid: true,
     validationError: null

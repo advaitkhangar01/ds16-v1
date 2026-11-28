@@ -114,7 +114,10 @@ describe('Master Rebuild — TDR 50/50 Split & Remainder Logic (Section 4)', () 
       road_width_m: 12,
       basic_fsi_factor: 1.10,
       paid_fsi_factor: 0.50,
-      regular_tdr_factor: 0.45 // Override from default 0.325
+      regular_tdr_factor: 0.45, // Override from default 0.325
+      is_regular_tdr_overridden: true,
+      proposed_regular_tdr_factor: 0.45,
+      proposed_slum_tdr_factor: 0.20
     };
 
     const metrics = calculateAreaMetrics(statement, []);
@@ -123,6 +126,8 @@ describe('Master Rebuild — TDR 50/50 Split & Remainder Logic (Section 4)', () 
     expect(metrics.slumTdrFactor).toBe(0.20); // 0.65 - 0.45
     expect(metrics.isRegularTdrOverridden).toBe(true);
 
+    expect(metrics.permissibleRegularTdrSqm).toBeCloseTo(450.00, 2);
+    expect(metrics.permissibleSlumTdrSqm).toBeCloseTo(200.00, 2);
     expect(metrics.regularTdrSqm).toBeCloseTo(450.00, 2);
     expect(metrics.slumTdrSqm).toBeCloseTo(200.00, 2);
     expect(metrics.regularTdrSqm + metrics.slumTdrSqm).toBeCloseTo(650.00, 2);

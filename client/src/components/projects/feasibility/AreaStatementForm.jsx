@@ -16,10 +16,11 @@ import {
   ROAD_WIDTHS,
   ROAD_WIDTH_TOTAL_TDR_MAP,
   ROAD_WIDTH_TDR_MAP,
-  toDisplayArea,
-  fromDisplayArea,
+  AREA_BALANCE_ROUNDING_TOLERANCE_SQM,
   formatArea,
   formatNum,
+  toDisplayArea,
+  fromDisplayArea,
   deriveTdrSplit
 } from '../../../utils/feasibilityCalculations';
 
@@ -90,6 +91,7 @@ function AreaUnitInput({
 function PlainDecimalInput({
   value,
   decimals = 3,
+  integerOnly = false,
   nullable = false,
   disabled = false,
   placeholder = '',
@@ -102,7 +104,9 @@ function PlainDecimalInput({
   const formattedOutside =
     value === null || value === undefined || value === ''
       ? ''
-      : Number(value).toFixed(decimals);
+      : integerOnly
+        ? String(Math.round(Number(value)))
+        : Number(value).toFixed(decimals);
 
   const commitVal = (raw, isBlur = false) => {
     if (raw === '') {
@@ -112,9 +116,9 @@ function PlainDecimalInput({
       return;
     }
     const parsed = parseFloat(raw);
-    if (!Number.isFinite(parsed) || parsed < 0) {
+    if (!Number.isFinite(parsed) || parsed < 0 || (integerOnly && !Number.isInteger(parsed))) {
       if (isBlur) {
-        toast.error('Please enter a valid non-negative number.');
+        toast.error(integerOnly ? 'Please enter a valid non-negative whole number.' : 'Please enter a valid non-negative number.');
         setFocused(false);
       }
       return;
@@ -131,7 +135,7 @@ function PlainDecimalInput({
   return (
     <input
       type="number"
-      step="any"
+      step={integerOnly ? '1' : 'any'}
       min="0"
       disabled={disabled}
       placeholder={placeholder}
@@ -174,91 +178,51 @@ export default function AreaStatementForm({
     statement.primary_fsi_residential_pct !== null && statement.primary_fsi_residential_pct !== undefined
       ? Number(statement.primary_fsi_residential_pct)
       : Number(areaMetrics.primaryFsiResidentialPct ?? (buildingUse === 'Commercial' ? 0 : buildingUse === 'Mixed Use' ? 50 : 100));
-  const primaryCommPct = Math.max(0, Math.round((100 - primaryResPct) * 100) / 100);
+  const primaryCommPct =
+    statement.primary_fsi_commercial_pct !== null && statement.primary_fsi_commercial_pct !== undefined
+      ? Number(statement.primary_fsi_commercial_pct)
+      : Math.max(0, Math.round((100 - primaryResPct) * 100) / 100);
+  const mixedSum = Math.round((primaryResPct + primaryCommPct) * 100) / 100;
+  const isMixedBalanced = Math.abs(mixedSum - 100) <= 0.01 && primaryResPct > 0 && primaryCommPct > 0;
 
-  // FR-08 & Section 3: Switching classification revalidates & resets proposed consumption to new eligibility
+  // Switching classification updates eligibility only; underlying road-width 50/50 split stays intact
   const handleClassificationChange = (gunth) => {
     if (!canEdit) return;
-    if (roadWidth && ROAD_WIDTH_TDR_MAP[roadWidth]) {
-      const tier = ROAD_WIDTH_TDR_MAP[roadWidth];
-      if (gunth) {
-        onUpdateStatement({
-          is_gunthewari: true,
-          regular_tdr_factor: 0,
-          slum_tdr_factor: tier.gunthewari,
-          total_tdr_factor: tier.gunthewari,
-          tdr_factor: tier.gunthewari,
-          proposed_regular_tdr_factor: 0,
-          proposed_slum_tdr_factor: null
-        }, true);
-      } else {
-        const total = ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth];
-        onUpdateStatement({
-          is_gunthewari: false,
-          regular_tdr_factor: tier.regular,
-          slum_tdr_factor: tier.slum,
-          total_tdr_factor: total,
-          tdr_factor: total,
-          proposed_regular_tdr_factor: null,
-          proposed_slum_tdr_factor: null
-        }, true);
-      }
-    } else if (gunth) {
-      const currentSlum = Number(statement.slum_tdr_factor ?? areaMetrics.slumTdrFactor ?? 0);
-      onUpdateStatement({
-        is_gunthewari: true,
-        regular_tdr_factor: 0,
-        slum_tdr_factor: currentSlum,
-        total_tdr_factor: currentSlum,
-        tdr_factor: currentSlum,
-        proposed_regular_tdr_factor: 0,
-        proposed_slum_tdr_factor: null
-      }, true);
-    } else {
-      onUpdateStatement({
-        is_gunthewari: false,
-        proposed_regular_tdr_factor: null,
-        proposed_slum_tdr_factor: null
-      }, true);
-    }
+    onUpdateStatement({
+      is_gunthewari: gunth,
+      proposed_regular_tdr_factor: gunth ? 0 : null,
+      proposed_slum_tdr_factor: null
+    }, true);
   };
 
-  // Total TDR is strictly road-width derived; changing road width resets & revalidates proposed consumption
+  // Total TDR is strictly road-width derived; changing road width resets to 50/50 & revalidates proposed consumption
   const handleRoadWidthChange = (val) => {
     if (!canEdit || !val) return;
     const w = Number(val);
     const tier = ROAD_WIDTH_TDR_MAP[w];
     if (!tier) return;
-    if (isGunthewari) {
-      onUpdateStatement({
-        road_width_m: w,
-        regular_tdr_factor: 0,
-        slum_tdr_factor: tier.gunthewari,
-        total_tdr_factor: tier.gunthewari,
-        tdr_factor: tier.gunthewari,
-        proposed_regular_tdr_factor: 0,
-        proposed_slum_tdr_factor: null
-      }, true);
-    } else {
-      const total = ROAD_WIDTH_TOTAL_TDR_MAP[w];
-      onUpdateStatement({
-        road_width_m: w,
-        regular_tdr_factor: tier.regular,
-        slum_tdr_factor: tier.slum,
-        total_tdr_factor: total,
-        tdr_factor: total,
-        proposed_regular_tdr_factor: null,
-        proposed_slum_tdr_factor: null
-      }, true);
-    }
+    const total = ROAD_WIDTH_TOTAL_TDR_MAP[w];
+    onUpdateStatement({
+      road_width_m: w,
+      regular_tdr_factor: tier.regular,
+      slum_tdr_factor: tier.slum,
+      total_tdr_factor: total,
+      tdr_factor: total,
+      is_regular_tdr_overridden: false,
+      reset_regular_tdr: true,
+      proposed_regular_tdr_factor: isGunthewari ? 0 : null,
+      proposed_slum_tdr_factor: null
+    }, true);
   };
 
   const handleBuildingUseChange = (nextUse) => {
     if (!canEdit) return;
     const nextResPct = nextUse === 'Residential' ? 100 : nextUse === 'Commercial' ? 0 : 50;
+    const nextCommPct = nextUse === 'Residential' ? 0 : nextUse === 'Commercial' ? 100 : 50;
     onUpdateStatement({
       building_use: nextUse,
-      primary_fsi_residential_pct: nextResPct
+      primary_fsi_residential_pct: nextResPct,
+      primary_fsi_commercial_pct: nextCommPct
     }, true);
   };
 
@@ -284,9 +248,27 @@ export default function AreaStatementForm({
       tdr_factor: split.totalTdrFactor,
       regular_tdr_factor: split.regularTdrFactor,
       slum_tdr_factor: split.slumTdrFactor,
+      is_regular_tdr_overridden: split.isRegularTdrOverridden,
+      reset_regular_tdr: false,
       ...(propReg !== null && propReg !== undefined && propReg > split.regularTdrFactor ? { proposed_regular_tdr_factor: null } : {}),
       ...(propSlum !== null && propSlum !== undefined && propSlum > split.slumTdrFactor ? { proposed_slum_tdr_factor: null } : {})
     });
+  };
+
+  const handleResetRegularTdrSplit = () => {
+    if (!canEdit || isGunthewari || !roadWidth || ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth] === undefined) return;
+    const tier = ROAD_WIDTH_TDR_MAP[roadWidth];
+    const total = ROAD_WIDTH_TOTAL_TDR_MAP[roadWidth];
+    onUpdateStatement({
+      total_tdr_factor: total,
+      tdr_factor: total,
+      regular_tdr_factor: tier.regular,
+      slum_tdr_factor: tier.slum,
+      is_regular_tdr_overridden: false,
+      reset_regular_tdr: true,
+      proposed_regular_tdr_factor: null,
+      proposed_slum_tdr_factor: null
+    }, true);
   };
 
   const inputCls =
@@ -363,14 +345,14 @@ export default function AreaStatementForm({
               onChange={(e) => handleBuildingUseChange(e.target.value)}
               className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-900"
             >
-              <option value="Residential">Residential (60% Ancillary)</option>
-              <option value="Commercial">Commercial (80% Ancillary)</option>
-              <option value="Mixed Use">Mixed Use (60% Res / 80% Comm)</option>
+              <option value="Residential">Residential</option>
+              <option value="Commercial">Commercial</option>
+              <option value="Mixed Use">Mixed Use</option>
             </select>
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-700 mb-1">Plot Classification (FR-08)</label>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">Plot Classification</label>
             <select
               disabled={!canEdit}
               value={isGunthewari ? 'gunthewari' : 'regular'}
@@ -393,45 +375,58 @@ export default function AreaStatementForm({
               {!roadWidth && <option value="">Select Road Width (9m–24m)</option>}
               {ROAD_WIDTHS.map((w) => (
                 <option key={w} value={w}>
-                  {w} m ({isGunthewari ? `Slum ${ROAD_WIDTH_TDR_MAP[w].gunthewari}` : `Total ${ROAD_WIDTH_TOTAL_TDR_MAP[w].toFixed(2)}`})
+                  {w} m ({isGunthewari ? `Road ${ROAD_WIDTH_TOTAL_TDR_MAP[w].toFixed(2)} → Elig. Slum ${ROAD_WIDTH_TDR_MAP[w].gunthewari}` : `Total ${ROAD_WIDTH_TOTAL_TDR_MAP[w].toFixed(2)}`})
                 </option>
               ))}
             </select>
           </div>
 
           {isMixedUse ? (
-            <div className="bg-indigo-50/70 border border-indigo-200 rounded-lg p-2">
-              <label className="block text-[11px] font-bold text-indigo-900 mb-1">
-                Primary FSI Allocation (FR-11, Total 100%)
-              </label>
+            <div className={`border rounded-lg p-2 ${isMixedBalanced ? 'bg-indigo-50/70 border-indigo-200' : 'bg-rose-50 border-rose-300'}`}>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-bold text-indigo-950">
+                  Primary FSI Allocation (Res + Comm = 100%)
+                </label>
+                <span className={`text-[10px] font-mono font-bold ${isMixedBalanced ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  Sum: {mixedSum.toFixed(1)}%
+                </span>
+              </div>
               <div className="flex items-center gap-2 text-xs">
                 <div className="flex-1">
-                  <span className="text-[10px] text-indigo-700">Res %</span>
+                  <span className="text-[10px] text-indigo-800">Residential %</span>
                   <PlainDecimalInput
                     decimals={1}
                     disabled={!canEdit}
                     value={primaryResPct}
                     className="w-full px-2 py-1 text-xs bg-white border border-indigo-300 rounded font-mono"
                     onChangeValue={(val) => {
-                      if (val < 0 || val > 100) {
-                        return { ok: false, error: 'Residential percentage must be between 0 and 100.' };
+                      if (val <= 0 || val > 100) {
+                        return { ok: false, error: 'Residential % must be greater than 0 and at most 100 for Mixed Use.' };
                       }
-                      return onUpdateStatement({ primary_fsi_residential_pct: val });
+                      return onUpdateStatement({
+                        primary_fsi_residential_pct: val,
+                        primary_fsi_commercial_pct: primaryCommPct,
+                        is_mixed_alloc_edit: true
+                      });
                     }}
                   />
                 </div>
                 <div className="flex-1">
-                  <span className="text-[10px] text-indigo-700">Comm %</span>
+                  <span className="text-[10px] text-indigo-800">Commercial %</span>
                   <PlainDecimalInput
                     decimals={1}
                     disabled={!canEdit}
                     value={primaryCommPct}
                     className="w-full px-2 py-1 text-xs bg-white border border-indigo-300 rounded font-mono"
                     onChangeValue={(val) => {
-                      if (val < 0 || val > 100) {
-                        return { ok: false, error: 'Commercial percentage must be between 0 and 100.' };
+                      if (val <= 0 || val > 100) {
+                        return { ok: false, error: 'Commercial % must be greater than 0 and at most 100 for Mixed Use.' };
                       }
-                      return onUpdateStatement({ primary_fsi_residential_pct: Math.round((100 - val) * 100) / 100 });
+                      return onUpdateStatement({
+                        primary_fsi_residential_pct: primaryResPct,
+                        primary_fsi_commercial_pct: val,
+                        is_mixed_alloc_edit: true
+                      });
                     }}
                   />
                 </div>
@@ -442,29 +437,41 @@ export default function AreaStatementForm({
               {isGunthewari ? (
                 <div className="w-full text-[11px] bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5 shrink-0" />
-                  <span>Gunthewari: Regular TDR locked at 0 (Slum TDR only).</span>
+                  <span>Gunthewari: Regular eligibility = 0 (Slum TDR = 50% of Road TDR).</span>
                 </div>
               ) : (
                 <div className="w-full text-[11px] bg-slate-50 border border-slate-200 text-slate-600 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
                   <Info className="w-3.5 h-3.5 shrink-0 text-slate-500" />
-                  <span>Total TDR road-derived; Slum TDR = Total − Regular.</span>
+                  <span>Total TDR road-derived (default 50/50); Slum = Total − Regular.</span>
                 </div>
               )}
             </div>
           )}
         </div>
 
-        {/* Permissible & Proposed FSI/TDR Consumption Factors (Section 3 & FR-05/09) */}
+        {/* Permissible & Proposed FSI/TDR Consumption Factors */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pt-1">
           {/* Permissible Factors Box */}
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
                 Permissible Potential Factors
               </div>
-              <span className="text-[11px] font-mono font-semibold text-slate-700">
-                Road Total TDR: {formatNum(areaMetrics.totalTdrFactor, 3)}
-              </span>
+              <div className="flex items-center gap-2">
+                {areaMetrics.isRegularTdrOverridden && !isGunthewari && canEdit && (
+                  <button
+                    type="button"
+                    onClick={handleResetRegularTdrSplit}
+                    className="text-[10px] font-semibold text-indigo-700 hover:text-indigo-950 flex items-center gap-1 underline"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Reset 50/50 TDR
+                  </button>
+                )}
+                <span className="text-[11px] font-mono font-semibold text-slate-700">
+                  Road Total TDR: {formatNum(areaMetrics.totalTdrFactor, 3)}
+                </span>
+              </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <div>
@@ -489,19 +496,19 @@ export default function AreaStatementForm({
               </div>
               <div>
                 <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">
-                  Perm. Reg TDR {isGunthewari && '(Locked)'}
+                  Road Split Reg TDR {isGunthewari && '(Elig. 0)'}
                 </label>
                 <PlainDecimalInput
                   decimals={3}
                   disabled={!canEdit || isGunthewari || !roadWidth}
-                  value={isGunthewari ? 0 : (areaMetrics.regularTdrFactor ?? 0)}
+                  value={areaMetrics.regularTdrFactor ?? 0}
                   className={inputCls}
                   onChangeValue={handlePermRegTdrChange}
                 />
               </div>
               <div>
                 <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">
-                  Perm. Slum TDR (Balance)
+                  Road Split Slum TDR
                 </label>
                 <input
                   type="text"
@@ -512,13 +519,23 @@ export default function AreaStatementForm({
                 />
               </div>
             </div>
+            <div className="text-[10px] font-mono text-slate-600 pt-1 border-t border-slate-200 flex flex-wrap justify-between gap-2">
+              <span>
+                Eligible TDR: Reg <strong className="text-slate-900">{formatNum(areaMetrics.eligibleRegularTdrFactor, 3)}</strong>
+                {' · '}Slum <strong className="text-slate-900">{formatNum(areaMetrics.eligibleSlumTdrFactor, 3)}</strong>
+                {' · '}Total <strong className="text-slate-900">{formatNum(areaMetrics.eligibleTdrFactor ?? areaMetrics.totalTdrFactor, 3)}</strong>
+              </span>
+              {isGunthewari && (
+                <span className="text-amber-800 font-sans font-semibold">Gunthewari: Slum TDR only (50% of Road Total)</span>
+              )}
+            </div>
           </div>
 
-          {/* Proposed Consumption Factors Box (FR-05/09) */}
+          {/* Proposed Consumption Factors Box */}
           <div className="bg-emerald-50/50 border border-emerald-200 rounded-lg p-3 space-y-2">
             <div className="flex items-center justify-between">
               <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-900">
-                Proposed Utilization Factors (FR-05 / FR-09)
+                Proposed Utilization Factors (Suggested / Effective)
               </div>
               {(areaMetrics.isProposedPaidFsiEdited || areaMetrics.isProposedTdrEdited) && canEdit && (
                 <button
@@ -537,7 +554,7 @@ export default function AreaStatementForm({
                   className="text-[10px] font-semibold text-emerald-800 hover:text-emerald-950 flex items-center gap-1 underline"
                 >
                   <RotateCcw className="w-3 h-3" />
-                  Reset to Auto-Suggested
+                  Reset to Calculated
                 </button>
               )}
             </div>
@@ -546,7 +563,7 @@ export default function AreaStatementForm({
                 <label className="block text-[10px] font-semibold text-slate-700 mb-0.5">
                   Proposed Paid FSI{' '}
                   <span className="text-[9px] text-slate-500">
-                    ({areaMetrics.isProposedPaidFsiEdited ? 'Edited' : `Auto ${Number(areaMetrics.suggestedPaidFsiFactor ?? 0).toFixed(3)}`})
+                    ({areaMetrics.isProposedPaidFsiEdited ? `Edited · Sug ${Number(areaMetrics.suggestedPaidFsiFactor ?? 0).toFixed(3)}` : `Suggested ${Number(areaMetrics.suggestedPaidFsiFactor ?? 0).toFixed(3)}`})
                   </span>
                 </label>
                 <PlainDecimalInput
@@ -566,7 +583,7 @@ export default function AreaStatementForm({
                 <label className="block text-[10px] font-semibold text-slate-700 mb-0.5">
                   Prop. Regular TDR{' '}
                   <span className="text-[9px] text-slate-500">
-                    ({isGunthewari ? 'Locked 0' : `Auto ${Number(areaMetrics.suggestedRegularTdrFactor ?? 0).toFixed(3)}`})
+                    ({isGunthewari ? 'Elig. Locked 0' : `Sug ${Number(areaMetrics.suggestedRegularTdrFactor ?? 0).toFixed(3)}`})
                   </span>
                 </label>
                 <PlainDecimalInput
@@ -588,7 +605,7 @@ export default function AreaStatementForm({
                 <label className="block text-[10px] font-semibold text-slate-700 mb-0.5">
                   Prop. Slum TDR{' '}
                   <span className="text-[9px] text-slate-500">
-                    (Auto {Number(areaMetrics.suggestedSlumTdrFactor ?? 0).toFixed(3)})
+                    ({areaMetrics.isProposedTdrEdited ? `Edited · Sug ${Number(areaMetrics.suggestedSlumTdrFactor ?? 0).toFixed(3)}` : `Sug ${Number(areaMetrics.suggestedSlumTdrFactor ?? 0).toFixed(3)}`})
                   </span>
                 </label>
                 <PlainDecimalInput
@@ -604,6 +621,14 @@ export default function AreaStatementForm({
                   onChangeValue={(v) => onUpdateStatement({ proposed_slum_tdr_factor: v })}
                 />
               </div>
+            </div>
+            <div className="text-[10px] font-mono text-emerald-900 pt-1 border-t border-emerald-200 flex flex-wrap justify-between gap-2">
+              <span>
+                Remaining Eligible: Paid FSI <strong>{formatNum(areaMetrics.remainingPaidFsiFactor, 3)}</strong>
+                {' · '}Reg TDR <strong>{formatNum(areaMetrics.remainingRegularTdrFactor, 3)}</strong>
+                {' · '}Slum TDR <strong>{formatNum(areaMetrics.remainingSlumTdrFactor, 3)}</strong>
+              </span>
+              <span>Total Rem TDR: <strong>{formatNum(areaMetrics.remainingTdrFactor, 3)}</strong></span>
             </div>
           </div>
         </div>
@@ -692,7 +717,7 @@ export default function AreaStatementForm({
                 <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">C</td>
                 <td className="py-1.5 px-3 font-sans border-r border-slate-200">Paid FSI</td>
                 <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">
-                  {areaMetrics.isProposedPaidFsiEdited ? 'Architect edited utilization' : 'Auto-suggested utilization'}
+                  {areaMetrics.isProposedPaidFsiEdited ? 'Architect edited' : 'Suggested'} (Rem: {formatNum(areaMetrics.remainingPaidFsiFactor, 3)})
                 </td>
                 <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(statement.paid_fsi_factor ?? 0.5, 3)}</td>
                 <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.permissiblePaidFsiSqm, unitDisplay, 3)}</td>
@@ -703,9 +728,11 @@ export default function AreaStatementForm({
                 <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">D1</td>
                 <td className="py-1.5 px-3 font-sans border-r border-slate-200">Regular TDR</td>
                 <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">
-                  {areaMetrics.isGunthewari ? 'Ineligible (Gunthewari = 0)' : 'Regular TDR component'}
+                  {areaMetrics.isGunthewari
+                    ? `Ineligible (Gunthewari = 0; Road Reg ${formatNum(areaMetrics.regularTdrFactor, 3)})`
+                    : `Regular TDR (Rem: ${formatNum(areaMetrics.remainingRegularTdrFactor, 3)})`}
                 </td>
-                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(areaMetrics.regularTdrFactor, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(areaMetrics.eligibleRegularTdrFactor ?? areaMetrics.regularTdrFactor, 3)}</td>
                 <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.permissibleRegularTdrSqm, unitDisplay, 3)}</td>
                 <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.regularTdrSqm, unitDisplay, 3)}</td>
                 <td className="py-1.5 px-3 text-right">{formatNum(areaMetrics.effectiveProposedRegularTdrFactor, 3)}</td>
@@ -714,18 +741,22 @@ export default function AreaStatementForm({
                 <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">D2</td>
                 <td className="py-1.5 px-3 font-sans border-r border-slate-200">Slum TDR</td>
                 <td className="py-1.5 px-3 font-sans text-slate-500 border-r border-slate-200">
-                  {areaMetrics.isGunthewari ? 'Gunthewari Slum TDR only' : 'Remaining TDR balance'}
+                  {areaMetrics.isGunthewari
+                    ? `Gunthewari Slum only (Rem: ${formatNum(areaMetrics.remainingSlumTdrFactor, 3)})`
+                    : `Remaining balance (Rem: ${formatNum(areaMetrics.remainingSlumTdrFactor, 3)})`}
                 </td>
-                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(areaMetrics.slumTdrFactor, 3)}</td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(areaMetrics.eligibleSlumTdrFactor ?? areaMetrics.slumTdrFactor, 3)}</td>
                 <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.permissibleSlumTdrSqm, unitDisplay, 3)}</td>
                 <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.slumTdrSqm, unitDisplay, 3)}</td>
                 <td className="py-1.5 px-3 text-right">{formatNum(areaMetrics.effectiveProposedSlumTdrFactor, 3)}</td>
               </tr>
               <tr className="bg-slate-50 font-semibold">
                 <td className="py-1.5 px-3 text-center font-sans border-r border-slate-200">D</td>
-                <td className="py-1.5 px-3 font-sans border-r border-slate-200">Total TDR (D1 + D2)</td>
-                <td className="py-1.5 px-3 font-sans text-slate-500 font-normal border-r border-slate-200">Road-width derived Total</td>
-                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(areaMetrics.totalTdrFactor, 3)}</td>
+                <td className="py-1.5 px-3 font-sans border-r border-slate-200">Total Eligible TDR (D1 + D2)</td>
+                <td className="py-1.5 px-3 font-sans text-slate-500 font-normal border-r border-slate-200">
+                  Road Total {formatNum(areaMetrics.totalTdrFactor, 3)}{areaMetrics.isGunthewari ? ' (Gunthewari = Slum 50% only)' : ''}
+                </td>
+                <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatNum(areaMetrics.eligibleTdrFactor ?? areaMetrics.totalTdrFactor, 3)}</td>
                 <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.permissibleTdrSqm, unitDisplay, 3)}</td>
                 <td className="py-1.5 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.proposedTdrSqm, unitDisplay, 3)}</td>
                 <td className="py-1.5 px-3 text-right">{formatNum(areaMetrics.totalProposedTdrFactor, 3)}</td>
@@ -883,8 +914,8 @@ export default function AreaStatementForm({
                 <th className="py-2 px-3 text-center border-r border-slate-200">2. Height (m)</th>
                 <th className="py-2 px-3 text-right border-r border-slate-200">3. P-Line Area ({unitShort})</th>
                 <th className="py-2 px-3 text-right border-r border-slate-200">4. Lobby Area ({unitShort})</th>
-                <th className="py-2 px-3 text-right border-r border-slate-200">5. Built-up for Owners ({unitShort})</th>
-                <th className="py-2 px-3 text-right">6. Built-up for Sale ({unitShort})</th>
+                <th className="py-2 px-3 text-right border-r border-slate-200">5. No. of Units</th>
+                <th className="py-2 px-3 text-right">6. Built-up for Sale (1 Unit) ({unitShort})</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 font-mono">
@@ -898,6 +929,11 @@ export default function AreaStatementForm({
                 floors.map((fl) => {
                   const ev = evalById.get(fl.id) || fl;
                   const isHabitable = fl.floor_type !== 'parking' && fl.floor_type !== 'terrace';
+                  const isHeightContrib =
+                    ev.contributes_to_height !== undefined
+                      ? Boolean(ev.contributes_to_height)
+                      : !(fl.floor_type === 'terrace' || fl.floor_subtype === 'basement' || /^basement/i.test(fl.floor_name || ''));
+                  const unitCountVal = Number(ev.no_of_units ?? fl.no_of_units ?? 0);
 
                   return (
                     <tr key={fl.id} className={isHabitable ? 'bg-white' : 'bg-slate-50/70 text-slate-500'}>
@@ -905,13 +941,23 @@ export default function AreaStatementForm({
                         {fl.floor_name}
                       </td>
                       <td className="py-1.5 px-3 text-center border-r border-slate-200">
-                        <PlainDecimalInput
-                          decimals={2}
-                          disabled={!canEdit}
-                          value={fl.height_meters ?? 0}
-                          className="w-20 px-1.5 py-0.5 text-center text-xs bg-white border border-slate-300 rounded font-mono disabled:bg-slate-100"
-                          onChangeValue={(v) => onUpdateFloor(fl.id, { height_meters: v })}
-                        />
+                        <div className="inline-flex items-center gap-1 justify-center">
+                          <PlainDecimalInput
+                            decimals={2}
+                            disabled={!canEdit}
+                            value={fl.height_meters ?? 0}
+                            className="w-20 px-1.5 py-0.5 text-center text-xs bg-white border border-slate-300 rounded font-mono disabled:bg-slate-100"
+                            onChangeValue={(v) => onUpdateFloor(fl.id, { height_meters: v })}
+                          />
+                          {!isHeightContrib && (
+                            <span
+                              title="Basements and roof terrace are excluded from building height H (Margin H/5)"
+                              className="text-[9px] font-sans px-1 py-0.5 rounded bg-slate-200 text-slate-600"
+                            >
+                              Excl. H
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-1.5 px-3 text-right border-r border-slate-200">
                         <div className="inline-flex items-center gap-1">
@@ -979,22 +1025,24 @@ export default function AreaStatementForm({
                       </td>
                       <td className="py-1.5 px-3 text-right border-r border-slate-200">
                         {isHabitable ? (
-                          <AreaUnitInput
-                            decimals={2}
+                          <PlainDecimalInput
+                            integerOnly
+                            decimals={0}
                             disabled={!canEdit}
-                            valueSqm={fl.builtup_for_owners_sqm ?? ev.builtup_for_owners_sqm ?? 0}
-                            unitDisplay={unitDisplay}
-                            className="w-24 px-1.5 py-0.5 text-right text-xs bg-white border border-slate-300 rounded font-mono disabled:bg-slate-100"
-                            onChangeSqm={(sqm) =>
-                              onUpdateFloor(fl.id, { builtup_for_owners_sqm: sqm })
-                            }
+                            value={fl.no_of_units ?? 0}
+                            className="w-20 px-1.5 py-0.5 text-right text-xs bg-white border border-slate-300 rounded font-mono disabled:bg-slate-100"
+                            onChangeValue={(v) => onUpdateFloor(fl.id, { no_of_units: v })}
                           />
                         ) : (
-                          <span className="text-slate-400">0.00</span>
+                          <span className="text-slate-400">—</span>
                         )}
                       </td>
                       <td className="py-1.5 px-3 text-right font-semibold text-slate-900">
-                        {formatArea(ev.builtup_for_sale_sqm, unitDisplay, 2)}
+                        {isHabitable && unitCountVal > 0 ? (
+                          formatArea(ev.area_for_1_unit_raw ?? ev.area_for_1_unit ?? 0, unitDisplay, 3)
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -1004,21 +1052,48 @@ export default function AreaStatementForm({
             <tfoot>
               <tr className="bg-slate-100 font-bold border-t-2 border-slate-400 font-mono text-slate-900">
                 <td className="py-2 px-3 font-sans border-r border-slate-200">TOTAL</td>
-                <td className="py-2 px-3 text-center border-r border-slate-200">{formatNum(areaMetrics.totalHeightMeters, 2)} m</td>
+                <td className="py-2 px-3 text-center border-r border-slate-200" title="Above-ground building height H excluding basements and roof terrace">
+                  {formatNum(areaMetrics.totalHeightMeters, 2)} m
+                </td>
                 <td className="py-2 px-3 text-right border-r border-slate-200 text-emerald-900">{formatArea(areaMetrics.totalProposedPlineSqm, unitDisplay, 2)}</td>
                 <td className="py-2 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.totalLobbyAreaSqm, unitDisplay, 2)}</td>
-                <td className="py-2 px-3 text-right border-r border-slate-200">{formatArea(areaMetrics.totalBuiltupForOwnersSqm, unitDisplay, 2)}</td>
-                <td className="py-2 px-3 text-right">{formatArea(areaMetrics.totalBuiltupForSaleSqm, unitDisplay, 2)}</td>
+                <td className="py-2 px-3 text-right border-r border-slate-200">{areaMetrics.totalUnitsCount ?? 0}</td>
+                <td
+                  className="py-2 px-3 text-right"
+                  title="Weighted Average Area per Unit = Total Saleable Area (P-Line − Lobby) / Total Units"
+                >
+                  {(areaMetrics.totalUnitsCount || 0) > 0
+                    ? `Avg: ${formatArea(areaMetrics.weightedAverageAreaPerUnitRaw ?? areaMetrics.weightedAverageAreaPerUnitSqm, unitDisplay, 3)}`
+                    : '—'}
+                </td>
+              </tr>
+              <tr className="bg-emerald-50/60 border-t border-slate-200 text-[11px]">
+                <td colSpan={2} className="py-1.5 px-3 font-semibold text-slate-700 border-r border-slate-200">
+                  Total Saleable Area (P-Line − Lobby)
+                </td>
+                <td className="py-1.5 px-3 text-right font-mono font-bold text-emerald-900 border-r border-slate-200">
+                  {formatArea(areaMetrics.totalBuiltupForSaleSqm, unitDisplay, 3)}
+                </td>
+                <td colSpan={3} className="py-1.5 px-3 text-slate-600">
+                  Col 6 TOTAL shows <strong className="text-slate-800">Weighted Average Area / Unit</strong> (Total Saleable ÷ Total Units)
+                </td>
               </tr>
               <tr className="bg-slate-50 border-t border-slate-200 text-[11px]">
                 <td colSpan={2} className="py-1.5 px-3 font-semibold text-slate-700 border-r border-slate-200">
                   Area Balance (Permissible H − Proposed Floor Sum)
                 </td>
-                <td className="py-1.5 px-3 text-right font-mono font-bold text-slate-900 border-r border-slate-200">
-                  {formatArea(areaMetrics.areaBalanceSqm, unitDisplay, 2)}
+                <td className="py-1.5 px-3 text-right font-mono font-bold border-r border-slate-200">
+                  <span className={areaMetrics.isAreaBalanceWithinTolerance === false ? 'text-amber-700' : 'text-slate-900'}>
+                    {formatArea(areaMetrics.areaBalanceSqm, unitDisplay, 3)}
+                  </span>
+                  {areaMetrics.isAreaBalanceWithinTolerance !== false && Math.abs(Number(areaMetrics.areaBalanceSqm || 0)) > 0.0001 && (
+                    <span className="ml-1.5 text-[10px] font-sans font-normal text-emerald-700">
+                      (±{AREA_BALANCE_ROUNDING_TOLERANCE_SQM} tol.)
+                    </span>
+                  )}
                 </td>
                 <td colSpan={3} className="py-1.5 px-3 font-semibold text-slate-700">
-                  Margin Required (Total Height H / 5):{' '}
+                  Margin Required (Building Height H / 5, excl. Basement &amp; Terrace):{' '}
                   <span className="font-mono font-bold text-slate-900">{formatNum(areaMetrics.marginHBy5Meters, 2)} m</span>
                 </td>
               </tr>

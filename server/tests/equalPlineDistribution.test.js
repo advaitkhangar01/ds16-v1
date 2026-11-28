@@ -137,10 +137,13 @@ describe('Full Area Metrics Calculation with Floor-Wise Columns', () => {
   const statement = {
     plot_area_sqm: 440.00,
     dp_deductions_sqm: 0,
-    road_width_m: 12, // regular 0.65, slum 0.325 -> total 0.975
+    road_width_m: 12,
     basic_fsi_factor: 1.1,
     paid_fsi_factor: 0.5,
+    proposed_paid_fsi_factor: 0.5,
     tdr_factor: 0.65,
+    proposed_regular_tdr_factor: 0.325,
+    proposed_slum_tdr_factor: 0.325,
     building_use: 'Residential',
     ancillary_residential_pct: 0.60
   };
@@ -259,13 +262,16 @@ describe('Full Area Metrics Calculation with Floor-Wise Columns', () => {
 });
 
 describe('Pure Commercial & Mixed-Use Ancillary Area Integration', () => {
-  test('Pure Commercial project applies 80% ancillary and produces 10 mandatory columns', () => {
+  test('Pure Commercial project applies 80% ancillary and produces approved floor-wise columns', () => {
     const commercialStatement = {
       plot_area_sqm: 500.00,
       dp_deductions_sqm: 0,
-      road_width_m: 12, // regular 0.65, slum 0.325 -> total 0.975
+      road_width_m: 12, // total 0.65 (Reg 0.325, Slum 0.325)
       basic_fsi_factor: 1.1,
       paid_fsi_factor: 0.5,
+      proposed_paid_fsi_factor: 0.5,
+      proposed_regular_tdr_factor: 0.325,
+      proposed_slum_tdr_factor: 0.325,
       building_use: 'Commercial',
       ancillary_commercial_pct: 0.80
     };
@@ -320,9 +326,12 @@ describe('Pure Commercial & Mixed-Use Ancillary Area Integration', () => {
     const mixedStatement = {
       plot_area_sqm: 600.00,
       dp_deductions_sqm: 0,
-      road_width_m: 12, // regular 0.65, slum 0.325 -> total 0.975
+      road_width_m: 12,
       basic_fsi_factor: 1.1,
       paid_fsi_factor: 0.5,
+      proposed_paid_fsi_factor: 0.5,
+      proposed_regular_tdr_factor: 0.325,
+      proposed_slum_tdr_factor: 0.325,
       building_use: 'Mixed Use'
     };
 
@@ -384,6 +393,9 @@ describe('Pure Commercial & Mixed-Use Ancillary Area Integration', () => {
       road_width_m: 12,
       basic_fsi_factor: 1.1,
       paid_fsi_factor: 0.5,
+      proposed_paid_fsi_factor: 0.5,
+      proposed_regular_tdr_factor: 0.325,
+      proposed_slum_tdr_factor: 0.325,
       building_use: 'Mixed Use'
     };
 

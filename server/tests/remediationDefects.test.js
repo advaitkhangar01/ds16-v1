@@ -118,8 +118,11 @@ describe('Remediation Verification Suite — 7 Audit Findings', () => {
         road_width_m: 12,
         basic_fsi_factor: 1.1,
         paid_fsi_factor: 0.5,
+        proposed_paid_fsi_factor: 0.5,
         regular_tdr_factor: 0.325,
         slum_tdr_factor: 0.325,
+        proposed_regular_tdr_factor: 0.325,
+        proposed_slum_tdr_factor: 0.325,
         building_use: 'RESIDENTIAL'
       };
       const floors = [

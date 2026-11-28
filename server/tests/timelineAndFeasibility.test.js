@@ -707,6 +707,7 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
         dp_deductions_sqm: 0,
         basic_fsi_factor: 1.1,
         paid_fsi_factor: 0.5,
+        proposed_paid_fsi_factor: 0.5,
         tdr_factor: 0.65,
         proposed_tdr_factor: 0.545,
         ancillary_residential_pct: 0.60,
@@ -922,8 +923,11 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
         dp_deductions_sqm: 0,
         basic_fsi_factor: 1.1,
         paid_fsi_factor: 0.5,
+        proposed_paid_fsi_factor: 0.5,
         regular_tdr_factor: 0.40,
         slum_tdr_factor: 0.20,
+        proposed_regular_tdr_factor: 0.40,
+        proposed_slum_tdr_factor: 0.20,
         ancillary_residential_pct: 0.60
       };
       const metrics = calculateAreaMetrics(stmt, []);
@@ -990,8 +994,8 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       expect(mNeg.evaluatedFloors[0].area_for_1_unit).toBe(0); // Negative protected
     });
 
-    it('REQ-K & FR-08: enforces Gunthewari Slum-only TDR & 5-tier Regular matrix, rejecting invalid widths with 400', async () => {
-      // Valid width 12m with Gunthewari (FR-08: Slum TDR = 0.325 only, Regular TDR = 0)
+    it('REQ-K & FR-08: enforces Gunthewari Slum-only TDR & 5-tier Regular matrix, preserving underlying split', async () => {
+      // Valid width 12m with Gunthewari (preserves underlying 50/50 split 0.325/0.325 while eligibility = Slum 0.325 only, Regular elig = 0)
       const validRes = await request(app)
         .put(`/api/projects/${testProject.id}/feasibility/area`)
         .set('Authorization', `Bearer ${testUsers.admin.token}`)
@@ -1003,9 +1007,12 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
       expect(validRes.status).toBe(200);
       expect(parseFloat(validRes.body.statement.road_width_m)).toBe(12);
       expect(validRes.body.statement.is_gunthewari).toBe(true);
-      expect(parseFloat(validRes.body.statement.regular_tdr_factor)).toBe(0);
+      expect(parseFloat(validRes.body.statement.total_tdr_factor)).toBe(0.65);
+      expect(parseFloat(validRes.body.statement.regular_tdr_factor)).toBe(0.325);
       expect(parseFloat(validRes.body.statement.slum_tdr_factor)).toBe(0.325);
-      expect(parseFloat(validRes.body.statement.total_tdr_factor)).toBe(0.325);
+      expect(validRes.body.areaMetrics.eligibleRegularTdrFactor).toBe(0);
+      expect(validRes.body.areaMetrics.eligibleSlumTdrFactor).toBe(0.325);
+      expect(validRes.body.areaMetrics.eligibleTdrFactor).toBe(0.325);
 
       // Valid width 24m without Gunthewari (Regular: Total 1.10 split 50/50 -> 0.55 + 0.55)
       const valid24 = await request(app)
@@ -1120,7 +1127,8 @@ describe('Project Timeline & Area & Financial Feasibility Module Tests', () => {
         {
           floor_name: 'Ground Floor',
           pline_area_sqm: 100,
-          builtup_for_sale_sqm: 80,
+          lobby_area_sqm: 20,
+          is_lobby_overridden: true,
           no_of_units: 2
         }
       ];
